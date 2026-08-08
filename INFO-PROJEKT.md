@@ -150,7 +150,7 @@
 7. Wydajność przy 300+ wrogach: InstancedMesh + atlas zamiast materiału/klatkę
    (na razie 220 mesh'y trzyma 60 fps w podglądzie).
 8. Test dotyku na telefonie; potem Capacitor (mobile) / Electron lub Steam webview.
-9. Git init + repo prywatne (jak przy Rudeuszu) — **jeszcze nie zrobione**.
+9. ~~Git init~~ ✅ ZROBIONE 8.08: https://github.com/PixelPetrol/horda3d (PRYWATNE, main). Commit+push po każdej porcji zmian!
 
 ## Pliki
 - `index.html` — HUD, overlaye (start/karty/koniec), joystick, CSS.
