@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>HORDA 3D — prototyp</title>
+<style>
+  html,body{margin:0;padding:0;overflow:hidden;background:#0e1420;height:100%;touch-action:none;
+    font-family:-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-user-select:none;user-select:none}
+  #c{display:block;width:100vw;height:100vh}
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;inset:0;pointer-events:none;color:#fff;z-index:5}
+  #xpwrap{position:absolute;top:0;left:0;right:0;height:18px;background:rgba(0,0,0,.55)}
+  #xpbar{height:100%;width:0%;background:linear-gradient(90deg,#7ee787,#3fb950);transition:width .15s}
+  #lvl{position:absolute;top:22px;left:10px;font-weight:800;font-size:15px;text-shadow:0 2px 4px #000}
+  #timer{position:absolute;top:26px;left:50%;transform:translateX(-50%);font-weight:800;font-size:22px;text-shadow:0 2px 4px #000}
+  #kills{position:absolute;top:22px;right:12px;font-weight:800;font-size:15px;text-shadow:0 2px 4px #000}
+  #coins{position:absolute;top:44px;right:12px;font-weight:800;font-size:15px;color:#ffd75e;text-shadow:0 2px 4px #000}
+  #hearts{position:absolute;top:48px;left:50%;transform:translateX(-50%);font-size:18px;letter-spacing:2px;text-shadow:0 2px 4px #000}
+  #buff{position:absolute;top:76px;left:50%;transform:translateX(-50%);font-weight:800;font-size:15px;color:#7ee7ff;
+      text-shadow:0 2px 6px #000;opacity:0;transition:opacity .3s;white-space:nowrap}
+  #wpns{position:absolute;left:10px;bottom:12px;display:flex;gap:6px;font-size:22px}
+  #wpns .wp{background:rgba(0,0,0,.45);border:1px solid #ffffff30;border-radius:10px;padding:4px 8px}
+  #wpns .wp b{font-size:12px;vertical-align:sub;color:#ffd75e}
+  #wpns .wp.evo{border-color:#ffd75e;box-shadow:0 0 10px rgba(255,215,94,.5)}
+  #wpns .wp.empty{opacity:.4;letter-spacing:4px}
+  #vign{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;background:radial-gradient(ellipse at center,transparent 55%,rgba(255,0,0,.55) 100%);transition:opacity .1s}
+  /* ---------- overlaye ---------- */
+  .ov{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+      background:rgba(8,12,20,.82);backdrop-filter:blur(4px);z-index:10;color:#fff;text-align:center;padding:16px}
+  .ov h1{font-size:min(9vw,46px);margin:0 0 6px;letter-spacing:1px}
+  .ov h1 .g{background:linear-gradient(90deg,#ffd75e,#ff9d3f);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .ov p{opacity:.85;max-width:520px;line-height:1.45;margin:6px 0}
+  .bigbtn{pointer-events:auto;cursor:pointer;margin-top:18px;padding:14px 42px;font-size:20px;font-weight:800;color:#1a1205;
+      background:linear-gradient(180deg,#ffd75e,#f5a623);border:0;border-radius:14px;box-shadow:0 6px 0 #9a6a12,0 10px 24px rgba(0,0,0,.5)}
+  .bigbtn:active{transform:translateY(4px);box-shadow:0 2px 0 #9a6a12}
+  #cardsOv{display:none}
+  #cardsOv h2{margin:0 0 14px;font-size:26px;text-shadow:0 2px 6px #000}
+  #cards{display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
+  .card{pointer-events:auto;cursor:pointer;width:170px;padding:18px 14px;border-radius:16px;border:2px solid #ffffff22;
+      background:linear-gradient(180deg,#232c40,#171d2c);box-shadow:0 8px 24px rgba(0,0,0,.5);transition:transform .12s,border-color .12s}
+  .card:hover{transform:translateY(-6px) scale(1.04);border-color:#ffd75e}
+  .card.gold{border-color:#ffd75e;background:linear-gradient(180deg,#4a3a14,#2a2008);
+      box-shadow:0 0 24px rgba(255,215,94,.45),0 8px 24px rgba(0,0,0,.5)}
+  .card.gold .nm{color:#ffe9a0}
+  .card .ico{font-size:44px;line-height:1}
+  .card .nm{font-weight:800;font-size:16px;margin:10px 0 6px;color:#ffd75e}
+  .card .ds{font-size:13px;opacity:.8;line-height:1.35}
+  #overOv{display:none}
+  #shopOv{display:none}
+  #ctrl{font-size:13px;opacity:.6;margin-top:14px}
+  .btn2{pointer-events:auto;cursor:pointer;margin-top:12px;padding:10px 26px;font-size:16px;font-weight:700;color:#fff;
+      background:#2b3550;border:2px solid #ffffff33;border-radius:12px}
+  .btn2:hover{border-color:#ffd75e}
+  #shopItems{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;max-width:760px}
+  .shopIt{pointer-events:auto;cursor:pointer;width:160px;padding:14px 12px;border-radius:14px;border:2px solid #ffffff22;
+      background:linear-gradient(180deg,#232c40,#171d2c)}
+  .shopIt:hover{border-color:#ffd75e}
+  .shopIt.max{opacity:.45;cursor:default}
+  .shopIt .ico{font-size:36px}
+  .shopIt .nm{font-weight:800;font-size:14px;margin:8px 0 4px;color:#ffd75e}
+  .shopIt .ds{font-size:12px;opacity:.8;line-height:1.3}
+  .shopIt .pr{margin-top:8px;font-weight:800;font-size:14px}
+  /* joystick mobilny */
+  #stick{position:fixed;z-index:7;width:110px;height:110px;border-radius:50%;background:rgba(255,255,255,.08);
+      border:2px solid rgba(255,255,255,.25);display:none;pointer-events:none}
+  #knob{position:absolute;left:50%;top:50%;width:48px;height:48px;border-radius:50%;
+      background:rgba(255,255,255,.35);transform:translate(-50%,-50%)}
+  #jbtn{position:fixed;right:18px;bottom:24px;z-index:7;width:74px;height:74px;border-radius:50%;
+      background:rgba(255,255,255,.14);border:2px solid rgba(255,255,255,.35);color:#fff;
+      font-size:34px;display:none;align-items:center;justify-content:center;pointer-events:auto;
+      -webkit-tap-highlight-color:transparent}
+  @media (pointer:coarse){ #jbtn{display:flex} }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div id="xpwrap"><div id="xpbar"></div></div>
+  <div id="lvl">POZIOM 1</div>
+  <div id="timer">0:00</div>
+  <div id="kills">💀 0</div>
+  <div id="coins">🪙 0</div>
+  <div id="hearts">❤️❤️❤️❤️❤️</div>
+  <div id="buff"></div>
+  <div id="wpns"></div>
+</div>
+<div id="vign"></div>
+<div id="stick"><div id="knob"></div></div>
+<div id="jbtn">🦘</div>
+
+<div id="startOv" class="ov">
+  <h1>HORDA <span class="g">3D</span></h1>
+  <p>Prototyp survivors-like. Przetrwaj jak najdłużej — postać strzela <b>sama</b>,
+     Ty tylko biegasz, zbierasz 🦴 i wybierasz ulepszenia.</p>
+  <button class="bigbtn" id="btnStart">▶ GRAJ</button>
+  <button class="btn2" id="btnShop">🛒 SKLEP <span id="shopCoins"></span></button>
+  <p id="ctrl">Sterowanie: <b>WASD</b> ruch · <b>SPACJA</b> skok · <b>Q/E lub mysz</b> obrót kamery<br>
+     telefon: lewa połowa = joystick, prawa = obrót kamery, 🦘 = skok</p>
+</div>
+
+<div id="shopOv" class="ov">
+  <h2>🛒 SKLEP — ulepszenia na stałe</h2>
+  <p>Monety 🪙 zbierasz w biegach — zostają po śmierci.</p>
+  <div id="shopItems"></div>
+  <button class="btn2" id="btnShopBack">← Wróć</button>
+</div>
+
+<div id="cardsOv" class="ov">
+  <h2>⬆️ AWANS! Wybierz ulepszenie</h2>
+  <div id="cards"></div>
+</div>
+
+<div id="swapOv" class="ov" style="display:none">
+  <h2 id="swapTitle">🔄 WYMIENNIK!</h2>
+  <div id="swapList" style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center"></div>
+</div>
+
+<div id="overOv" class="ov">
+  <h1>💀 KONIEC</h1>
+  <p id="overStats"></p>
+  <button class="bigbtn" id="btnRetry">↻ JESZCZE RAZ</button>
+  <button class="btn2" id="btnShop2">🛒 SKLEP <span id="shopCoins2"></span></button>
+</div>
+
+<script type="module" src="main.js?v=11"></script>
+</body>
+</html>
