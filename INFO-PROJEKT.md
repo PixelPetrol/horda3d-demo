@@ -298,6 +298,26 @@ przyciemnia spód korony. Pnie pogrubione (skala 1.9-2.6) i skrócone.
 Do wykorzystania przy rekwizytach/budynkach. Uwaga: GLTF wymaga dociągnięcia
 `GLTFLoader.js` z examples/jsm + importmap — nie ma go w naszym lokalnym three.module.js.
 
+## BESTIARIUSZ / ENCYKLOPEDIA (10.08) — zweryfikowany w przeglądarce
+- Nowa zakładka **Bestiariusz** w menu (`#tabs` → panel `#p-bestia`, siatka `#bestGrid`,
+  licznik odkryć `#bestProg`). Renderer: `renderBestiary()` — wołany przy starcie,
+  przy kliknięciu zakładki, po wyjściu z biegu i po ekranie końca.
+- Wpisy generowane z `ENEMY_TYPES` — nazwa (`nm`) i żartobliwy opis (`ds`) siedzą
+  **w samym rejestrze wroga**, więc nowy typ wroga = automatycznie nowy wpis.
+  Obecnie: Dresiarz Adidasini, Żul Monopolowy, Węgielek Brunatnini, Dzik Osiedlowy,
+  Doktor Wściekliniusz.
+- **Licznik zabitych per typ**: `META.bestiary[typ]` (localStorage `horda3d_meta_v1`).
+  `loadMeta()` domyśla pusty obiekt, więc **stare zapisy bez tego pola działają**
+  (zweryfikowane: stary JSON → 0/5, nic się nie sypie).
+- Zapis: pierwsze zabicie typu = `saveMeta()` od razu; kolejne przez **`saveMetaSoon()`**
+  (debounce 2 s) — bez tego localStorage byłby zapisywany kilkaset razy na minutę.
+- Zablokowany wpis: `.tile.bst.dark` → portret przez `filter:brightness(0)` (widać samą
+  sylwetkę), nazwa/opis/statystyki jako „???".
+- Pierwsze zabicie = `toastBuff('NOWY WPIS W ENCYKLOPEDII: <nazwa>')` (w `killEnemy`).
+- Kafelki w stylu `.tile`, portrety z `portret()`, ikony z `icons.js` — zero emoji.
+- Zmierzone: świeży zapis → bieg → śmierć → menu = licznik i odblokowanie zgadzają się
+  po przeładowaniu strony; konsola czysta (`window.__err` puste).
+
 ## ZESPÓŁ AGENTÓW (`.claude/agents/`) — utworzony 10.08
 `grafik-3d` (shadery/foliage/stylizacja), `projektant-gry` (balans, bronie, dopamina),
 `optymalizator` (fps, instancing, telefon), `tester-gry` (scenariusze w przeglądarce,
@@ -308,7 +328,7 @@ zna pułapkę `HORDA.step` i stanów `running/paused`). Wołaj ich narzędziem A
 2. **WODA** — teraz płaska niebieska płyta; plan: falująca siatka (animacja
    wierzchołków w shaderze), dwa odcienie głębi, piana przy brzegu.
 3. **KWIATKI w trawie** + warianty źdźbeł (druga geometria losowana per instancja).
-4. **Encyklopedia/bestiariusz** — opis wroga odblokowywany po 1. zabiciu.
+4. ~~Encyklopedia/bestiariusz~~ ✅ 10.08 (zakładka Bestiariusz, wpis po 1. zabiciu).
 5. Dalej: gradient nieba, miękkie cienie pod obiektami, toon-shading terenu.
 
 ## Monetyzacja (decyzja usera 8.08)
