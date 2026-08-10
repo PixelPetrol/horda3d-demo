@@ -1,6 +1,6 @@
 // HORDA 3D v4 — teren 3D + kamera za plecami + meta-progresja (monety/sklep)
 import * as THREE from './lib/three.module.js';
-import { SPRITEDATA } from './spritedata.js?v=4';
+import { SPRITEDATA } from './spritedata.js?v=5';
 import { icon, ico } from './icons.js?v=1';
 import { AUDIO } from './audio.js?v=1';            // muzyka wg fazy gry + kwestie głosowe
 
