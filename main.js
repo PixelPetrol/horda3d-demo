@@ -131,10 +131,32 @@ scene.fog = new THREE.Fog(0x9cc8ec, 80, 190);
 
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 400);
 
-scene.add(new THREE.HemisphereLight(0xd8ecff, 0x3e6b2f, 1.0));
-const sun = new THREE.DirectionalLight(0xfff2d0, 1.25);
+scene.add(new THREE.HemisphereLight(0xd8ecff, 0x3e6b2f, 0.85));
+const sun = new THREE.DirectionalLight(0xfff2d0, 1.35);
 sun.position.set(45, 70, 25);
 scene.add(sun);
+scene.add(sun.target);
+
+// ---- PRAWDZIWE CIENIE (shadow map słońca, ramka podąża za graczem) ----
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.bias = -0.0014;
+sun.shadow.normalBias = 0.03;
+{
+  const d = 42;                                    // obszar objęty cieniami wokół gracza
+  const sc = sun.shadow.camera;
+  sc.left = -d; sc.right = d; sc.top = d; sc.bottom = -d;
+  sc.near = 1; sc.far = 220;
+  sc.updateProjectionMatrix();
+}
+const SUN_OFF = new THREE.Vector3(38, 60, 26);     // kierunek padania promieni
+function updateSun(x, z) {
+  sun.position.set(x + SUN_OFF.x, SUN_OFF.y, z + SUN_OFF.z);
+  sun.target.position.set(x, 0, z);
+  sun.target.updateMatrixWorld();
+}
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
@@ -292,29 +314,39 @@ function cloudShadowTexture() {
   const c = document.createElement('canvas'); c.width = c.height = S;
   const g = c.getContext('2d');
   g.fillStyle = '#fff'; g.fillRect(0, 0, S, S);
-  for (let i = 0; i < 22; i++) {                      // miękkie plamy cienia
-    const x = Math.random() * S, y = Math.random() * S, r = 18 + Math.random() * 46;
+  for (let i = 0; i < 46; i++) {                      // nieregularne plamy cienia
+    const x = Math.random() * S, y = Math.random() * S, r = 9 + Math.random() * 22;
     const gr = g.createRadialGradient(x, y, r * 0.15, x, y, r);
-    gr.addColorStop(0, 'rgba(0,0,0,0.55)');
+    gr.addColorStop(0, 'rgba(0,0,0,0.95)');
+    gr.addColorStop(0.6, 'rgba(0,0,0,0.7)');
     gr.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = gr;
     g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
     if (x < r || x > S - r || y < r || y > S - r) {   // powielenie dla bezszwowości
       for (const [dx, dy] of [[S, 0], [-S, 0], [0, S], [0, -S]]) {
         const g2 = g.createRadialGradient(x + dx, y + dy, r * 0.15, x + dx, y + dy, r);
-        g2.addColorStop(0, 'rgba(0,0,0,0.55)'); g2.addColorStop(1, 'rgba(0,0,0,0)');
+        g2.addColorStop(0, 'rgba(0,0,0,0.95)'); g2.addColorStop(0.6, 'rgba(0,0,0,0.7)'); g2.addColorStop(1, 'rgba(0,0,0,0)');
         g.fillStyle = g2;
         g.beginPath(); g.arc(x + dx, y + dy, r, 0, 7); g.fill();
       }
     }
   }
+  // OSTRE, NIEREGULARNE krawędzie: kontrast na gotowych plamach zamiast miękkich gradientów
+  const px = g.getImageData(0, 0, S, S);
+  for (let i = 0; i < px.data.length; i += 4) {
+    const v = px.data[i] / 255;
+    const ostre = Math.max(0, Math.min(1, (v - 0.52) * 4.5 + 0.5));
+    const b = ostre * 255;
+    px.data[i] = px.data[i + 1] = px.data[i + 2] = b;
+  }
+  g.putImageData(px, 0, 0);
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   return t;
 }
 const cloudShadowU = { value: null };
 const cloudOffU = { value: new THREE.Vector2() };
-const CLOUD_SCALE = 0.0075, CLOUD_SPD = 0.9;          // skala plam i prędkość dryfu
+const CLOUD_SCALE = 0.019, CLOUD_SPD = 2.4;          // skala plam i prędkość dryfu
 
 // wpina cienie chmur do dowolnego materiału (po pozycji w świecie)
 function addCloudShadow(mat) {
@@ -329,7 +361,7 @@ function addCloudShadow(mat) {
       sh.fragmentShader.replace('#include <dithering_fragment>',
       `#include <dithering_fragment>
        float cs = texture2D(uCloud, vWPos.xz * ${CLOUD_SCALE.toFixed(5)} + uCloudOff).r;
-       gl_FragColor.rgb *= mix(0.62, 1.0, cs);`);
+       gl_FragColor.rgb *= mix(0.48, 1.06, cs);`);
   };
   mat.needsUpdate = true;
   return mat;
@@ -443,6 +475,7 @@ function makeTree(x, z, rng, out, karty) {
   const grubosc = 1.9 + rng() * 0.7;
   tr.scale.set(grubosc, h * (iglaste ? 0.5 : 0.42), grubosc);
   tr.position.set(x, g0, z);
+  tr.castShadow = true; tr.receiveShadow = true;
   scene.add(tr); out.push(tr);
 
   if (iglaste) {                                   // świerk: stożki (zostają bryłami)
@@ -452,9 +485,16 @@ function makeTree(x, z, rng, out, karty) {
       c.scale.set(s, h * 0.55 - i * 0.28, s);
       c.position.set(x, g0 + h * 0.32 + i * h * 0.28, z);
       c.rotation.y = rng() * 3;
+      c.castShadow = true;
       scene.add(c); out.push(c);
     }
   } else {
+    // cień korony na ziemi (karty liści są billboardami, więc shadow map ich nie obsłuży)
+    const cien = new THREE.Mesh(blobGeo, blobMat);
+    const promienCienia = 3.4 + rng() * 1.4;
+    cien.scale.set(promienCienia, 1, promienCienia * 0.9);
+    cien.position.set(x + 0.6, g0 + 0.05, z + 0.4);
+    scene.add(cien); out.push(cien);
     // KORONA: gęsto upakowane klastry liści (billboardy) — zbita, obfita bryła
     const mat = rng() < 0.10 ? 3 : Math.floor(rng() * 3);
     const ile = 18 + Math.floor(rng() * 10);
@@ -742,7 +782,8 @@ async function buildChar(name, anims) {
         t.magFilter = t.minFilter = THREE.NearestFilter;
         t.generateMipmaps = false;
         t.colorSpace = THREE.SRGBColorSpace;
-        mats.push(new THREE.MeshBasicMaterial({ map: t, alphaTest: 0.5, side: THREE.DoubleSide }));
+        // cienie chmur także na postaciach (ten sam kod shadera = jeden program w cache)
+        mats.push(addCloudShadow(new THREE.MeshBasicMaterial({ map: t, alphaTest: 0.5, side: THREE.DoubleSide })));
       }
       entry.dirs[dir] = mats;
     }
@@ -1412,15 +1453,18 @@ function popMat(str, color) {
   const key = color + '|' + str;
   let m = popCache.get(key);
   if (m) return m;
-  const c = document.createElement('canvas'); c.width = 160; c.height = 56;
+  const c = document.createElement('canvas'); c.width = 320; c.height = 112;   // 2× ostrzej
   const g = c.getContext('2d');
-  g.font = "700 30px 'Pixel', monospace";
+  // CZYTELNOŚĆ przed stylem: gruby bezszeryf zamiast pixelowego (Pixelify myli 5 z S)
+  g.font = '900 62px "Arial Black", Impact, Arial, sans-serif';
   g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.lineWidth = 7; g.strokeStyle = 'rgba(0,0,0,0.9)'; g.strokeText(str, 80, 28);
-  g.fillStyle = color; g.fillText(str, 80, 28);
+  g.lineJoin = 'round';
+  g.lineWidth = 16; g.strokeStyle = '#000'; g.strokeText(str, 160, 56);        // gruby kontur
+  g.lineWidth = 6; g.strokeStyle = 'rgba(0,0,0,0.85)'; g.strokeText(str, 160, 56);
+  g.fillStyle = color; g.fillText(str, 160, 56);
   const t = new THREE.CanvasTexture(c);
-  t.minFilter = THREE.LinearFilter; t.generateMipmaps = false;
-  m = new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, fog: false });
+  t.minFilter = t.magFilter = THREE.LinearFilter; t.generateMipmaps = false;
+  m = new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, depthTest: false, fog: false });
   popCache.set(key, m);
   return m;
 }
@@ -1883,6 +1927,7 @@ function buildChunk(cx, cz) {
   geo.setAttribute('normal', new THREE.BufferAttribute(norms, 3));
   const mesh = new THREE.Mesh(geo, MAPS[mapKey].indoor ? chunkMatIndoor : chunkMat);
   mesh.position.set(wx0, 0, wz0);
+  mesh.receiveShadow = true;
   scene.add(mesh);
   const rng = chunkRng(cx, cz);
   const deco = [], rocks = [], solids = [], spills = [], leaves = [];
@@ -2063,6 +2108,7 @@ function buildChunk(cx, cz) {
         m.scale.set(s * (1 + rng() * .5), s * (0.55 + rng() * .3), s);
         m.position.set(x, terrainH(x, z) + s * 0.2, z);
         m.rotation.y = rng() * 7;
+        m.castShadow = true; m.receiveShadow = true;
         scene.add(m);
         rocks.push(m);
         // niski głaz — do przeskoczenia!
@@ -2394,6 +2440,7 @@ function update(dt) {
   solveSolids(P.pos, 0.4, P.y);          // regały/pnie/głazy odpychają
   const pTy = terrainH(P.pos.x, P.pos.z);
   ensureChunks();
+  updateSun(P.pos.x, P.pos.z);
   updateGrassField();
   water.position.set(P.pos.x, WATER_Y, P.pos.z);
 
