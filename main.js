@@ -1058,9 +1058,9 @@ const WEAPONS = {
       for (const { e } of targets) {
         const dir = e.pos.clone().sub(P.pos).setY(0).normalize();
         const m = new THREE.Mesh(shotGeo, shotMat);
-        m.position.set(P.pos.x, terrainH(P.pos.x, P.pos.z) + 1.0, P.pos.z);
+        m.position.set(P.pos.x, P.y + 1.0, P.pos.z);      // z POSTACI (też gdy stoi na regale)
         scene.add(m);
-        G.shots.push({ mesh: m, dir, life: 1.3, pierce, hit: new Set() });
+        G.shots.push({ mesh: m, dir, life: 1.3, pierce, hit: new Set(), y: P.y + 1.0 });
       }
     },
   },
@@ -1473,11 +1473,11 @@ function buildChunk(cx, cz) {
 
   if (MAPS[mapKey].indoor) {
     // ======== MARKET: rozlana woda (ŚLISKO!) ========
-    const nPlam = rng() < 0.55 ? 1 + Math.floor(rng() * 2) : 0;
+    const nPlam = rng() < 0.75 ? 1 + Math.floor(rng() * 3) : 0;
     for (let i = 0; i < nPlam; i++) {
       const x = wx0 + (rng() - 0.5) * CHUNK, z = wz0 + (rng() - 0.5) * CHUNK;
       if (Math.abs(x) < 7 && Math.abs(z) < 7) continue;
-      const r = 2.2 + rng() * 2.4;
+      const r = 4.0 + rng() * 4.5;
       const m = new THREE.Mesh(blobGeo, spillMat);
       m.scale.set(r * 2, 1, r * 2);
       m.position.set(x, terrainH(x, z) + 0.03, z);
@@ -1940,7 +1940,7 @@ function update(dt) {
   }
   // ŚLISKO na rozlanej wodzie (market): bezwładność zamiast sterowania 1:1
   const slip = !P.airborne && MAPS[mapKey].indoor && onSpill(P.pos.x, P.pos.z);
-  const grip = slip ? 1.2 : 18;                    // jak szybko prędkość goni wejście
+  const grip = slip ? 0.85 : 18;                    // jak szybko prędkość goni wejście
   P.vx += (wx * spd - P.vx) * Math.min(1, grip * dt);
   P.vz += (wz * spd - P.vz) * Math.min(1, grip * dt);
   P.pos.x += P.vx * dt;
@@ -2105,7 +2105,10 @@ function update(dt) {
   for (let i = G.shots.length - 1; i >= 0; i--) {
     const s = G.shots[i];
     s.mesh.position.addScaledVector(s.dir, 16 * dt);
-    s.mesh.position.y = terrainH(s.mesh.position.x, s.mesh.position.z) + 1.0;
+    // leci na wysokości wystrzału, płynnie schodząc do poziomu terenu
+    const docel = terrainH(s.mesh.position.x, s.mesh.position.z) + 1.0;
+    s.y += (docel - s.y) * Math.min(1, 3 * dt);
+    s.mesh.position.y = s.y;
     s.life -= dt;
     let dead = s.life <= 0;
     if (!dead) for (let j = G.enemies.length - 1; j >= 0; j--) {
