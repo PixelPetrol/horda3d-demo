@@ -197,58 +197,154 @@ function grassTexture() {
 
 // -------- siatka terenu (pofalowana, cieniowana światłem) --------
 // tafla wody — jedna, podąża za graczem (mapa jest nieskończona)
-// WODA: falująca siatka + pas piany przy brzegu + dwa odcienie głębi
+// WODA (stylizowana, Genshin/BotW): pasy głębi + animowana piana przy brzegu
+// + fale w vertex shaderze + iskierki. Research: Roystan „Toon Water" (piana
+// z różnicy głębi + próg na szumie), Alisavakis „Stylized water" (3 pasy koloru,
+// linie piany z sin() biegnące do brzegu), Codrops R3F (bufor głębi za drogi →
+// liczymy głębię z terenu), forum three.js „Unlit water shader with foam".
+// U NAS nie ma depth-textury sceny — mamy za to `terrainH(x,z)` w JS, więc
+// wypiekamy MAPĘ GŁĘBI wokół gracza do DataTexture i czytamy ją PER PIKSEL
+// (siatka wierzchołków ma ~3 j. na segment — o wiele za mało na ostry brzeg).
 const waterCamU = { value: new THREE.Vector2() };
-const waterGeo = new THREE.PlaneGeometry(560, 560, 90, 90);
+const WD_RES = 144, WD_SIZE = 340;                 // rozdz. i zasięg mapy głębi (2.36 j./texel)
+const wdData = new Uint8Array(WD_RES * WD_RES);
+const waterDepthTex = new THREE.DataTexture(wdData, WD_RES, WD_RES, THREE.RedFormat);
+waterDepthTex.minFilter = waterDepthTex.magFilter = THREE.LinearFilter;
+waterDepthTex.wrapS = waterDepthTex.wrapT = THREE.ClampToEdgeWrapping;
+waterDepthTex.unpackAlignment = 1;
+waterDepthTex.needsUpdate = true;
+const waterDepthU = { value: waterDepthTex };
+const wdCenterU = { value: new THREE.Vector2(1e9, 1e9) };
+// bezszwowy szum (ten sam pnoise co chmury) — piana, iskierki, faktura pasów
+function waterNoiseTexture() {
+  const S = 128;
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d');
+  const img = g.createImageData(S, S);
+  const OKT = [[4, 0.52], [8, 0.28], [16, 0.20]];
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    let v = 0;
+    for (const [per, w] of OKT) v += pnoise(x / S * per, y / S * per, per) * w;
+    const b = Math.max(0, Math.min(255, v * 255)) | 0;
+    const i = (y * S + x) * 4;
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = b; img.data[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+const waterNzU = { value: waterNoiseTexture() };
+// 3 j. na segment (było 6.2) — dopiero teraz widać długie fale
+const waterGeo = new THREE.PlaneGeometry(420, 420, 140, 140);
 waterGeo.rotateX(-Math.PI / 2);
 const waterMat = new THREE.MeshLambertMaterial({
-  color: 0xffffff, vertexColors: true, transparent: true, opacity: 0.9 });
+  color: 0xffffff, transparent: true, opacity: 1 });
 waterMat.onBeforeCompile = sh => {
   sh.uniforms.uTime = windU;
   sh.uniforms.uCam = waterCamU;
-  sh.vertexShader = 'uniform float uTime;uniform vec2 uCam;varying vec3 vWP;\n' +
+  sh.uniforms.uWDep = waterDepthU;
+  sh.uniforms.uWDepC = wdCenterU;
+  sh.uniforms.uWNz = waterNzU;
+  // dekoder mapy głębi: 0..1 → -4..+4 j. (>0 = ile wody nad dnem)
+  const DEK = `
+    float wDepth(vec2 wp){
+      vec2 duv = (wp - uWDepC) * ${(1 / WD_SIZE).toFixed(7)} + 0.5;
+      float ins = smoothstep(0.0, 0.04, duv.x) * (1.0 - smoothstep(0.96, 1.0, duv.x))
+                * smoothstep(0.0, 0.04, duv.y) * (1.0 - smoothstep(0.96, 1.0, duv.y));
+      return mix(3.5, (texture2D(uWDep, duv).r - 0.5) * 8.0, ins);
+    }`;
+  sh.vertexShader =
+    'uniform float uTime;uniform vec2 uCam;uniform sampler2D uWDep;uniform vec2 uWDepC;\n' +
+    'varying vec3 vWP;varying float vFala;\n' + DEK + '\n' +
     sh.vertexShader.replace('#include <begin_vertex>',
     `#include <begin_vertex>
      vec2 wp = transformed.xz + uCam;                       // pozycja w świecie
-     // trzy nakładające się fale = nieregularna tafla
-     float f = sin(wp.x * 0.55 + uTime * 1.9) * 0.055
-             + sin(wp.y * 0.47 - uTime * 1.5) * 0.05
-             + sin((wp.x + wp.y) * 0.22 + uTime * 0.9) * 0.075;
+     // fale GASNĄ przy brzegu (inaczej tafla przebija plażę)
+     float tlum = smoothstep(0.05, 1.10, wDepth(wp));
+     float f = ( sin(wp.x * 0.21 + uTime * 1.05) * 0.085
+               + sin(wp.y * 0.26 - uTime * 0.85) * 0.075
+               + sin((wp.x * 0.62 + wp.y * 0.78) * 0.135 + uTime * 0.55) * 0.10 ) * tlum;
      transformed.y += f;
-     vWP = vec3(wp.x, f, wp.y);`)
-    .replace('#include <fog_vertex>', '#include <fog_vertex>');
-  sh.fragmentShader = 'varying vec3 vWP;\n' + sh.fragmentShader.replace('#include <dithering_fragment>',
-    `#include <dithering_fragment>
-     // grzbiety fal jaśniejsze (fałszywy odblask)
-     float grzbiet = smoothstep(0.05, 0.13, vWP.y);
-     gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.78, 0.93, 1.0), grzbiet * 0.5);`);
+     vWP = vec3(wp.x, 0.0, wp.y);
+     vFala = f;`);
+  sh.fragmentShader =
+    'uniform float uTime;uniform sampler2D uWDep;uniform vec2 uWDepC;uniform sampler2D uWNz;\n' +
+    'varying vec3 vWP;varying float vFala;float gPiana;float gIsk;\n' + DEK + '\n' +
+    sh.fragmentShader.replace('#include <color_fragment>',
+    `#include <color_fragment>
+     vec2 wp = vWP.xz;
+     float dep = wDepth(wp);                                // głębia pod pikselem
+     float t = uTime;
+     // ODLEGŁOŚĆ OD BRZEGU W METRACH: głębia / spadek dna (gradient z mapy głębi).
+     // Bez tego piana ma szerokość w „metrach głębi" i na stromym brzegu jest nitką,
+     // a na płaskim zalewa pół jeziora. Roystan liczy to samo z bufora głębi.
+     const float DS = 2.4;                                  // krok = 1 texel mapy
+     float gx = wDepth(wp + vec2(DS, 0.0)) - wDepth(wp - vec2(DS, 0.0));
+     float gz = wDepth(wp + vec2(0.0, DS)) - wDepth(wp - vec2(0.0, DS));
+     float nach = max(length(vec2(gx, gz)) / (2.0 * DS), 0.012);
+     float brzeg = dep / nach;                              // ~metry od linii brzegu
+
+     float nz  = texture2D(uWNz, wp * 0.075 + vec2( t * 0.0080, -t * 0.0056)).r;
+     float nz2 = texture2D(uWNz, wp * 0.020 + vec2(-t * 0.0030,  t * 0.0021)).r;
+     float nz3 = texture2D(uWNz, wp * 0.290 + vec2( t * 0.0140,  t * 0.0090)).r;  // drobna faktura
+
+     // --- PASY GŁĘBI (3 płaskie kolory; jeziora mają max ~1.7 j. głębi) ---
+     float dw = dep + (nz2 - 0.5) * 0.26 + sin(wp.x * 0.26 + wp.y * 0.19 + t * 0.5) * 0.06;
+     vec3 col = mix(vec3(0.30, 0.82, 0.68), vec3(0.035, 0.36, 0.56), smoothstep(0.40, 0.58, dw));
+     col = mix(col, vec3(0.012, 0.13, 0.33), smoothstep(0.94, 1.14, dw));
+
+     // --- PIANA PRZY BRZEGU: wąski mokry rąbek + rzadka, poszarpana kipiel ---
+     float szer = 1.05 + (nz - 0.5) * 1.3 + (nz3 - 0.5) * 0.6;  // ~0.1 .. 2.0 m, poszarpana
+     float linie = sin((brzeg / max(szer, 0.5) - t * 0.42) * 12.6);
+     float kipiel = (1.0 - smoothstep(szer * 0.30, szer, brzeg))     // zanik w głąb
+                  * smoothstep(-0.15, 0.75, linie)                    // pasma biegnące do brzegu
+                  * smoothstep(0.28, 0.62, nz3) * 0.85;               // dziury = kipiel, nie płyta
+     float rabek = (1.0 - smoothstep(0.10, 0.50, brzeg)) * 0.92;      // stały mokry rąbek ~0.5 m
+     float piana = clamp(max(rabek, kipiel), 0.0, 1.0) * step(0.004, dep);
+     // wąski jaśniejszy „mokry" pas tuż za pianą (bez tego brzeg tnie jak nożem)
+     col = mix(col, vec3(0.45, 0.90, 0.80), (1.0 - smoothstep(szer * 0.9, szer * 1.7, brzeg)) * 0.34);
+     col = mix(col, vec3(1.0, 1.0, 1.0), piana);
+
+     // --- GRZBIETY FAL (delikatne smugi na szczytach) + ISKIERKI ---
+     float grzb = smoothstep(0.175, 0.225, vFala) * smoothstep(0.2, 0.7, dep) * (1.0 - piana);
+     col = mix(col, vec3(0.72, 0.95, 1.0), grzb * 0.24);
+     float s1 = texture2D(uWNz, wp * 0.62 + vec2( t * 0.030, -t * 0.019)).r;
+     float s2 = texture2D(uWNz, wp * 0.71 + vec2(-t * 0.024,  t * 0.033)).r;
+     float isk = smoothstep(0.99, 1.10, s1 * s2 * 2.2) * smoothstep(0.2, 0.7, dep) * (1.0 - piana);
+
+     gPiana = piana; gIsk = isk;
+     diffuseColor.rgb = col;
+     // płycizna półprzezroczysta (widać dno), głębia gęsta, piana kryje
+     diffuseColor.a = max(mix(0.74, 0.96, smoothstep(0.0, 0.9, dep)), piana * 0.96);`)
+    // piana i iskierki DOŚWIETLONE — inaczej cień drzewa/chmury robi z piany szarość
+    .replace('#include <emissivemap_fragment>',
+    `#include <emissivemap_fragment>
+     totalEmissiveRadiance += vec3(0.30, 0.34, 0.36) * gPiana + vec3(0.85, 0.95, 1.0) * gIsk;`);
 };
 const water = new THREE.Mesh(waterGeo, waterMat);
 water.position.y = WATER_Y;
 water.receiveShadow = true;
 scene.add(water);
-// kolor tafli wg GŁĘBI dna: płytko = turkus, głęboko = granat, brzeg = piana
+// wypiekanie MAPY GŁĘBI (WATER_Y - terrainH) wokół gracza; ~2 ms na 144²,
+// więc przebudowa dopiero po 18 j. ruchu (mapa ma 170 j. zapasu w każdą stronę)
 function updateWaterColors() {
-  const p = waterGeo.attributes.position;
-  let kol = waterGeo.attributes.color;
-  if (!kol) {
-    kol = new THREE.BufferAttribute(new Float32Array(p.count * 3), 3);
-    waterGeo.setAttribute('color', kol);
-  }
   const ox = water.position.x, oz = water.position.z;
-  for (let i = 0; i < p.count; i++) {
-    const wx = p.getX(i) + ox, wz = p.getZ(i) + oz;
-    const glab = WATER_Y - terrainH(wx, wz);            // >0 = pod wodą
-    let r, g2, b;
-    if (glab < 0.28) { r = 0.72; g2 = 0.93; b = 0.95; }               // piana/płycizna
-    else {
-      const t = Math.min(1, (glab - 0.28) / 2.6);
-      r = 0.38 - t * 0.24; g2 = 0.72 - t * 0.34; b = 0.86 - t * 0.20; // turkus → granat
+  if (Math.abs(ox - wdCenterU.value.x) < 18 && Math.abs(oz - wdCenterU.value.y) < 18) return;
+  const st = WD_SIZE / WD_RES;
+  const x0 = ox - WD_SIZE / 2 + st * 0.5, z0 = oz - WD_SIZE / 2 + st * 0.5;
+  let i = 0;
+  for (let j = 0; j < WD_RES; j++) {
+    const wz = z0 + j * st;
+    for (let k = 0; k < WD_RES; k++) {
+      const g = (WATER_Y - terrainH(x0 + k * st, wz)) * 0.125 + 0.5;   // -4..4 → 0..1
+      wdData[i++] = g < 0 ? 0 : g > 1 ? 255 : (g * 255) | 0;
     }
-    kol.setXYZ(i, r, g2, b);
   }
-  kol.needsUpdate = true;
+  waterDepthTex.needsUpdate = true;
+  wdCenterU.value.set(ox, oz);
 }
+updateWaterColors();                 // żeby pierwsza klatka nie była biała
 
 const grassTexC = grassTexture();
 grassTexC.repeat.set(1, 1);      // skala siedzi w UV chunków
