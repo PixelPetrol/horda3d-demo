@@ -1,0 +1,437 @@
+// icons.js — pixel-artowe ikony rysowane proceduralnie (ZAMIAST emoji)
+// Każda ikona to siatka znaków → canvas → data URL. Paleta wspólna.
+const PAL = {
+  '.': null,            // przezroczysty
+  k: '#1b1b22',         // kontur
+  r: '#e2404a', R: '#ff7a7f',      // czerwień (serce)
+  y: '#f5c542', Y: '#ffe89a',      // złoto (moneta, gwiazda)
+  w: '#f2f2f2', g: '#9aa0a8',      // biel / szarość (kość, czaszka)
+  b: '#4f9ed8', B: '#a8d8f5',      // błękit (woda, tarcza)
+  n: '#5da344', N: '#8ed26a',      // zieleń (łąka)
+  o: '#c9772e', O: '#e8a45c',      // brąz (skrzynia, regał)
+  p: '#b06fd8', P: '#d9a8f0',      // fiolet (radio)
+  s: '#8a8f85',                    // kamień
+  f: '#ff7a1f', F: '#ffc44d',      // ogień
+};
+
+const ART = {
+  serce: [
+    '..rr.rr..',
+    '.rRRrRRr.',
+    'rRRRRRRRr',
+    'rRRRRRRRr',
+    '.rRRRRRr.',
+    '..rRRRr..',
+    '...rRr...',
+    '....r....',
+  ],
+  sercePuste: [
+    '..kk.kk..',
+    '.k..k..k.',
+    'k.......k',
+    'k.......k',
+    '.k.....k.',
+    '..k...k..',
+    '...k.k...',
+    '....k....',
+  ],
+  moneta: [
+    '..yyyy..',
+    '.yYYYYy.',
+    'yYYyyYYy',
+    'yYyYYyYy',
+    'yYyYYyYy',
+    'yYYyyYYy',
+    '.yYYYYy.',
+    '..yyyy..',
+  ],
+  czaszka: [
+    '..wwww..',
+    '.wwwwww.',
+    'ww.ww.ww',
+    'wwwwwwww',
+    '.wwwwww.',
+    '..w.w.w.',
+    '.w.w.w.w',
+    '........',
+  ],
+  kosc: [
+    'ww.....ww',
+    'wwww.wwww',
+    '.wwwwwww.',
+    '..wwwww..',
+    '.wwwwwww.',
+    'wwww.wwww',
+    'ww.....ww',
+    '.........',
+  ],
+  skrzynia: [
+    'oooooooo',
+    'oOOOOOOo',
+    'oOyyyyOo',
+    'ooyyyyoo',
+    'oOyyyyOo',
+    'oOOOOOOo',
+    'oooooooo',
+    '........',
+  ],
+  laka: [
+    'BBBBBBBB',
+    'BBBBBBBB',
+    'nnNnnNnn',
+    'nNnnnNnn',
+    'nnnNnnNn',
+    'nNnnNnnn',
+    'nnnnnNnn',
+    'nnNnnnnn',
+  ],
+  market: [
+    'gggggggg',
+    'oOoOoOoO',
+    'oooooooo',
+    'oROyBpNO',
+    'oooooooo',
+    'oyOBRNpO',
+    'oooooooo',
+    'gggggggg',
+  ],
+  pioruny: [
+    '....YY..',
+    '...YY...',
+    '..YYYY..',
+    '.YYYY...',
+    '...yy...',
+    '..yy....',
+    '.yy.....',
+    'y.......',
+  ],
+  kula: [
+    '..yyyy..',
+    '.yYYYYy.',
+    'yYYYYYYy',
+    'yYYYYYYy',
+    'yYYYYYYy',
+    'yYYYYYYy',
+    '.yYYYYy.',
+    '..yyyy..',
+  ],
+  butelka: [
+    '...nn...',
+    '...nn...',
+    '..nNNn..',
+    '.nNNNNn.',
+    '.nNNNNn.',
+    '.nNNNNn.',
+    '.nNNNNn.',
+    '..nnnn..',
+  ],
+  radio: [
+    '..k..k..',
+    '.kkkkkk.',
+    'kpPPPPpk',
+    'kpkkkkpk',
+    'kpPPPPpk',
+    'kppPPppk',
+    'kpPPPPpk',
+    '.kkkkkk.',
+  ],
+  kura: [
+    '...ww...',
+    '..wwww..',
+    '.wwfwww.',
+    'wwwwwwww',
+    'wwwwwwww',
+    '.wwwwww.',
+    '..y..y..',
+    '..y..y..',
+  ],
+  fala: [
+    '........',
+    '.ffffff.',
+    'f......f',
+    'f.FFFF.f',
+    'f.FFFF.f',
+    'f......f',
+    '.ffffff.',
+    '........',
+  ],
+  tarcza: [
+    '.BBBBBB.',
+    'BBbbbbBB',
+    'BbBBBBbB',
+    'BbBBBBbB',
+    'BbBBBBbB',
+    '.bBBBBb.',
+    '..bBBb..',
+    '...bb...',
+  ],
+  skarpeta: [
+    '..nnnn..',
+    '..nNNn..',
+    '..nNNn..',
+    '..nNNn..',
+    '..nNNn..',
+    '.nNNNn..',
+    'nNNNn...',
+    'nnnn....',
+  ],
+  wiatr: [
+    '........',
+    '.wwwww..',
+    '......w.',
+    '.wwwwww.',
+    '........',
+    '.wwww...',
+    '.....w..',
+    '.wwwww..',
+  ],
+  but: [
+    '........',
+    '.kk.....',
+    '.kOk....',
+    '.kOk....',
+    '.kOkkkk.',
+    '.kOOOOk.',
+    '.kkkkkk.',
+    '........',
+  ],
+  magnes: [
+    '.rr..rr.',
+    'rRRrrRRr',
+    'rRr..rRr',
+    'rRr..rRr',
+    'rRr..rRr',
+    'rRr..rRr',
+    'www..www',
+    'www..www',
+  ],
+  celownik: [
+    '...kk...',
+    '.kkwwkk.',
+    '.kw..wk.',
+    'kw.rr.wk',
+    'kw.rr.wk',
+    '.kw..wk.',
+    '.kkwwkk.',
+    '...kk...',
+  ],
+  gwiazda: [
+    '...yy...',
+    '...YY...',
+    'yyyYYyyy',
+    '.yYYYYy.',
+    '..yYYy..',
+    '.yYy.yYy',
+    'yy.....yy',
+    '........',
+  ],
+  skok: [
+    '...ww...',
+    '..wwww..',
+    '...ww...',
+    '.w.ww.w.',
+    'w..ww..w',
+    '..w..w..',
+    '.w....w.',
+    'w......w',
+  ],
+  postac: [
+    '..kkkk..',
+    '.kOOOOk.',
+    '.kOkOkO.',
+    '..kOOk..',
+    '.kkbbkk.',
+    'k.kbbk.k',
+    '..kb.bk.',
+    '..k...k.',
+  ],
+  pies: [
+    '.o....o.',
+    'oOo..oOo',
+    'oOOOOOOo',
+    'oOkOOkOo',
+    'oOOOOOOo',
+    '.oOOOOo.',
+    '..o..o..',
+    '..o..o..',
+  ],
+  kaptur: [
+    '..pppp..',
+    '.pPPPPp.',
+    'pPkkkkPp',
+    'pPkOOkPp',
+    '.pkOOkp.',
+    '.pPPPPp.',
+    '..p..p..',
+    '..p..p..',
+  ],
+  plomien: [
+    '...f....',
+    '..fF....',
+    '.fFFf...',
+    'fFFFFf..',
+    'fFYYFf..',
+    'fFYYFf..',
+    '.fFFf...',
+    '..ff....',
+  ],
+  broda: [
+    '..kkkk..',
+    '.kOOOOk.',
+    'kOkOOkOk',
+    'kOOOOOOk',
+    'k.gggg.k',
+    '.gggggg.',
+    '..gggg..',
+    '...gg...',
+  ],
+  sklep: [
+    'ggggggg.',
+    'g.....g.',
+    'g.yyy.g.',
+    'g.y.y.g.',
+    'ggggggg.',
+    '.g...g..',
+    '.g...g..',
+    '........',
+  ],
+  wykres: [
+    'k.......',
+    'k....nn.',
+    'k..nnnn.',
+    'k..nn.nn',
+    'k.ynn.nn',
+    'kyynn.nn',
+    'kyynnynn',
+    'kkkkkkkk',
+  ],
+  mapa: [
+    'nnnnbbbb',
+    'nnNnbbBb',
+    'nnnnnbbb',
+    'sssnnnbb',
+    'ssnnnnnb',
+    'nnnnrnnn',
+    'nnnrrrnn',
+    'nnnnrnnn',
+  ],
+  play: [
+    '.n......',
+    '.nn.....',
+    '.nNn....',
+    '.nNNn...',
+    '.nNNn...',
+    '.nNn....',
+    '.nn.....',
+    '.n......',
+  ],
+  pauza: [
+    '.ww..ww.',
+    '.ww..ww.',
+    '.ww..ww.',
+    '.ww..ww.',
+    '.ww..ww.',
+    '.ww..ww.',
+    '.ww..ww.',
+    '........',
+  ],
+  dom: [
+    '...kk...',
+    '..kOOk..',
+    '.kOOOOk.',
+    'kOOOOOOk',
+    'kOkOOkOk',
+    'kOkOOkOk',
+    'kOOOOOOk',
+    'kkkkkkkk',
+  ],
+  korona: [
+    'y..y..y.',
+    'yy.yy.yy',
+    'yYyYYyYy',
+    'yYYYYYYy',
+    'yYYYYYYy',
+    'yyyyyyyy',
+    '........',
+    '........',
+  ],
+  zegar: [
+    '..wwww..',
+    '.w....w.',
+    'w..k...w',
+    'w..k...w',
+    'w..kkk.w',
+    'w......w',
+    '.w....w.',
+    '..wwww..',
+  ],
+  puchar: [
+    'yyyyyyyy',
+    'yYYYYYYy',
+    '.yYYYYy.',
+    '..yYYy..',
+    '...yy...',
+    '..yyyy..',
+    '.yyyyyy.',
+    '........',
+  ],
+  strzalka: [
+    '...y....',
+    '...yy...',
+    'yyyyyy..',
+    'yYYYYYy.',
+    'yyyyyy..',
+    '...yy...',
+    '...y....',
+    '........',
+  ],
+  wymiana: [
+    '..yyyy..',
+    '.y....y.',
+    'y..yy..y',
+    'y.y..y.y',
+    'y.y..y.y',
+    'y..yy..y',
+    '.y....y.',
+    '..yyyy..',
+  ],
+  ostrzezenie: [
+    '...f....',
+    '...ff...',
+    '..fFFf..',
+    '..fFkf..',
+    '.fFFkFf.',
+    '.fFFkFf.',
+    'fFFFFFFf',
+    'ffffffff',
+  ],
+};
+
+const cache = new Map();
+// zwraca data URL ikony (px = wielkość piksela)
+export function icon(name, px = 4) {
+  const key = name + '@' + px;
+  if (cache.has(key)) return cache.get(key);
+  const art = ART[name];
+  if (!art) return '';
+  const w = art[0].length, h = art.length;
+  const c = document.createElement('canvas');
+  c.width = w * px; c.height = h * px;
+  const g = c.getContext('2d');
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < art[y].length; x++) {
+      const col = PAL[art[y][x]];
+      if (!col) continue;
+      g.fillStyle = col;
+      g.fillRect(x * px, y * px, px, px);
+    }
+  }
+  const url = c.toDataURL();
+  cache.set(key, url);
+  return url;
+}
+// gotowy tag <img> do wstawienia w innerHTML
+export function ico(name, size = 32) {
+  return `<img class="pxi" src="${icon(name, 4)}" style="height:${size}px" alt="">`;
+}
+export const ICON_NAMES = Object.keys(ART);

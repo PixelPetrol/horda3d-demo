@@ -1,36 +1,68 @@
 // HORDA 3D v4 — teren 3D + kamera za plecami + meta-progresja (monety/sklep)
 import * as THREE from './lib/three.module.js';
 import { SPRITEDATA } from './spritedata.js?v=2';
+import { icon, ico } from './icons.js?v=1';
 
 // ============================== USTAWIENIA ==============================
 const PX2U = 1 / 55;
 const WORLD_R = 130;
-const CAM_DIST = 9.2, CAM_H = 6.4;                // nisko, za plecami (Megabonk)
+// kamera: na wąskim/niskim ekranie (telefon poziomo) mocno bliżej postaci
+let CAM_DIST = 9.2, CAM_H = 6.4;
+function fitCamera() {
+  const wys = innerHeight, poziomo = innerWidth > innerHeight;
+  if (poziomo && wys <= 560) { CAM_DIST = 5.6; CAM_H = 3.9; camera.fov = 62; }   // telefon poziomo
+  else if (wys <= 560) { CAM_DIST = 7.4; CAM_H = 5.2; camera.fov = 60; }
+  else if (innerWidth <= 520) { CAM_DIST = 7.8; CAM_H = 5.4; camera.fov = 58; }  // telefon pionowo
+  else { CAM_DIST = 9.2; CAM_H = 6.4; camera.fov = 60; }
+  camera.updateProjectionMatrix();
+}
 const DIR_ROWS = ['south','south-east','east','north-east','north','north-west','west','south-west'];
 let camYaw = 0;                                    // obrót kamery wokół gracza
 
 // ============================== MAPY ==============================
 const MAPS = {
-  laki:   { nm: 'Łąki', ico: '🌄', ds: 'Otwarty teren, jeziora, mesy do wskakiwania',
+  laki:   { nm: 'Łąki', ico: 'laka', ds: 'Otwarty teren, jeziora, mesy do wskakiwania',
             sky: 0x9cc8ec, fog: [55, 135], water: true, indoor: false, price: 0 },
-  market: { nm: 'Market', ico: '🛒', ds: 'Ciasne alejki, regały, śliska rozlana woda',
+  market: { nm: 'Market', ico: 'market', ds: 'Ciasne alejki, regały, śliska rozlana woda',
             sky: 0xb8bfc7, fog: [34, 95], water: false, indoor: true, price: 0 },
 };
 let mapKey = 'laki';
 
 // ============================== POSTACIE ==============================
 const CHARS = {
-  kasia:      { nm: 'Kasia', ico: '👧', ds: 'Zbalansowana. Nic Cię nie zaskoczy.',
+  kasia:      { nm: 'Kasia', ds: 'Zbalansowana. Nic Cię nie zaskoczy.',
                 char: 'kasia', price: 0, spd: 1, hp: 0, dmg: 1, mag: 1, scale: 1 },
-  piotr:      { nm: 'Piotr', ico: '🧔', ds: '+1 serce, +25% obrażeń, ale wolniejszy',
+  piotr:      { nm: 'Piotr', ds: '+1 serce, +25% obrażeń, ale wolniejszy',
                 char: 'piotr', price: 200, spd: 0.88, hp: 1, dmg: 1.25, mag: 1, scale: 1 },
-  rudeusz:    { nm: 'Rudeusz', ico: '🐕', ds: 'Bardzo szybki i mały, ale kruchy (-1 serce)',
+  rudeusz:    { nm: 'Rudeusz', ds: 'Bardzo szybki i mały, ale kruchy (-1 serce)',
                 char: 'rudeusz', price: 300, spd: 1.35, hp: -1, dmg: 0.9, mag: 1.4, scale: 1.05 },
-  przyjaciel: { nm: 'Kapturek', ico: '🧙', ds: 'Ogromny magnes i +2 serca, słabsze ciosy',
+  przyjaciel: { nm: 'Kapturek', ds: 'Ogromny magnes i +2 serca, słabsze ciosy',
                 char: 'przyjaciel', price: 400, spd: 0.95, hp: 2, dmg: 0.8, mag: 2.0, scale: 1 },
-  wegielek:   { nm: 'Węgielek', ico: '🔥', ds: 'Mały demon: +45% obrażeń, tylko 3 serca',
+  wegielek:   { nm: 'Węgielek', ds: 'Mały demon: +45% obrażeń, tylko 3 serca',
                 char: 'wegielek', price: 500, spd: 1.1, hp: -2, dmg: 1.45, mag: 1.2, scale: 1.1 },
 };
+// portret postaci = pierwsza klatka jej arkusza (pixel art zamiast emoji)
+const portretCache = new Map();
+function portret(charName) {
+  if (portretCache.has(charName)) return portretCache.get(charName);
+  const def = SPRITEDATA[charName];
+  const img = LIB[charName] && LIB[charName].img;
+  if (!img) return '';
+  const s = def.size;
+  const a = def.anims.idle || def.anims.walk || def.anims.run;
+  const row = a.rows.south ?? 0;
+  // przytnij ciasno do postaci (sprite jest mały w środku ramki) + kwadrat
+  const cw = Math.round(s * 0.52), chh = Math.round(s * 0.62);
+  const sx = Math.round((s - cw) / 2), sy = Math.round(s * 0.20);
+  const c = document.createElement('canvas');
+  c.width = cw; c.height = chh;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.drawImage(img, sx, row * s + sy, cw, chh, 0, 0, cw, chh);
+  const url = c.toDataURL();
+  portretCache.set(charName, url);
+  return url;
+}
 let charKey = 'kasia';
 
 // ============================== TEREN (value noise) ==============================
@@ -91,9 +123,10 @@ scene.add(sun);
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  fitCamera();
 });
+addEventListener('orientationchange', () => setTimeout(fitCamera, 250));
 
 // -------- tekstura trawy --------
 function grassTexture() {
@@ -234,6 +267,111 @@ const clouds = [];
 const rockMat = new THREE.MeshLambertMaterial({ color: 0x8a8f85, flatShading: true });
 const rockGeo = new THREE.IcosahedronGeometry(1, 0);
 
+// ============================== WIATR (wspólny czas dla shaderów) ==============================
+const windU = { value: 0 };
+function addWind(mat, amp = 0.16, freq = 1.7) {
+  mat.onBeforeCompile = sh => {
+    sh.uniforms.uTime = windU;
+    sh.vertexShader = 'uniform float uTime;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+      `#include <begin_vertex>
+       #ifdef USE_INSTANCING
+         vec3 iP = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
+       #else
+         vec3 iP = vec3(0.0);
+       #endif
+       float h = max(position.y, 0.0);
+       float sw = sin(uTime * ${freq.toFixed(2)} + iP.x * 0.4 + iP.z * 0.33) * ${amp.toFixed(3)} * h;
+       transformed.x += sw;
+       transformed.z += sw * 0.45;`);
+  };
+  mat.needsUpdate = true;
+  return mat;
+}
+
+// -------- DRZEWA 3D (low-poly: pień + bryły korony) --------
+const trunkGeo = new THREE.CylinderGeometry(0.16, 0.28, 1, 6);
+trunkGeo.translate(0, 0.5, 0);
+const leafGeo = new THREE.IcosahedronGeometry(1, 0);
+const trunkMat = new THREE.MeshLambertMaterial({ color: 0x6b4a2b, flatShading: true });
+const leafMats = [0x3f7a34, 0x4b8f3c, 0x356b2c, 0x5a9a42].map(c =>
+  addWind(new THREE.MeshLambertMaterial({ color: c, flatShading: true }), 0.09, 1.2));
+const pineMat = addWind(new THREE.MeshLambertMaterial({ color: 0x2f5f3a, flatShading: true }), 0.06, 1.1);
+const coneGeo = new THREE.ConeGeometry(1, 1, 7);
+coneGeo.translate(0, 0.5, 0);
+
+function makeTree(x, z, rng, out) {
+  const g0 = terrainH(x, z);
+  const h = 2.4 + rng() * 2.2;
+  const iglaste = rng() < 0.35;
+  const tr = new THREE.Mesh(trunkGeo, trunkMat);
+  tr.scale.set(1, h * (iglaste ? 0.45 : 0.62), 1);
+  tr.position.set(x, g0, z);
+  scene.add(tr); out.push(tr);
+  if (iglaste) {                                   // świerk: 3 stożki
+    for (let i = 0; i < 3; i++) {
+      const s = (1.5 - i * 0.35) * (0.75 + rng() * 0.3);
+      const c = new THREE.Mesh(coneGeo, pineMat);
+      c.scale.set(s, h * 0.55 - i * 0.28, s);
+      c.position.set(x, g0 + h * 0.32 + i * h * 0.28, z);
+      c.rotation.y = rng() * 3;
+      scene.add(c); out.push(c);
+    }
+  } else {                                          // liściaste: 2-3 bryły korony
+    const lm = leafMats[Math.floor(rng() * leafMats.length)];
+    const n = 2 + Math.floor(rng() * 2);
+    for (let i = 0; i < n; i++) {
+      const s = (1.15 - i * 0.22) * (0.85 + rng() * 0.4);
+      const b = new THREE.Mesh(leafGeo, lm);
+      b.scale.set(s * 1.15, s * 0.95, s * 1.15);
+      b.position.set(x + (rng() - .5) * 0.7, g0 + h * 0.66 + i * 0.5, z + (rng() - .5) * 0.7);
+      b.rotation.set(rng() * 3, rng() * 3, rng() * 3);
+      scene.add(b); out.push(b);
+    }
+  }
+  return { c: 1, x, z, r: 0.42, top: 99 };          // kolizja pnia
+}
+
+// -------- TRAWA (instancing + kołysanie, jak w nowych Zeldach) --------
+function bladeTexture() {
+  const c = document.createElement('canvas'); c.width = 32; c.height = 32;
+  const g = c.getContext('2d');
+  for (const [x, w, col] of [[8, 4, '#5aa347'], [15, 5, '#6fbf55'], [23, 4, '#4d9139']]) {
+    g.fillStyle = col;
+    g.beginPath();
+    g.moveTo(x, 32); g.lineTo(x + w, 32); g.lineTo(x + w / 2 + 1, 4); g.closePath(); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+let grassMat = null;
+const grassGeo = new THREE.PlaneGeometry(0.9, 0.75);
+grassGeo.translate(0, 0.375, 0);
+const GRASS_PER_CHUNK = 130;
+function makeGrass(cx, cz, rng) {
+  const wx0 = cx * CHUNK, wz0 = cz * CHUNK;
+  const inst = new THREE.InstancedMesh(grassGeo, grassMat, GRASS_PER_CHUNK);
+  const m = new THREE.Object3D();
+  let n = 0;
+  for (let i = 0; i < GRASS_PER_CHUNK; i++) {
+    const x = wx0 + (rng() - 0.5) * CHUNK, z = wz0 + (rng() - 0.5) * CHUNK;
+    const y = terrainH(x, z);
+    if (y < WATER_Y + 0.25) continue;
+    if (biome(x, z) > 0.62) continue;               // na suchych łąkach rzadziej
+    m.position.set(x, y - 0.05, z);
+    m.rotation.set(0, rng() * Math.PI, 0);
+    const s = 0.75 + rng() * 0.7;
+    m.scale.set(s, s * (0.8 + rng() * 0.5), s);
+    m.updateMatrix();
+    inst.setMatrixAt(n++, m.matrix);
+  }
+  inst.count = n;
+  inst.instanceMatrix.needsUpdate = true;
+  inst.frustumCulled = false;
+  scene.add(inst);
+  return inst;
+}
+
 // -------- cień-plamka --------
 function blobTexture() {
   const c = document.createElement('canvas'); c.width = c.height = 64;
@@ -264,7 +402,7 @@ async function buildChar(name, anims) {
   const def = SPRITEDATA[name];
   const img = await loadImage(def.img);
   const size = def.size;
-  LIB[name] = { size, footOff: def.footOff || 0, anims: {} };
+  LIB[name] = { size, footOff: def.footOff || 0, anims: {}, img };
   for (const an of anims) {
     const a = def.anims[an]; if (!a) continue;
     const entry = { fps: a.fps, dirs: {} };
@@ -366,21 +504,21 @@ const META = loadMeta();
 const saveMeta = () => localStorage.setItem(META_KEY, JSON.stringify(META));
 
 const SHOP = [
-  { key: 'serce',  ico: '❤️', nm: 'Twarde serce',   ds: '+1 serce na start',      base: 50, max: 3 },
-  { key: 'dmg',    ico: '💪', nm: 'Siła brainrota', ds: '+10% obrażeń na stałe',  base: 40, max: 5 },
-  { key: 'szyb',   ico: '👟', nm: 'Kondycja',       ds: '+8% szybkości na stałe', base: 40, max: 5 },
-  { key: 'magnes', ico: '🧲', nm: 'Przyciąganie',   ds: '+20% magnesu na stałe',  base: 30, max: 5 },
+  { key: 'serce',  ico: 'serce', nm: 'Twarde serce',   ds: '+1 serce na start',      base: 50, max: 3 },
+  { key: 'dmg',    ico: 'fala', nm: 'Siła', ds: '+10% obrażeń na stałe',  base: 40, max: 5 },
+  { key: 'szyb',   ico: 'but', nm: 'Kondycja',       ds: '+8% szybkości na stałe', base: 40, max: 5 },
+  { key: 'magnes', ico: 'magnes', nm: 'Przyciąganie',   ds: '+20% magnesu na stałe',  base: 30, max: 5 },
 ];
 // odblokowania broni i pasywów (jednorazowe — wchodzą do puli kart w biegu)
 const SHOP_UNLOCKS = [
-  { key: 'piorun',   ico: '⚡', nm: 'Broń: Piorun',          ds: 'Grom bije losowych wrogów',      price: 150 },
-  { key: 'butelka',  ico: '🍾', nm: 'Broń: Butelka żula',    ds: 'Leci łukiem i wybucha',          price: 200 },
-  { key: 'bumerang', ico: '📻', nm: 'Broń: Radio-bumerang',  ds: 'Leci i wraca, kosząc po drodze', price: 250 },
-  { key: 'tarcza',   ico: '🛡️', nm: 'Pasyw: Tarcza',         ds: 'Blokuje 1 trafienie co jakiś czas', price: 120 },
-  { key: 'djump',    ico: '🦘', nm: 'Podwójny skok',         ds: 'Drugi skok w powietrzu — przeskakuj regały (bywa też w skrzyniach)', price: 300 },
-  { key: 'skarpeta', ico: '🧦', nm: 'Broń: Skarpeta biolog.', ds: 'Śmierdząca aura truje wokół', price: 180 },
-  { key: 'wiatrowka', ico: '💨', nm: 'Broń: Wiatrówka',      ds: 'Promień przeszywa całą linię', price: 220 },
-  { key: 'kura',     ico: '🐔', nm: 'Broń: Kura-kamikaze',   ds: 'Biegnie i wybucha. Kura.', price: 350 },
+  { key: 'piorun',   ico: 'pioruny', nm: 'Piorun',          ds: 'Grom bije losowych wrogów',      price: 150 },
+  { key: 'butelka',  ico: 'butelka', nm: 'Butelka żula',    ds: 'Leci łukiem i wybucha',          price: 200 },
+  { key: 'bumerang', ico: 'radio', nm: 'Radio-bumerang',  ds: 'Leci i wraca, kosząc po drodze', price: 250 },
+  { key: 'tarcza',   ico: 'tarcza', nm: 'Tarcza',         ds: 'Blokuje 1 trafienie co jakiś czas', price: 120 },
+  { key: 'djump',    ico: 'skok', nm: 'Podwójny skok',         ds: 'Drugi skok w powietrzu — przeskakuj regały (bywa też w skrzyniach)', price: 300 },
+  { key: 'skarpeta', ico: 'skarpeta', nm: 'Skarpeta', ds: 'Śmierdząca aura truje wokół', price: 180 },
+  { key: 'wiatrowka', ico: 'wiatr', nm: 'Wiatrówka',      ds: 'Promień przeszywa całą linię', price: 220 },
+  { key: 'kura',     ico: 'kura', nm: 'Kura-kamikaze',   ds: 'Biegnie i wybucha. Kura.', price: 350 },
 ];
 const shopPrice = it => it.base * Math.pow(2, META.up[it.key]);
 
@@ -391,7 +529,7 @@ function renderMaps() {
     const M = MAPS[key];
     const d = document.createElement('div');
     d.className = 'tile' + (key === mapKey ? ' sel' : '');
-    d.innerHTML = `<div class="ico">${M.ico}</div><div class="nm">${M.nm}</div><div class="ds">${M.ds}</div>`;
+    d.innerHTML = `<div class="ico">${ico(M.ico, 46)}</div><div class="nm">${M.nm}</div><div class="ds">${M.ds}</div>`;
     d.onclick = () => { setMap(key); META.lastMap = key; saveMeta(); renderMaps(); renderPick(); };
     wrap.appendChild(d);
   }
@@ -403,8 +541,9 @@ function renderChars() {
     const owned = !!META.chars[key];
     const d = document.createElement('div');
     d.className = 'tile' + (key === charKey ? ' sel' : '') + (owned ? '' : ' lock');
-    d.innerHTML = `<div class="ico">${C.ico}</div><div class="nm">${owned ? '' : '🔒 '}${C.nm}</div>
-      <div class="ds">${C.ds}</div>${owned ? '' : `<div class="pr">🪙 ${C.price}</div>`}`;
+    d.innerHTML = `<div class="ico"><img class="pxi" src="${portret(C.char)}" style="height:62px"></div>
+      <div class="nm">${C.nm}</div>
+      <div class="ds">${C.ds}</div>${owned ? '' : `<div class="pr">${ico('moneta', 15)} ${C.price}</div>`}`;
     d.onclick = () => {
       if (!owned) {
         if (META.coins < C.price) { d.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' },
@@ -419,36 +558,37 @@ function renderChars() {
   }
 }
 function renderPick() {
-  document.getElementById('selMapNm').textContent = MAPS[mapKey].ico + ' ' + MAPS[mapKey].nm;
-  document.getElementById('selCharNm').textContent = CHARS[charKey].ico + ' ' + CHARS[charKey].nm;
+  document.getElementById('selMapNm').innerHTML = ico(MAPS[mapKey].ico, 16) + ' ' + MAPS[mapKey].nm;
+  document.getElementById('selCharNm').innerHTML =
+    `<img class="pxi" src="${portret(CHARS[charKey].char)}" style="height:22px"> ` + CHARS[charKey].nm;
 }
 function renderStats() {
   const s = META.st;
   const dane = [
-    ['💀', s.kills, 'Zabitych łącznie'],
-    ['🎮', s.runs, 'Rozegranych biegów'],
-    ['⏱️', fmtTime(s.best), 'Najdłuższy bieg'],
-    ['🏆', s.bestKills, 'Rekord zabitych'],
-    ['👑', s.bosses, 'Pokonanych bossów'],
-    ['🎁', s.chests, 'Skrzyń z bronią'],
-    ['⬆️', s.lvl, 'Zdobytych poziomów'],
-    ['🪙', s.coins, 'Monet zebranych'],
-    ['🕐', fmtTime(s.time), 'Łączny czas gry'],
+    ['czaszka', s.kills, 'Zabitych łącznie'],
+    ['play', s.runs, 'Rozegranych biegów'],
+    ['zegar', fmtTime(s.best), 'Najdłuższy bieg'],
+    ['puchar', s.bestKills, 'Rekord zabitych'],
+    ['korona', s.bosses, 'Pokonanych bossów'],
+    ['skrzynia', s.chests, 'Skrzyń z bronią'],
+    ['gwiazda', s.lvl, 'Zdobytych poziomów'],
+    ['moneta', s.coins, 'Monet zebranych'],
+    ['zegar', fmtTime(s.time), 'Łączny czas gry'],
   ];
   document.getElementById('statsList').innerHTML = dane.map(([i, v, k]) =>
-    `<div class="stat"><div class="v">${i} ${v}</div><div class="k">${k}</div></div>`).join('');
+    `<div class="stat"><div class="v">${ico(i, 20)} ${v}</div><div class="k">${k}</div></div>`).join('');
 }
 
 function renderShop() {
-  document.getElementById('shopCoins').textContent = '🪙 ' + META.coins;
+  document.getElementById('shopCoins').innerHTML = ico('moneta', 16) + ' ' + META.coins;
   const wrap = document.getElementById('shopItems'); wrap.innerHTML = '';
   const deny = d => d.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }], { duration: 200 });
   for (const it of SHOP) {
     const lvl = META.up[it.key], maxed = lvl >= it.max;
     const d = document.createElement('div');
     d.className = 'tile' + (maxed ? ' lock' : '');
-    d.innerHTML = `<div class="ico">${it.ico}</div><div class="nm">${it.nm} ${lvl}/${it.max}</div>
-      <div class="ds">${it.ds}</div><div class="pr">${maxed ? 'MAX' : '🪙 ' + shopPrice(it)}</div>`;
+    d.innerHTML = `<div class="ico">${ico(it.ico, 40)}</div><div class="nm">${it.nm} ${lvl}/${it.max}</div>
+      <div class="ds">${it.ds}</div><div class="pr">${maxed ? 'MAX' : ico('moneta', 15) + ' ' + shopPrice(it)}</div>`;
     if (!maxed) d.onclick = () => {
       const pr = shopPrice(it);
       if (META.coins < pr) return deny(d);
@@ -460,8 +600,8 @@ function renderShop() {
     const owned = !!META.unlocked[it.key];
     const d = document.createElement('div');
     d.className = 'tile' + (owned ? ' lock' : '');
-    d.innerHTML = `<div class="ico">${it.ico}</div><div class="nm">${owned ? '✅ ' : '🔒 '}${it.nm}</div>
-      <div class="ds">${it.ds}</div><div class="pr">${owned ? 'ODBLOKOWANE' : '🪙 ' + it.price}</div>`;
+    d.innerHTML = `<div class="ico">${ico(it.ico, 40)}</div><div class="nm">${it.nm}</div>
+      <div class="ds">${it.ds}</div><div class="pr">${owned ? 'MASZ' : ico('moneta', 15) + ' ' + it.price}</div>`;
     if (!owned) d.onclick = () => {
       if (META.coins < it.price) return deny(d);
       META.coins -= it.price; META.unlocked[it.key] = 1; saveMeta(); renderShop();
@@ -513,7 +653,7 @@ function tryJump() {
   if (!P.airborne) { P.vy = 8.2; P.airborne = true; }
   else if (hasDjump() && !P.usedDouble) {          // 🦘🦘 podwójny skok
     P.vy = 7.6; P.usedDouble = true;
-    dmgPop(P.pos.x, P.y + 0.4, P.pos.z, '🦘🦘', '#aaeeff', 1.1);
+    dmgPop(P.pos.x, P.y + 0.4, P.pos.z, 'HOP!', '#aaeeff', 1.1);
   }
 }
 addEventListener('keydown', e => {
@@ -589,7 +729,7 @@ function spawnEnemy(type, angle = null) {
     pos: new THREE.Vector3(P.pos.x + Math.sin(a) * r, 0, P.pos.z + Math.cos(a) * r),
     hp: T.hp * (T.boss ? 1 : hpMul) * (elite ? 6 : 1),
     dying: false, hitCd: 0, kb: new THREE.Vector3(), orbCd: 0, climbing: false,
-    ty: 0,
+    ty: 0, vy: 0, jumpCd: 1 + Math.random() * 3,
     bb: new Billboard(T.char || type, T.scale * (elite ? 1.45 : 1)),
   };
   e.ty = terrainH(e.pos.x, e.pos.z);
@@ -604,7 +744,7 @@ function spawnEnemy(type, angle = null) {
 
 function killEnemy(e, i) {
   G.kills++;
-  document.getElementById('kills').textContent = '💀 ' + G.kills;
+  document.getElementById('kills').innerHTML = ico('czaszka', 15) + ' ' + G.kills;
   // KILL + combo (kille w oknie 1.3 s nabijają serię)
   G.streak = (G.time - G.streakT < 1.3) ? G.streak + 1 : 1;
   G.streakT = G.time;
@@ -699,7 +839,7 @@ function popMat(str, color) {
   if (m) return m;
   const c = document.createElement('canvas'); c.width = 160; c.height = 56;
   const g = c.getContext('2d');
-  g.font = '900 30px -apple-system,sans-serif';
+  g.font = "700 30px 'Pixel', monospace";
   g.textAlign = 'center'; g.textBaseline = 'middle';
   g.lineWidth = 7; g.strokeStyle = 'rgba(0,0,0,0.9)'; g.strokeText(str, 80, 28);
   g.fillStyle = color; g.fillText(str, 80, 28);
@@ -743,9 +883,9 @@ function emojiMat(emoji) {
 // tick(w, dt) woła się co klatkę dla każdej posiadanej broni; w = {key, lvl, t}
 const WEAPONS = {
   kule: {
-    ico: '🟡', nm: 'Kule energii', ds: 'Samonaprowadzające pociski', max: 5,
+    ico: 'kula', nm: 'Kule energii', ds: 'Samonaprowadzające pociski', max: 5,
     lvlDs: l => ['1 pocisk', '2 pociski', '+1 przebicie', '3 pociski', '+2 przebicia (→ ewolucja!)'][l - 1],
-    evoKey: 'meteor', evoIco: '☄️', evoNm: 'KULE METEORYCZNE', evoDs: 'EWOLUCJA: pociski WYBUCHAJĄ przy trafieniu',
+    evoKey: 'meteor', evoIco: 'kula', evoNm: 'KULE METEORYCZNE', evoDs: 'EWOLUCJA: pociski WYBUCHAJĄ przy trafieniu',
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
@@ -767,9 +907,9 @@ const WEAPONS = {
     },
   },
   kosc: {
-    ico: '🦴', nm: 'Kość orbitalna', ds: 'Kości krążą i biją wrogów', max: 5,
+    ico: 'kosc', nm: 'Kość orbitalna', ds: 'Kości krążą i biją wrogów', max: 5,
     lvlDs: l => l + (l === 1 ? ' kość' : ' kości') + (l === 5 ? ' (→ ewolucja!)' : ''),
-    evoKey: 'kosci', evoIco: '🌪️', evoNm: 'KOŚCIOTRZĘSIENIE', evoDs: 'EWOLUCJA: kości ×1.5 większe, szybsze i 2× mocniejsze',
+    evoKey: 'kosci', evoIco: 'kosc', evoNm: 'KOŚCIOTRZĘSIENIE', evoDs: 'EWOLUCJA: kości ×1.5 większe, szybsze i 2× mocniejsze',
     tick(w, dt) {
       while (G.orbs.length < w.lvl) {
         const m = new THREE.Mesh(unitGeo, boneMatCache);
@@ -802,9 +942,9 @@ const WEAPONS = {
     },
   },
   tupniecie: {
-    ico: '💢', nm: 'Tupnięcie', ds: 'Fala uderzeniowa (też przy lądowaniu ze skoku!)', max: 3,
+    ico: 'fala', nm: 'Tupnięcie', ds: 'Fala uderzeniowa (też przy lądowaniu ze skoku!)', max: 3,
     lvlDs: l => 'promień i moc fali +' + l,
-    evoKey: 'sejsm', evoIco: '🌋', evoNm: 'TRZĘSIENIE ZIEMI', evoDs: 'EWOLUCJA: fale częstsze, większe i 2× mocniejsze',
+    evoKey: 'sejsm', evoIco: 'fala', evoNm: 'TRZĘSIENIE ZIEMI', evoDs: 'EWOLUCJA: fale częstsze, większe i 2× mocniejsze',
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
@@ -813,7 +953,7 @@ const WEAPONS = {
     },
   },
   piorun: {
-    ico: '⚡', nm: 'Piorun', ds: 'Grom bije losowych wrogów', max: 5, locked: true,
+    ico: 'pioruny', nm: 'Piorun', ds: 'Grom bije losowych wrogów', max: 5, locked: true,
     lvlDs: l => `${Math.ceil(l / 2)} grom(y), co ${(2.8 - 0.25 * l).toFixed(1)} s`,
     tick(w, dt) {
       w.t -= dt;
@@ -834,7 +974,7 @@ const WEAPONS = {
     },
   },
   butelka: {
-    ico: '🍾', nm: 'Butelka żula', ds: 'Leci łukiem i WYBUCHA', max: 5, locked: true,
+    ico: 'butelka', nm: 'Butelka żula', ds: 'Leci łukiem i WYBUCHA', max: 5, locked: true,
     lvlDs: l => `wybuch r=${(2 + 0.3 * l).toFixed(1)}, co ${(3.6 - 0.25 * l).toFixed(1)} s`,
     tick(w, dt) {
       w.t -= dt;
@@ -850,7 +990,7 @@ const WEAPONS = {
     },
   },
   bumerang: {
-    ico: '📻', nm: 'Radio-bumerang', ds: 'Grające radio leci i WRACA, kosząc po drodze', max: 5, locked: true,
+    ico: 'radio', nm: 'Radio-bumerang', ds: 'Grające radio leci i WRACA, kosząc po drodze', max: 5, locked: true,
     lvlDs: l => `zasięg ${(8 + 0.6 * l).toFixed(0)}, co ${(2.8 - 0.2 * l).toFixed(1)} s`,
     tick(w, dt) {
       w.t -= dt;
@@ -864,7 +1004,7 @@ const WEAPONS = {
     },
   },
   skarpeta: {
-    ico: '🧦', nm: 'Skarpeta biologiczna', ds: 'Śmierdząca AURA truje wszystko wokół Ciebie', max: 5, locked: true,
+    ico: 'skarpeta', nm: 'Skarpeta biologiczna', ds: 'Śmierdząca AURA truje wszystko wokół Ciebie', max: 5, locked: true,
     lvlDs: l => `promień ${(2.2 + 0.35 * l).toFixed(1)}, trucie co 0.7 s`,
     tick(w, dt) {
       w.t -= dt;
@@ -885,7 +1025,7 @@ const WEAPONS = {
     },
   },
   wiatrowka: {
-    ico: '💨', nm: 'Wiatrówka z bazaru', ds: 'PROMIEŃ przeszywa wszystko na linii strzału', max: 5, locked: true,
+    ico: 'wiatr', nm: 'Wiatrówka z bazaru', ds: 'PROMIEŃ przeszywa wszystko na linii strzału', max: 5, locked: true,
     lvlDs: l => `co ${(2.2 - 0.15 * l).toFixed(2)} s, obrażenia +${l}`,
     tick(w, dt) {
       w.t -= dt;
@@ -922,7 +1062,7 @@ const WEAPONS = {
     },
   },
   kura: {
-    ico: '🐔', nm: 'Kura-kamikaze', ds: 'Kura biegnie do wroga i WYBUCHA', max: 5, locked: true,
+    ico: 'kura', nm: 'Kura-kamikaze', ds: 'Kura biegnie do wroga i WYBUCHA', max: 5, locked: true,
     lvlDs: l => `wybuch r=${(2.5 + 0.3 * l).toFixed(1)}, co ${(4.5 - 0.35 * l).toFixed(1)} s`,
     tick(w, dt) {
       w.t -= dt;
@@ -942,14 +1082,14 @@ const stompDmg = l => l * 1.5 * (P.evo.sejsm ? 2 : 1) * dmgAll();
 
 // ============================== PASYWY (bufy zbierane kartami) ==============================
 const PASSIVES = {
-  moc:    { ico: '💥', nm: 'Moc',     ds: '+15% obrażeń wszystkiego', max: 5 },
-  tempo:  { ico: '⚡', nm: 'Tempo',   ds: '+12% szybkości ataków',    max: 5 },
-  buty:   { ico: '👟', nm: 'Buty dresiarza', ds: '+10% szybkości ruchu', max: 5 },
-  magnes: { ico: '🧲', nm: 'Magnes',  ds: '+35% zasięgu zbierania',   max: 5 },
-  krytyk: { ico: '🎲', nm: 'Krytyk',  ds: '+10% szansy na cios ×3',   max: 5 },
-  serce:  { ico: '❤️', nm: 'Serducho', ds: '+1 max serce i pełne leczenie', max: 5 },
-  zasieg: { ico: '🔭', nm: 'Sokoli wzrok', ds: '+20% zasięgu broni',  max: 4 },
-  tarcza: { ico: '🛡️', nm: 'Tarcza brainrota', ds: 'Blokuje 1 trafienie (ładuje się z czasem)', max: 3, locked: true },
+  moc:    { ico: 'fala', nm: 'Moc',     ds: '+15% obrażeń wszystkiego', max: 5 },
+  tempo:  { ico: 'pioruny', nm: 'Tempo',   ds: '+12% szybkości ataków',    max: 5 },
+  buty:   { ico: 'but', nm: 'Buty dresiarza', ds: '+10% szybkości ruchu', max: 5 },
+  magnes: { ico: 'magnes', nm: 'Magnes',  ds: '+35% zasięgu zbierania',   max: 5 },
+  krytyk: { ico: 'celownik', nm: 'Krytyk',  ds: '+10% szansy na cios ×3',   max: 5 },
+  serce:  { ico: 'serce', nm: 'Serducho', ds: '+1 max serce i pełne leczenie', max: 5 },
+  zasieg: { ico: 'celownik', nm: 'Sokoli wzrok', ds: '+20% zasięgu broni',  max: 4 },
+  tarcza: { ico: 'tarcza', nm: 'Tarcza brainrota', ds: 'Blokuje 1 trafienie (ładuje się z czasem)', max: 3, locked: true },
 };
 
 // ============================== KARTY ULEPSZEŃ ==============================
@@ -994,11 +1134,11 @@ function showCards() {
   while (picks.length < 3 && pool.length) {
     picks.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
   }
-  if (!picks.length) picks.push({ ico: '🪙', nm: 'Znaleźne', ds: '+20 monet', do: () => { G.runCoins += 20; drawCoins(); } });
+  if (!picks.length) picks.push({ ico: 'moneta', nm: 'Znaleźne', ds: '+20 monet', do: () => { G.runCoins += 20; drawCoins(); } });
   for (const u of picks) {
     const d = document.createElement('div');
     d.className = 'card' + (u.gold ? ' gold' : '');
-    d.innerHTML = `<div class="ico">${u.ico}</div><div class="nm">${u.nm}</div><div class="ds">${u.ds}</div>`;
+    d.innerHTML = `<div class="ico">${ico(u.ico, 42)}</div><div class="nm">${u.nm}</div><div class="ds">${u.ds}</div>`;
     d.onclick = () => { u.do(); document.getElementById('cardsOv').style.display = 'none'; G.paused = false; };
     wrap.appendChild(d);
   }
@@ -1009,12 +1149,12 @@ function showCards() {
 function openSwap() {
   G.paused = true;
   const wrap = document.getElementById('swapList'); wrap.innerHTML = '';
-  document.getElementById('swapTitle').textContent = '🔄 WYMIENNIK! Którą broń oddajesz?';
+  document.getElementById('swapTitle').textContent = 'WYMIENNIK! Którą broń oddajesz?';
   for (const w of P.weapons) {
     const W = WEAPONS[w.key];
     const d = document.createElement('div');
     d.className = 'card';
-    d.innerHTML = `<div class="ico">${W.ico}</div><div class="nm">${W.nm} poz. ${w.lvl}</div><div class="ds">kliknij, by ODDAĆ</div>`;
+    d.innerHTML = `<div class="ico">${ico(W.ico, 42)}</div><div class="nm">${W.nm} poz. ${w.lvl}</div><div class="ds">kliknij, by ODDAĆ</div>`;
     d.onclick = () => pickNewWeapon(w);
     wrap.appendChild(d);
   }
@@ -1032,12 +1172,12 @@ function openNewWeapon() {
   if (!opts.length) { G.runCoins += 15; drawCoins(); return; }
   G.paused = true;
   const wrap = document.getElementById('swapList'); wrap.innerHTML = '';
-  document.getElementById('swapTitle').textContent = '🎁 ZNALEZIONA BROŃ! Co bierzesz?';
+  document.getElementById('swapTitle').textContent = 'ZNALEZIONA BROŃ! Co bierzesz?';
   for (const key of opts) {
     const W = WEAPONS[key];
     const d = document.createElement('div');
     d.className = 'card gold';
-    d.innerHTML = `<div class="ico">${W.ico}</div><div class="nm">${W.nm}</div><div class="ds">${W.ds}</div>`;
+    d.innerHTML = `<div class="ico">${ico(W.ico, 42)}</div><div class="nm">${W.nm}</div><div class="ds">${W.ds}</div>`;
     d.onclick = () => {
       P.weapons.push({ key, lvl: 1, t: 0 });
       renderWpns();
@@ -1047,7 +1187,7 @@ function openNewWeapon() {
   }
   const skip = document.createElement('div');
   skip.className = 'card';
-  skip.innerHTML = `<div class="ico">✋</div><div class="nm">Nie, dzięki</div><div class="ds">+10 monet</div>`;
+  skip.innerHTML = `<div class="ico">${ico('wymiana', 42)}</div><div class="nm">Nie, dzięki</div><div class="ds">+10 monet</div>`;
   skip.onclick = () => { G.runCoins += 10; drawCoins(); closeSwap(); };
   wrap.appendChild(skip);
   document.getElementById('swapOv').style.display = 'flex';
@@ -1058,12 +1198,12 @@ function pickNewWeapon(oldW) {
     !hasWeapon(k) && (!WEAPONS[k].locked || META.unlocked[k]));
   if (!opts.length) { G.runCoins += 15; drawCoins(); return closeSwap(); }
   const wrap = document.getElementById('swapList'); wrap.innerHTML = '';
-  document.getElementById('swapTitle').textContent = '🔄 Co bierzesz w zamian?';
+  document.getElementById('swapTitle').textContent = 'Co bierzesz w zamian?';
   for (const key of opts) {
     const W = WEAPONS[key];
     const d = document.createElement('div');
     d.className = 'card gold';
-    d.innerHTML = `<div class="ico">${W.ico}</div><div class="nm">${W.nm}</div><div class="ds">${W.ds}</div>`;
+    d.innerHTML = `<div class="ico">${ico(W.ico, 42)}</div><div class="nm">${W.nm}</div><div class="ds">${W.ds}</div>`;
     d.onclick = () => {
       if (oldW.key === 'kosc') { for (const o of G.orbs) scene.remove(o.mesh); G.orbs = []; }
       Object.assign(oldW, { key, lvl: 1, t: 0 });
@@ -1081,17 +1221,17 @@ function closeSwap() {
 // ============================== HUD ==============================
 function drawHearts() {
   const hp = Math.max(0, P.hp);
-  document.getElementById('hearts').textContent = P.maxHp > 12
-    ? `❤️ ${hp} / ${P.maxHp}`                      // dużo serc = licznik zamiast rzędu
-    : '❤️'.repeat(hp) + '🖤'.repeat(P.maxHp - hp);
+  document.getElementById('hearts').innerHTML = P.maxHp > 12
+    ? ico('serce', 18) + ` ${hp} / ${P.maxHp}`      // dużo serc = licznik zamiast rzędu
+    : ico('serce', 18).repeat(hp) + ico('sercePuste', 18).repeat(P.maxHp - hp);
 }
 const fmtTime = t => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
-const drawCoins = () => document.getElementById('coins').textContent = '🪙 ' + G.runCoins;
+const drawCoins = () => document.getElementById('coins').innerHTML = ico('moneta', 15) + ' ' + G.runCoins;
 function renderWpns() {
   document.getElementById('wpns').innerHTML = P.weapons.map(w => {
     const W = WEAPONS[w.key];
     const evo = W.evoKey && P.evo[W.evoKey];
-    return `<span class="wp${evo ? ' evo' : ''}">${evo ? W.evoIco : W.ico}<b>${w.lvl}</b></span>`;
+    return `<span class="wp${evo ? ' evo' : ''}">${ico(evo ? W.evoIco : W.ico, 20)}<b>${w.lvl}</b></span>`;
   }).join('') + '<span class="wp empty">' + '·'.repeat(Math.max(0, 3 - P.weapons.length)) + '</span>';
 }
 
@@ -1100,11 +1240,11 @@ let decoMats = null;   // [{mat, aspect, h, forest, weight}]
 async function loadDecoMats() {
   const defs = [
     // [plik, wysokość, gdzie: true=las / false=łąka / null=wszędzie, waga]
-    ['assets/oak1.png', 3.4, true, 3], ['assets/oak2.png', 3.6, true, 2], ['assets/oak3.png', 3.2, true, 2],
+    // (drzewa są teraz PRAWDZIWE 3D — patrz makeTree)
     ['assets/rock1.png', 1.1, null, 1.2], ['assets/rock2.png', 1.0, null, 1],
-    ['assets/bush1.png', 1.2, true, 2], ['assets/bush3.png', 1.1, null, 1.5],
-    ['assets/trawa_kepa.png', 0.8, false, 5], ['assets/kwiat1.png', 0.6, false, 2.5],
-    ['assets/kwiat2.png', 0.6, false, 2.5], ['assets/scarecrow.png', 1.6, false, 0.25],
+    ['assets/bush1.png', 1.2, true, 2.5], ['assets/bush3.png', 1.1, null, 2],
+    ['assets/trawa_kepa.png', 0.8, false, 3], ['assets/kwiat1.png', 0.6, false, 3],
+    ['assets/kwiat2.png', 0.6, false, 3], ['assets/scarecrow.png', 1.6, false, 0.3],
   ];
   decoMats = [];
   for (const [src, h, forest, weight] of defs) {
@@ -1171,6 +1311,7 @@ function buildChunk(cx, cz) {
   scene.add(mesh);
   const rng = chunkRng(cx, cz);
   const deco = [], rocks = [], solids = [], spills = [];
+  let grass = null;
 
   if (MAPS[mapKey].indoor) {
     // ======== MARKET: rozlana woda (ŚLISKO!) ========
@@ -1257,13 +1398,21 @@ function buildChunk(cx, cz) {
         }
       }
     }
-    // ======== ŁĄKI: dekoracje + głazy ========
-    const nDeco = 5 + Math.floor(rng() * 5);
+    // ======== ŁĄKI: DRZEWA 3D + trawa + dekoracje ========
+    const las = biome(wx0, wz0) <= 0.45;
+    const nTrees = las ? 4 + Math.floor(rng() * 4) : (rng() < 0.5 ? 1 : 0);
+    for (let i = 0; i < nTrees; i++) {
+      const x = wx0 + (rng() - 0.5) * CHUNK, z = wz0 + (rng() - 0.5) * CHUNK;
+      if (terrainH(x, z) < WATER_Y + 0.5) continue;
+      solids.push(makeTree(x, z, rng, rocks));
+    }
+    grass = makeGrass(cx, cz, rng);
+    const nDeco = 4 + Math.floor(rng() * 4);
     for (let i = 0; i < nDeco; i++) {
       const x = wx0 + (rng() - 0.5) * CHUNK, z = wz0 + (rng() - 0.5) * CHUNK;
       if (terrainH(x, z) < WATER_Y + 0.3) continue;
-      const las = biome(x, z) <= 0.45;
-      const cands = decoMats.filter(d => d.forest === null || d.forest === las);
+      const lasTu = biome(x, z) <= 0.45;
+      const cands = decoMats.filter(d => d.forest === null || d.forest === lasTu);
       let tw = 0; for (const d of cands) tw += d.weight;
       let roll = rng() * tw, pick = cands[0];
       for (const d of cands) { roll -= d.weight; if (roll <= 0) { pick = d; break; } }
@@ -1273,7 +1422,6 @@ function buildChunk(cx, cz) {
       m.rotation.y = camYaw;
       scene.add(m);
       deco.push(m);
-      if (pick.h >= 3) solids.push({ c: 1, x, z, r: 0.45, top: 99 });   // pień dębu
     }
     if (rng() < 0.4) {                            // głaz 3D
       const x = wx0 + (rng() - 0.5) * CHUNK, z = wz0 + (rng() - 0.5) * CHUNK;
@@ -1290,7 +1438,7 @@ function buildChunk(cx, cz) {
       }
     }
   }
-  return { mesh, deco, rocks, solids, spills };
+  return { mesh, deco, rocks, solids, spills, grass };
 }
 
 // czy punkt jest na rozlanej wodzie (market) — wtedy ŚLIZG
@@ -1359,6 +1507,7 @@ function rebuildWorld() {
     scene.remove(ch.mesh); ch.mesh.geometry.dispose();
     for (const m of ch.deco) scene.remove(m);
     for (const m of ch.rocks) scene.remove(m);
+    if (ch.grass) { scene.remove(ch.grass); ch.grass.dispose(); }
   }
   chunkMap.clear();
   lastCC = null;
@@ -1393,6 +1542,7 @@ function ensureChunks() {
     scene.remove(ch.mesh); ch.mesh.geometry.dispose();
     for (const m of ch.deco) scene.remove(m);
     for (const m of ch.rocks) scene.remove(m);
+    if (ch.grass) { scene.remove(ch.grass); ch.grass.dispose(); }
     chunkMap.delete(key);
   }
 }
@@ -1421,7 +1571,7 @@ function chestReward(c) {
   const roll = Math.random();
   if (roll < 0.14 && !hasDjump()) {   // 🦘🦘 PODWÓJNY SKOK (na ten bieg)
     P.runDjump = true;
-    toastBuff('🦘🦘 PODWÓJNY SKOK do końca biegu!');
+    toastBuff('PODWÓJNY SKOK do końca biegu!');
     setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2500);
   } else if (roll < 0.62) {          // monety
     for (let k = 0; k < 5 + Math.floor(Math.random() * 6); k++)
@@ -1431,7 +1581,7 @@ function chestReward(c) {
       G.gems.push(makeGem(c.pos.x + (Math.random() - .5) * 2, c.pos.z + (Math.random() - .5) * 2, 1));
   } else {                           // wielki magnes: zasysa WSZYSTKO
     G.vacuum = 2.0;
-    toastBuff('🧲 MAGNES! Wszystko leci do Ciebie');
+    toastBuff('MAGNES! Wszystko leci do Ciebie');
     setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2000);
   }
 }
@@ -1448,7 +1598,7 @@ function spawnWeaponChest() {
   wchest.ring.position.set(s.x, terrainH(s.x, s.z) + 0.07, s.z);
   wchest.mesh.visible = wchest.ring.visible = true;
   wchest.active = true;
-  toastBuff('🎁 Nowa broń czeka w złotej skrzyni!');
+  toastBuff('NOWA BROŃ czeka w złotej skrzyni — idź za strzałką!');
   setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2200);
 }
 function updateWeaponChest(dt) {
@@ -1475,10 +1625,16 @@ function updateWeaponChest(dt) {
     arrow.style.display = 'none';
     return;
   }
-  // strzałka: kierunek do skrzyni względem obrotu kamery
-  const ang = Math.atan2(wchest.pos.x - P.pos.x, wchest.pos.z - P.pos.z) - camYaw;
+  // strzałka: rzut kierunku do skrzyni na osie EKRANU (kamera ma yaw = camYaw)
+  const dx = wchest.pos.x - P.pos.x, dz = wchest.pos.z - P.pos.z;
+  const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);       // przód kamery
+  const rx = -fz, rz = fx;                                     // prawo kamery
+  const sx = dx * rx + dz * rz;                                // ekran: w prawo
+  const sy = dx * fx + dz * fz;                                // ekran: w górę
+  const ar = arrow.querySelector('.ar');
+  if (!ar.style.backgroundImage) ar.style.backgroundImage = `url(${icon('strzalka', 4)})`;
   arrow.style.display = 'flex';
-  arrow.querySelector('.ar').style.transform = `rotate(${-ang}rad)`;
+  ar.style.transform = `rotate(${Math.atan2(-sy, sx)}rad)`;    // ikona wskazuje w prawo przy 0°
   arrow.querySelector('.dist').textContent = Math.round(d) + ' m';
 }
 
@@ -1558,9 +1714,9 @@ function update(dt) {
   const tr = tier();
   if (tr !== G.tier) {
     G.tier = tr;
-    document.getElementById('tier').textContent = '⚠️ ZAGROŻENIE ' + tr;
+    document.getElementById('tier').innerHTML = ico('ostrzezenie', 14) + ' ZAGROŻENIE ' + tr;
     if (tr > 1) {
-      toastBuff('⚠️ POZIOM ZAGROŻENIA ' + tr + (dmgScale() > 1 ? ' — wrogowie biją mocniej!' : ''));
+      toastBuff('POZIOM ZAGROŻENIA ' + tr + (dmgScale() > 1 ? ' — wrogowie biją mocniej!' : ''));
       setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2200);
       G.shake = Math.max(G.shake, 0.25);
     }
@@ -1649,7 +1805,7 @@ function update(dt) {
     for (let k = 0; k < n && G.enemies.length < CAP; k++) {
       spawnEnemy(typy[Math.floor(Math.random() * typy.length)], (k / n) * Math.PI * 2);
     }
-    toastBuff('🌀 FALA OKRĄŻAJĄCA!');
+    toastBuff('FALA OKRĄŻAJĄCA — biegną ze wszystkich stron!');
     setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 1600);
   }
   if (G.time > G.bossAt) {                                       // bossy co 2 min, coraz więcej
@@ -1704,14 +1860,22 @@ function update(dt) {
     e.pos.add(e.kb.clone().multiplyScalar(dt * 8));
     e.kb.multiplyScalar(Math.max(0, 1 - dt * 10));
 
-    // ---- kolizja + WSPINACZKA na półki (gracz uciekł wyżej → wchodzą powolutku) ----
+    // ---- kolizja, SKOKI i WSPINACZKA na półki ----
     const blockTop = solveSolids(e.pos, 0.35, e.ty);
     const eGround = supportY(e.pos.x, e.pos.z, e.ty);
-    if (blockTop > e.ty + 0.1 && P.y > e.ty + 0.6) {
-      e.ty = Math.min(blockTop + 0.06, e.ty + 0.95 * dt);   // mozolna wspinaczka
-      e.climbing = true;
+    e.jumpCd -= dt;
+    if (e.vy !== 0) {                                    // w locie (po skoku)
+      e.vy -= 22 * dt;
+      e.ty += e.vy * dt;
+      if (e.vy < 0 && e.ty <= eGround) { e.ty = eGround; e.vy = 0; }
+    } else if (blockTop > e.ty + 0.1 && P.y > e.ty + 0.6) {
+      // przeszkoda + gracz wyżej: podskocz (niska) albo mozolnie się wspinaj (wysoka)
+      if (blockTop - e.ty < 1.5 && e.jumpCd <= 0) { e.vy = 6.6; e.jumpCd = 1.6; }
+      else { e.ty = Math.min(blockTop + 0.06, e.ty + 0.95 * dt); e.climbing = true; }
     } else {
       e.climbing = false;
+      // co jakiś czas podskakują z radości (i przeskakują drobne nierówności)
+      if (e.jumpCd <= 0 && d < 22 && Math.random() < 0.35 * dt) { e.vy = 5.4; e.jumpCd = 2.5 + Math.random() * 3; }
       if (eGround < e.ty - 0.05) e.ty = Math.max(eGround, e.ty - 9 * dt);  // schodzenie/spadanie
       else e.ty = eGround;
     }
@@ -1724,7 +1888,7 @@ function update(dt) {
       if (tarczaLvl > 0 && P.shieldCd <= 0) {           // 🛡️ tarcza zjada cios
         P.shieldCd = [30, 24, 18][tarczaLvl - 1];
         P.iframes = 0.9;
-        toastBuff('🛡️ TARCZA zablokowała cios!');
+        toastBuff('TARCZA zablokowała cios!');
         setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 1500);
         novaRing(P.pos.x, P.pos.z, 2);
       } else {
@@ -1828,7 +1992,7 @@ function update(dt) {
     K.bb.update(dt, K.pos, terrainH(K.pos.x, K.pos.z));
     if ((near && nd < 1.0) || K.t > 4) {                  // BUM!
       nova(K.pos.x, K.pos.z, 2.5 + 0.3 * K.lvl, (3 + 0.7 * K.lvl) * dmgAll());
-      dmgPop(K.pos.x, terrainH(K.pos.x, K.pos.z) + 0.6, K.pos.z, '🐔💥', '#ffd75e', 1.5);
+      dmgPop(K.pos.x, terrainH(K.pos.x, K.pos.z) + 0.6, K.pos.z, 'KO-KO-BUM!', '#ffd75e', 1.5);
       G.shake = Math.max(G.shake, 0.15);
       K.bb.dispose(); G.kury.splice(i, 1);
     }
@@ -1946,7 +2110,7 @@ function update(dt) {
     h.mesh.rotation.y = camYaw;
     if (d < 0.8 && P.hp < P.maxHp) {
       P.hp++; drawHearts();
-      dmgPop(P.pos.x, pTy + 0.6, P.pos.z, '+❤️', '#ff8080', 1.4);
+      dmgPop(P.pos.x, pTy + 0.6, P.pos.z, '+SERCE', '#ff8080', 1.4);
       scene.remove(h.mesh); G.hps.splice(i, 1);
     }
   }
@@ -1975,6 +2139,8 @@ function update(dt) {
   for (const ch of chunkMap.values())
     for (const m of ch.deco) m.rotation.y = camYaw;
 
+  windU.value = G.time;
+
   // ---- chmury ----
   for (const c of clouds) {
     c.m.position.x += c.v * dt;
@@ -1993,8 +2159,8 @@ function gameOver() {
   saveMeta(); renderShop(); renderStats();
   document.getElementById('overStats').innerHTML =
     `Przetrwano: <b>${fmtTime(G.time)}</b> · Pokonano: <b>${G.kills}</b> · Poziom: <b>${P.lvl}</b><br>` +
-    `Zebrano: <b>🪙 ${G.runCoins}</b> (masz łącznie 🪙 ${META.coins})` +
-    (G.time >= s.best ? '<br><b style="color:#ffd75e">🏆 NOWY REKORD CZASU!</b>' : '');
+    `Zebrano: <b>${ico('moneta',15)} ${G.runCoins}</b> (łącznie ${ico('moneta',15)} ${META.coins})` +
+    (G.time >= s.best ? '<br><b style="color:#ffd75e">' + ico('puchar',18) + ' NOWY REKORD CZASU!</b>' : '');
   document.getElementById('overOv').style.display = 'flex';
   document.getElementById('wArrow').style.display = 'none';
 }
@@ -2005,9 +2171,9 @@ function togglePause(on) {
   document.getElementById('pauseOv').style.display = on ? 'flex' : 'none';
   if (on) {
     document.getElementById('pauseStats').innerHTML =
-      `<p>Czas: <b>${fmtTime(G.time)}</b> · Zabici: <b>${G.kills}</b> · Poziom: <b>${P.lvl}</b> · 🪙 <b>${G.runCoins}</b></p>` +
-      `<p>Postać: <b>${CHARS[charKey].ico} ${CHARS[charKey].nm}</b> · Mapa: <b>${MAPS[mapKey].ico} ${MAPS[mapKey].nm}</b></p>` +
-      `<p>Bronie: ${P.weapons.map(w => WEAPONS[w.key].ico + ' ' + WEAPONS[w.key].nm + ' ' + w.lvl).join(' · ')}</p>`;
+      `<p>Czas: <b>${fmtTime(G.time)}</b> · Zabici: <b>${G.kills}</b> · Poziom: <b>${P.lvl}</b> · ${ico('moneta',15)} <b>${G.runCoins}</b></p>` +
+      `<p>Postać: <b>${CHARS[charKey].nm}</b> · Mapa: <b>${MAPS[mapKey].nm}</b></p>` +
+      `<p>Bronie: ${P.weapons.map(w => ico(WEAPONS[w.key].ico, 18) + ' ' + WEAPONS[w.key].nm + ' ' + w.lvl).join(' · ')}</p>`;
   }
 }
 function setPlayerChar(key) {
@@ -2050,7 +2216,8 @@ function newGame() {
   wchest.active = false; wchest.wait = 8;
   if (wchest.mesh) wchest.mesh.visible = wchest.ring.visible = false;
   document.getElementById('lvl').textContent = 'POZIOM 1';
-  document.getElementById('kills').textContent = '💀 0';
+  document.getElementById('kills').innerHTML = ico('czaszka', 15) + ' 0';
+  document.getElementById('tier').innerHTML = ico('ostrzezenie', 14) + ' ZAGROŻENIE 1';
   document.getElementById('xpbar').style.width = '0%';
   drawHearts(); drawCoins(); renderWpns();
   camYaw = 0;
@@ -2096,11 +2263,17 @@ function loop() {
   await buildChar('dzik', ['run']);
   await buildChar('doctorAngry', ['run']);
   await buildChar('kura_braz', ['walk']);
+  // postacie grywalne (potrzebne też do portretów w menu)
+  await buildChar('piotr', ['idle', 'run', 'jump']);
+  await buildChar('przyjaciel', ['idle', 'run']);
+  await buildChar('rudeusz', ['idle', 'run']);
   await loadDecoMats();
   chunkMat = new THREE.MeshLambertMaterial({ map: grassTexC, vertexColors: true });
   chunkMatIndoor = new THREE.MeshLambertMaterial({ map: floorTexC, vertexColors: true });
   shelfMat = new THREE.MeshLambertMaterial({ map: shelfTexture() });
   spillMat = new THREE.MeshBasicMaterial({ map: spillTexture(), transparent: true, depthWrite: false });
+  grassMat = addWind(new THREE.MeshLambertMaterial({ map: bladeTexture(), alphaTest: 0.45,
+    side: THREE.DoubleSide, transparent: false }), 0.22, 2.1);
   crateMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#b98a4e', '#7d5a2e', 4) });
   plankMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#a9793f', '#6d4a22', 6) });
   stoneMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#9a9c96', '#6f7169', 3) });
@@ -2116,6 +2289,7 @@ function loop() {
   spawnTotems(3, colImg);
   drawHearts();
   renderShop(); renderMaps(); renderChars(); renderStats(); renderPick();
+  fitCamera();
   camera.position.set(0, terrainH(0, 0) + CAM_H, CAM_DIST);
   camera.lookAt(0, 1.3, -2.2);
   playerBB.update(0, P.pos, P.y, P.y);
@@ -2131,6 +2305,10 @@ function loop() {
     document.getElementById('overOv').style.display = 'none';
     menu.style.display = 'flex';
   };
+  // ikonki w zakładkach + przycisku pauzy
+  document.querySelectorAll('.tab[data-ico]').forEach(t =>
+    t.insertAdjacentHTML('afterbegin', ico(t.dataset.ico, 16) + ' '));
+  document.getElementById('pauseBtn').innerHTML = ico('pauza', 16);
   // zakładki menu
   document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
     document.querySelectorAll('.tab').forEach(x => x.classList.remove('sel'));
