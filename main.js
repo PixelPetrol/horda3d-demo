@@ -190,13 +190,58 @@ function grassTexture() {
 
 // -------- siatka terenu (pofalowana, cieniowana światłem) --------
 // tafla wody — jedna, podąża za graczem (mapa jest nieskończona)
-const water = new THREE.Mesh(
-  new THREE.PlaneGeometry(520, 520),
-  new THREE.MeshLambertMaterial({ color: 0x3f86c9, transparent: true, opacity: 0.78 })
-);
-water.rotation.x = -Math.PI / 2;
+// WODA: falująca siatka + pas piany przy brzegu + dwa odcienie głębi
+const waterCamU = { value: new THREE.Vector2() };
+const waterGeo = new THREE.PlaneGeometry(560, 560, 90, 90);
+waterGeo.rotateX(-Math.PI / 2);
+const waterMat = new THREE.MeshLambertMaterial({
+  color: 0xffffff, vertexColors: true, transparent: true, opacity: 0.9 });
+waterMat.onBeforeCompile = sh => {
+  sh.uniforms.uTime = windU;
+  sh.uniforms.uCam = waterCamU;
+  sh.vertexShader = 'uniform float uTime;uniform vec2 uCam;varying vec3 vWP;\n' +
+    sh.vertexShader.replace('#include <begin_vertex>',
+    `#include <begin_vertex>
+     vec2 wp = transformed.xz + uCam;                       // pozycja w świecie
+     // trzy nakładające się fale = nieregularna tafla
+     float f = sin(wp.x * 0.55 + uTime * 1.9) * 0.055
+             + sin(wp.y * 0.47 - uTime * 1.5) * 0.05
+             + sin((wp.x + wp.y) * 0.22 + uTime * 0.9) * 0.075;
+     transformed.y += f;
+     vWP = vec3(wp.x, f, wp.y);`)
+    .replace('#include <fog_vertex>', '#include <fog_vertex>');
+  sh.fragmentShader = 'varying vec3 vWP;\n' + sh.fragmentShader.replace('#include <dithering_fragment>',
+    `#include <dithering_fragment>
+     // grzbiety fal jaśniejsze (fałszywy odblask)
+     float grzbiet = smoothstep(0.05, 0.13, vWP.y);
+     gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.78, 0.93, 1.0), grzbiet * 0.5);`);
+};
+const water = new THREE.Mesh(waterGeo, waterMat);
 water.position.y = WATER_Y;
+water.receiveShadow = true;
 scene.add(water);
+// kolor tafli wg GŁĘBI dna: płytko = turkus, głęboko = granat, brzeg = piana
+function updateWaterColors() {
+  const p = waterGeo.attributes.position;
+  let kol = waterGeo.attributes.color;
+  if (!kol) {
+    kol = new THREE.BufferAttribute(new Float32Array(p.count * 3), 3);
+    waterGeo.setAttribute('color', kol);
+  }
+  const ox = water.position.x, oz = water.position.z;
+  for (let i = 0; i < p.count; i++) {
+    const wx = p.getX(i) + ox, wz = p.getZ(i) + oz;
+    const glab = WATER_Y - terrainH(wx, wz);            // >0 = pod wodą
+    let r, g2, b;
+    if (glab < 0.28) { r = 0.72; g2 = 0.93; b = 0.95; }               // piana/płycizna
+    else {
+      const t = Math.min(1, (glab - 0.28) / 2.6);
+      r = 0.38 - t * 0.24; g2 = 0.72 - t * 0.34; b = 0.86 - t * 0.20; // turkus → granat
+    }
+    kol.setXYZ(i, r, g2, b);
+  }
+  kol.needsUpdate = true;
+}
 
 const grassTexC = grassTexture();
 grassTexC.repeat.set(1, 1);      // skala siedzi w UV chunków
@@ -492,8 +537,36 @@ function initLeafCards() {
   leafCardMats = palety.map((p, i) => makeLeafMaterial(p, i === 3 ? 0.16 : 0.13));
 }
 
+// ==== SOLIDNA KORONA: bryła z cieniowaniem góra-dół zapieczonym w wierzchołkach ====
+const leafPalety = [0, 1, 2, 3];
+const leafBlobGeo = (() => {
+  const g = new THREE.IcosahedronGeometry(1, 1);      // 80 ścian — tanio, a trzyma kształt
+  // nieregularność: rozrusz wierzchołki, żeby nie była to idealna kula
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const s = 0.82 + hash2(Math.round(p.getX(i) * 97), Math.round(p.getZ(i) * 89)) * 0.36;
+    p.setXYZ(i, p.getX(i) * s, p.getY(i) * s, p.getZ(i) * s);
+  }
+  g.computeVertexNormals();
+  // vertex colors: jasno na górze, ciemno pod spodem (klucz do stylizowanego wyglądu)
+  const kol = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) {
+    const t = Math.max(0, Math.min(1, p.getY(i) * 0.5 + 0.5));
+    const v = 0.55 + t * 0.65;
+    kol[i * 3] = kol[i * 3 + 1] = kol[i * 3 + 2] = v;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(kol, 3));
+  return g;
+})();
+let leafSolidMats = null;
+function initLeafSolids() {
+  const bazy = [0x4e9c36, 0x5aa83f, 0x3f8a3c, 0xb08a2c];   // 3 zielenie + jesienna
+  leafSolidMats = bazy.map(c => addCloudShadow(new THREE.MeshLambertMaterial({
+    color: c, vertexColors: true, flatShading: true })));
+}
+
 // drzewo = pień + KORONA Z KART LIŚCI (zbierane do wspólnego bufora chunka)
-function makeTree(x, z, rng, out, karty) {
+function makeTree(x, z, rng, out, karty, sway) {
   const g0 = terrainH(x, z);
   const h = 2.6 + rng() * 2.0;
   const iglaste = rng() < 0.28;
@@ -516,30 +589,28 @@ function makeTree(x, z, rng, out, karty) {
       scene.add(c); out.push(c);
     }
   } else {
-    // cień korony na ziemi (karty liści są billboardami, więc shadow map ich nie obsłuży)
-    const cien = new THREE.Mesh(blobGeo, blobMat);
-    const promienCienia = 3.4 + rng() * 1.4;
-    cien.scale.set(promienCienia, 1, promienCienia * 0.9);
-    cien.position.set(x + 0.6, g0 + 0.05, z + 0.4);
-    scene.add(cien); out.push(cien);
-    // KORONA: gęsto upakowane klastry liści (billboardy) — zbita, obfita bryła
-    const mat = rng() < 0.10 ? 3 : Math.floor(rng() * 3);
-    const ile = 18 + Math.floor(rng() * 10);
-    const rx = 1.25 + rng() * 0.55, ry = 0.85 + rng() * 0.35;
-    const cy = g0 + h * 0.42 + ry * 0.9;              // siedzi NA pniu, nie lata nad nim
-    for (let i = 0; i < ile; i++) {
-      // rozkład ku środkowi (pierwiastek) = środek gęstszy niż brzeg
-      const a = rng() * Math.PI * 2, u = rng() * 2 - 1;
-      const pr = Math.pow(rng(), 0.55);
-      const s = Math.sqrt(1 - u * u) * pr;
-      karty.push({
-        mat,
-        x: x + Math.cos(a) * s * rx,
-        y: cy + u * ry * pr,
-        z: z + Math.sin(a) * s * rx,
-        sc: 2.0 + rng() * 1.2,                        // duże, mocno zachodzące na siebie
-        cien: 0.72 + (u * 0.5 + 0.5) * 0.42,          // spód ciemniejszy, góra jaśniejsza
-      });
+    // ==== KORONA = SOLIDNE BRYŁY (czytelna sylwetka + PRAWDZIWY CIEŃ) ====
+    // Billboardowe karty nie rzucały cienia i rozłaziły się — bryły trzymają kształt.
+    const paleta = leafPalety[Math.floor(rng() * leafPalety.length)];
+    const cy = g0 + h * 0.44;
+    const bryly = [
+      [0, 0.62, 0, 1.00],                              // główna masa
+      [-0.62, 0.30, 0.34, 0.70],
+      [0.58, 0.26, -0.40, 0.66],
+      [0.10, 1.05, 0.14, 0.62],                        // czubek
+    ];
+    if (rng() < 0.5) bryly.push([-0.20, 0.10, -0.62, 0.55]);
+    const skalaKorony = 1.25 + rng() * 0.55;
+    for (const [dx, dy, dz, s] of bryly) {
+      const b = new THREE.Mesh(leafBlobGeo, leafSolidMats[paleta]);
+      const r = s * skalaKorony;
+      b.scale.set(r * (1.05 + rng() * 0.2), r * (0.82 + rng() * 0.2), r * (1.05 + rng() * 0.2));
+      b.position.set(x + dx * skalaKorony, cy + dy * skalaKorony, z + dz * skalaKorony);
+      b.rotation.set(rng() * 3, rng() * 3, rng() * 3);
+      b.castShadow = true; b.receiveShadow = true;
+      scene.add(b); out.push(b);
+      sway.push({ mesh: b, faza: rng() * 6.28, bx: b.position.x, bz: b.position.z,
+                  amp: 0.05 + dy * 0.05 });           // im wyżej, tym mocniej się kołysze
     }
   }
   return { c: 1, x, z, r: 0.42, top: 99 };          // kolizja pnia
@@ -644,7 +715,7 @@ function makeBladeMaterial() {
       `#include <begin_vertex>
        vec3 iP = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
        float dC = distance(iP.xz, uCenter);
-       float fade = 1.0 - smoothstep(uR - 18.0, uR - 0.5, dC);  // bardzo szerokie wtapianie
+       float fade = 1.0 - smoothstep(uR - 22.0, uR - 0.5, dC);  // bardzo szerokie wtapianie
        transformed.y *= fade;
        float h = max(position.y, 0.0);
        float sw = sin(uTime * 2.2 + iP.x * 0.45 + iP.z * 0.35) * 0.28 * h * fade
@@ -654,15 +725,16 @@ function makeBladeMaterial() {
   };
   return m;
 }
-const GRASS_STEP = 0.62;
+const GRASS_STEP = 0.66;
 let GRASS_R = 24, GRASS_MAX = 14000;
 const grassCenter = new THREE.Vector2(1e9, 1e9);
+const waterKol = new THREE.Vector2(1e9, 1e9);
 const _gm = new THREE.Object3D(), _gc = new THREE.Color();
 
 function initGrassField() {
   const maloMocy = matchMedia('(pointer:coarse)').matches || innerWidth < 700;
-  GRASS_R = maloMocy ? 26 : 40;
-  GRASS_MAX = maloMocy ? 6000 : 14000;
+  GRASS_R = maloMocy ? 34 : 56;
+  GRASS_MAX = maloMocy ? 9000 : 26000;
   if (grassField) { scene.remove(grassField); grassField.dispose(); }
   grassField = new THREE.InstancedMesh(bladeGeo, bladeMat, GRASS_MAX);
   grassField.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(GRASS_MAX * 3), 3);
@@ -2019,7 +2091,7 @@ function buildChunk(cx, cz) {
   mesh.receiveShadow = true;
   scene.add(mesh);
   const rng = chunkRng(cx, cz);
-  const deco = [], rocks = [], solids = [], spills = [], leaves = [];
+  const deco = [], rocks = [], solids = [], spills = [], leaves = [], sway = [];
   let grass = null;
 
   if (MAPS[mapKey].indoor) {
@@ -2147,7 +2219,7 @@ function buildChunk(cx, cz) {
     for (let i = 0; i < nTrees; i++) {
       const x = wx0 + (rng() - 0.5) * CHUNK, z = wz0 + (rng() - 0.5) * CHUNK;
       if (terrainH(x, z) < WATER_Y + 0.5) continue;
-      solids.push(makeTree(x, z, rng, rocks, karty));
+      solids.push(makeTree(x, z, rng, rocks, karty, sway));
     }
     // wszystkie liście chunka → po jednej InstancedMesh na paletę (mało draw calli)
     if (karty.length) {
@@ -2205,7 +2277,7 @@ function buildChunk(cx, cz) {
       }
     }
   }
-  return { mesh, deco, rocks, solids, spills, grass, leaves };
+  return { mesh, deco, rocks, solids, spills, grass, leaves, sway };
 }
 
 // czy punkt jest na rozlanej wodzie (market) — wtedy ŚLIZG
@@ -2532,6 +2604,11 @@ function update(dt) {
   updateSun(P.pos.x, P.pos.z);
   updateGrassField();
   water.position.set(P.pos.x, WATER_Y, P.pos.z);
+  waterCamU.value.set(P.pos.x, P.pos.z);
+  if (MAPS[mapKey].water && Math.hypot(P.pos.x - waterKol.x, P.pos.z - waterKol.y) > 8) {
+    waterKol.set(P.pos.x, P.pos.z);
+    updateWaterColors();
+  }
 
   // ---- fizyka pionowa (spadanie z krawędzi, skok, SZYBOWANIE, lądowanie) ----
   const ground = supportY(P.pos.x, P.pos.z, P.y);
@@ -2920,6 +2997,16 @@ function update(dt) {
   }
   camera.lookAt(P.pos.x + fx * 2.2, P.y + 1.3, P.pos.z + fz * 2.2);
 
+  // ---- kołysanie koron drzew ----
+  for (const ch of chunkMap.values()) {
+    if (!ch.sway || !ch.sway.length) continue;
+    for (const s2 of ch.sway) {
+      const w = Math.sin(G.time * 1.15 + s2.faza) * s2.amp;
+      s2.mesh.position.x = s2.bx + w;
+      s2.mesh.position.z = s2.bz + w * 0.45;
+    }
+  }
+
   // ---- dekoracje twarzą do kamery ----
   for (const ch of chunkMap.values())
     for (const m of ch.deco) m.rotation.y = camYaw;
@@ -3110,6 +3197,7 @@ function loop() {
   cloudShadowU.value = cloudShadowTexture();
   bladeMat = makeBladeMaterial();
   initLeafCards();
+  initLeafSolids();
   initGrassField();
   crateMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#b98a4e', '#7d5a2e', 4) });
   plankMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#a9793f', '#6d4a22', 6) });
@@ -3144,6 +3232,33 @@ function loop() {
     document.getElementById('overOv').style.display = 'none';
     menu.style.display = 'flex';
   };
+  // ---- KODY ----
+  const kodInfo = document.getElementById('kodInfo');
+  const kodInput = document.getElementById('kodInput');
+  function uzyjKodu() {
+    const kod = (kodInput.value || '').trim();
+    if (kod.toLowerCase() === 'rudeuszek2123') {
+      for (const k of Object.keys(CHARS)) META.chars[k] = 1;          // wszystkie postacie
+      for (const it of SHOP_UNLOCKS) META.unlocked[it.key] = 1;       // bronie i zdolności
+      for (const it of SHOP) META.up[it.key] = it.max;                // ulepszenia na max
+      META.coins += 5000;
+      saveMeta();
+      renderShop(); renderChars(); renderPick();
+      if (typeof renderBestiary === 'function') renderBestiary();
+      kodInfo.className = '';
+      kodInfo.textContent = 'KOD PRZYJĘTY! Odblokowano wszystko + 5000 monet.';
+      kodInput.value = '';
+    } else if (kod) {
+      kodInfo.className = 'zle';
+      kodInfo.textContent = 'Nieznany kod.';
+    }
+  }
+  document.getElementById('kodBtn').onclick = uzyjKodu;
+  kodInput.addEventListener('keydown', e => {
+    e.stopPropagation();                       // żeby spacja/WSAD nie sterowały grą
+    if (e.code === 'Enter') uzyjKodu();
+  });
+
   // ikonki w zakładkach + przycisku pauzy
   document.querySelectorAll('.tab[data-ico]').forEach(t =>
     t.insertAdjacentHTML('afterbegin', ico(t.dataset.ico, 16) + ' '));

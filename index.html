@@ -122,6 +122,17 @@
   .tile.bst.dark .nm{color:#6b7690}
   .tile .bs{margin-top:7px;font-size:clamp(9px,2.6vw,11.5px);line-height:1.45;color:#8fd3ff;opacity:.9}
 
+  /* pole na kod */
+  #kodBox{margin:6px 0 16px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap}
+  #kodInput{pointer-events:auto;font-family:inherit;font-size:14px;letter-spacing:1px;padding:9px 12px;
+      width:min(60vw,220px);color:#fff;background:#111827;border:0;border-radius:0;text-align:center;
+      box-shadow:inset 0 3px 0 0 #1f2b40, -3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22,
+        0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  #kodInput:focus{outline:0;box-shadow:inset 0 3px 0 0 #1f2b40, -3px 0 0 0 #ffd75e, 3px 0 0 0 #ffd75e,
+        0 -3px 0 0 #ffd75e, 0 3px 0 0 #ffd75e}
+  #kodInfo{width:100%;font-size:13px;min-height:18px;color:#7ee787}
+  #kodInfo.zle{color:#ff8b7a}
+
   /* statystyki */
   #statsList{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
   .stat{min-width:min(42vw,146px);padding:11px 8px;border-radius:0;background:#171d2c;border:0;margin:5px;
@@ -254,6 +265,11 @@
   </div>
   <div class="panel" id="p-sklep">
     <p>Monety zbierasz w biegach — zostają po śmierci. Masz: <b id="shopCoins">0</b></p>
+    <div id="kodBox">
+      <input id="kodInput" type="text" placeholder="wpisz kod" autocomplete="off" spellcheck="false" maxlength="24">
+      <button class="btn2" id="kodBtn">UŻYJ KODU</button>
+      <div id="kodInfo"></div>
+    </div>
     <div class="grid" id="shopItems"></div>
   </div>
   <div class="panel" id="p-staty"><div id="statsList"></div></div>
@@ -289,6 +305,6 @@
   addEventListener('error', e => window.__err.push(String(e.message) + ' @ ' + (e.filename || '') + ':' + e.lineno));
   addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
 </script>
-<script type="module" src="main.js?v=44"></script>
+<script type="module" src="main.js?v=45"></script>
 </body>
 </html>
