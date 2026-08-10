@@ -1,6 +1,6 @@
 # HORDA 3D — nowy projekt „na poważnie" (survivors-like à la Megabonk)
 
-> Stan: 9.08.2026 — **prototyp v18 działa** (testowany w przeglądarce).
+> Stan: 10.08.2026 — **prototyp v28 działa** (testowany w przeglądarce).
 > v11 = PEŁNY SYSTEM BRONI: 3 sloty, 6 broni, pasywy, wymiennik ze skrzyń,
 > odblokowania w sklepie za monety. Wcześniej: mapa nieskończona, ewolucje,
 > skrzynie/totemy/jeziora/biomy/elity. Wszystko zweryfikowane, konsola czysta.
@@ -217,6 +217,51 @@
   media `max-height:520px` (poziom = wszystko ciaśniej, kafelki 30vw) i
   `max-width:520px` (pion = pasek broni nad przyciskiem skoku). Zweryfikowane
   na 375×812 i 812×375.
+
+## WYGLĄD „GENSHIN + PIXEL ART" v23-v28 (10.08)
+- **TRAWA (dywan jak w Genshin/BotW)** — `bladeGeometry()` 7 wierzchołków, gradient
+  w vertex colors (ciemna nasada → jasna limonka), `updateGrassField()` rozsiewa
+  do ~35 tys. źdźbeł w siatce ŚWIATA (bez migotania przy ruchu), krok 0.20,
+  promień 23 (telefon 15). **Płynne wyrastanie**: shader skaluje wysokość przez
+  `smoothstep(uR-7, uR-0.5, dist)` — koniec wyskakiwania trawy znikąd.
+  Wiatr: dwie fale sinus (szybka + wolna) zależne od pozycji instancji.
+  Ziemia przemalowana na jasną zieleń, żeby prześwity nie odcinały się.
+  Materiał: MeshBasicMaterial + vertexColors (Lambert gasił pionowe źdźbła).
+- **UI PIXEL ART**: czcionka **Pixelify Sans** (OFL, self-hosted w `fonts/`,
+  latin+latin-ext = polskie znaki), `icons.js` = własne pixel-artowe ikony rysowane
+  proceduralnie z siatek znaków (PAL/ART) — **ZERO emoji w grze** (życzenie usera).
+  Przyciski/kafelki/karty: twarde krawędzie box-shadow, brak zaokrągleń i gradientów.
+  Portrety postaci = kadr z arkusza sprite'ów (`portret()`).
+  UWAGA: pikselizacja CAŁEGO 3D (render w niskiej rozdz.) była testowana i
+  **ODRZUCONA przez usera** — psuła i tak pixel-artowe sprite'y. `PIXEL_SCALE = 1`.
+- **FIX STRZAŁKI do złotej skrzyni**: `@keyframes` animowały `transform`, co
+  NADPISYWAŁO obrót ustawiany z JS. Animujemy teraz tylko `opacity` na rodzicu,
+  obrót siedzi na `.ar`. Kąt = rzut wektora do skrzyni na osie ekranu (fx/fz, rx/rz).
+- **CZERWONY BŁYSK** przy obrażeniach: nakładka `hitFlash` z tą samą klatką sprite'a
+  w czerwieni (opacity pulsuje z `P.iframes`) zamiast migania widocznością.
+- **SEKWENCJA ŚMIERCI**: `startDeath()` → `updateDeath()` — postać przewraca się
+  i zapada, kamera zjeżdża blisko, wrogowie rozchodzą się w slow-motion, winieta,
+  napis „KONIEC!"; po 1.8 s dopiero ekran końca.
+- **SKAKANIE WROGÓW**: mają `vy`/`jumpCd` — podskakują co kilka sekund w pobliżu
+  gracza i przeskakują niskie przeszkody; przy wysokich wspinają się (0.95 j./s).
+- **MARKET 2.0**: regały z wystającymi półkami i blatem, **palety (0.95 = wskoczysz
+  bez podwójnego skoku)**, lady chłodnicze (1.5), większe kałuże (r 4-8.5) i mocniejszy
+  poślizg (grip 0.85).
+- **POCISKI z postaci** (`P.y + 1`), nie z poziomu ziemi — ważne gdy stoisz na regale.
+- Kamera: desktop 8.4/7.2 (wyżej), telefon poziomo **4.2/4.4 (bardzo blisko)**;
+  mgła 80-190 (widać dalej).
+
+## ZESPÓŁ AGENTÓW (`.claude/agents/`) — utworzony 10.08
+`grafik-3d` (shadery/foliage/stylizacja), `projektant-gry` (balans, bronie, dopamina),
+`optymalizator` (fps, instancing, telefon), `tester-gry` (scenariusze w przeglądarce,
+zna pułapkę `HORDA.step` i stanów `running/paused`). Wołaj ich narzędziem Agent.
+
+## DO ZROBIENIA (kolejka z rozmowy 10.08)
+1. **Encyklopedia/bestiariusz** — opis wroga odblokowywany po 1. zabiciu (META.st).
+2. **Liście na drzewach = leaf cards** (skrzyżowane quady z alfa-teksturą,
+   instancjonowane, kołysane wiatrem) — technika z douges.dev/Codrops.
+3. Dalsza stylizacja Genshin: gradient nieba, chmury wolumetryczne-billboardy,
+   miękkie cienie pod obiektami, ewentualnie toon-shading terenu.
 
 ## Monetyzacja (decyzja usera 8.08)
 - **Steam**: wersja płatna (bez reklam). Pakowanie: Electron albo natywny webview.
