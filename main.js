@@ -10,10 +10,10 @@ const WORLD_R = 130;
 let CAM_DIST = 9.2, CAM_H = 6.4;
 function fitCamera() {
   const wys = innerHeight, poziomo = innerWidth > innerHeight;
-  if (poziomo && wys <= 560) { CAM_DIST = 5.6; CAM_H = 3.9; camera.fov = 62; }   // telefon poziomo
-  else if (wys <= 560) { CAM_DIST = 7.4; CAM_H = 5.2; camera.fov = 60; }
-  else if (innerWidth <= 520) { CAM_DIST = 7.8; CAM_H = 5.4; camera.fov = 58; }  // telefon pionowo
-  else { CAM_DIST = 9.2; CAM_H = 6.4; camera.fov = 60; }
+  if (poziomo && wys <= 560) { CAM_DIST = 4.2; CAM_H = 4.4; camera.fov = 60; }   // telefon poziomo: BLISKO
+  else if (wys <= 560) { CAM_DIST = 6.2; CAM_H = 5.4; camera.fov = 58; }
+  else if (innerWidth <= 520) { CAM_DIST = 6.8; CAM_H = 5.8; camera.fov = 58; }  // telefon pionowo
+  else { CAM_DIST = 8.4; CAM_H = 7.2; camera.fov = 58; }                          // desktop: wyżej
   camera.updateProjectionMatrix();
 }
 const DIR_ROWS = ['south','south-east','east','north-east','north','north-west','west','south-west'];
@@ -22,7 +22,7 @@ let camYaw = 0;                                    // obrót kamery wokół grac
 // ============================== MAPY ==============================
 const MAPS = {
   laki:   { nm: 'Łąki', ico: 'laka', ds: 'Otwarty teren, jeziora, mesy do wskakiwania',
-            sky: 0x9cc8ec, fog: [55, 135], water: true, indoor: false, price: 0 },
+            sky: 0x9cc8ec, fog: [80, 190], water: true, indoor: false, price: 0 },
   market: { nm: 'Market', ico: 'market', ds: 'Ciasne alejki, regały, śliska rozlana woda',
             sky: 0xb8bfc7, fog: [34, 95], water: false, indoor: true, price: 0 },
 };
@@ -107,12 +107,27 @@ const biome = (x, z) => vnoise(x / 62 + 7.7, z / 62 + 3.3);  // 0=las, 1=sucha �
 // ============================== SCENA ==============================
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.setSize(innerWidth, innerHeight);
+// Rozdzielczość natywna — sprite'y są JUŻ pixel-artem, downsampling by je psuł.
+// (PIXEL_SCALE > 1 = eksperymentalna pikselizacja całego 3D; domyślnie wyłączona)
+let PIXEL_SCALE = 1;
+function applyResolution() {
+  if (PIXEL_SCALE <= 1) {
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight);
+    canvas.style.imageRendering = 'auto';
+    return;
+  }
+  renderer.setPixelRatio(1);
+  renderer.setSize(Math.ceil(innerWidth / PIXEL_SCALE), Math.ceil(innerHeight / PIXEL_SCALE), false);
+  canvas.style.width = '100vw';
+  canvas.style.height = '100vh';
+  canvas.style.imageRendering = 'pixelated';
+}
+applyResolution();
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9cc8ec);
-scene.fog = new THREE.Fog(0x9cc8ec, 55, 135);
+scene.fog = new THREE.Fog(0x9cc8ec, 80, 190);
 
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 400);
 
@@ -123,7 +138,7 @@ scene.add(sun);
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
-  renderer.setSize(innerWidth, innerHeight);
+  applyResolution();
   fitCamera();
 });
 addEventListener('orientationchange', () => setTimeout(fitCamera, 250));
@@ -132,10 +147,10 @@ addEventListener('orientationchange', () => setTimeout(fitCamera, 250));
 function grassTexture() {
   const c = document.createElement('canvas'); c.width = c.height = 256;
   const g = c.getContext('2d');
-  g.fillStyle = '#5da344'; g.fillRect(0, 0, 256, 256);
+  g.fillStyle = '#68a63a'; g.fillRect(0, 0, 256, 256);
   for (let i = 0; i < 2600; i++) {
     const x = Math.random() * 256, y = Math.random() * 256;
-    g.fillStyle = Math.random() < .5 ? '#579b3f' : (Math.random() < .7 ? '#66ad4c' : '#4f923a');
+    g.fillStyle = Math.random() < .5 ? '#639f37' : (Math.random() < .7 ? '#72b241' : '#5b9433');
     g.fillRect(x, y, 2, 2);
   }
   for (let i = 0; i < 26; i++) {
@@ -206,7 +221,7 @@ function shelfTexture() {
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
-let shelfMat = null;   // tworzony w boot
+let shelfMat = null, coolerMat = null;   // tworzone w boot
 const shelfGeo = new THREE.BoxGeometry(1, 1, 1);
 const SHELF_H = 2.3;   // za wysoko na 1 skok — trzeba 🦘🦘 albo obejść
 
@@ -331,7 +346,113 @@ function makeTree(x, z, rng, out) {
   return { c: 1, x, z, r: 0.42, top: 99 };          // kolizja pnia
 }
 
-// -------- TRAWA (instancing + kołysanie, jak w nowych Zeldach) --------
+// ============ TRAWA — DYWAN ŹDŹBEŁ (BotW/Genshin style) ============
+// Jedna InstancedMesh z tysiącami źdźbeł, zakotwiona w siatce ŚWIATA (bez migotania),
+// przebudowywana gdy gracz odejdzie od środka. Gradient w vertex colors + wiatr w shaderze.
+function bladeGeometry() {
+  const w = 0.026, h = 1;                       // wąskie źdźbło (było za szerokie = słoma)
+  const P = [], C = [], I = [];
+  const lvl = [[0, w, 0], [0.45, w * 0.8, 0.03], [0.78, w * 0.5, 0.09], [1, 0, 0.17]];
+  const dolem = [0.24, 0.52, 0.14], gora = [0.78, 1.00, 0.42];
+  for (let i = 0; i < lvl.length; i++) {
+    const [y, hw, z] = lvl[i], t = y;
+    const col = [dolem[0] + (gora[0] - dolem[0]) * t, dolem[1] + (gora[1] - dolem[1]) * t,
+                 dolem[2] + (gora[2] - dolem[2]) * t];
+    if (hw > 0) { P.push(-hw, y * h, z, hw, y * h, z); C.push(...col, ...col); }
+    else { P.push(0, y * h, z); C.push(...col); }
+  }
+  I.push(0, 1, 2, 2, 1, 3, 2, 3, 4, 4, 3, 5, 4, 5, 6);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
+  g.setIndex(I);
+  g.computeVertexNormals();
+  return g;
+}
+const bladeGeo = bladeGeometry();
+let bladeMat = null, grassField = null;
+// uniformy dywanu: środek (gracz) + promień — do PŁYNNEGO WYRASTANIA (bez wyskakiwania)
+const grassCenterU = { value: new THREE.Vector2() };
+const grassRU = { value: 20 };
+function makeBladeMaterial() {
+  const m = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uTime = windU;
+    sh.uniforms.uCenter = grassCenterU;
+    sh.uniforms.uR = grassRU;
+    sh.vertexShader = 'uniform float uTime;uniform vec2 uCenter;uniform float uR;\n' +
+      sh.vertexShader.replace('#include <begin_vertex>',
+      `#include <begin_vertex>
+       vec3 iP = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
+       float dC = distance(iP.xz, uCenter);
+       float fade = 1.0 - smoothstep(uR - 7.0, uR - 0.5, dC);   // źdźbła wyrastają z ziemi
+       transformed.y *= fade;
+       float h = max(position.y, 0.0);
+       float sw = sin(uTime * 2.2 + iP.x * 0.45 + iP.z * 0.35) * 0.28 * h * fade
+                + sin(uTime * 0.7 + iP.x * 0.08) * 0.10 * h * fade;   // druga, wolna fala
+       transformed.x += sw;
+       transformed.z += sw * 0.45;`);
+  };
+  return m;
+}
+const GRASS_STEP = 0.20;
+let GRASS_R = 24, GRASS_MAX = 14000;
+const grassCenter = new THREE.Vector2(1e9, 1e9);
+const _gm = new THREE.Object3D(), _gc = new THREE.Color();
+
+function initGrassField() {
+  const maloMocy = matchMedia('(pointer:coarse)').matches || innerWidth < 700;
+  GRASS_R = maloMocy ? 15 : 23;
+  GRASS_MAX = maloMocy ? 14000 : 42000;
+  if (grassField) { scene.remove(grassField); grassField.dispose(); }
+  grassField = new THREE.InstancedMesh(bladeGeo, bladeMat, GRASS_MAX);
+  grassField.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(GRASS_MAX * 3), 3);
+  grassField.frustumCulled = false;
+  grassField.count = 0;
+  scene.add(grassField);
+  grassCenter.set(1e9, 1e9);
+}
+function updateGrassField() {
+  if (!grassField || MAPS[mapKey].indoor) { if (grassField) grassField.count = 0; return; }
+  grassCenterU.value.set(P.pos.x, P.pos.z);        // shader ściemnia/skraca źdźbła przy brzegu
+  grassRU.value = GRASS_R;
+  if (Math.hypot(P.pos.x - grassCenter.x, P.pos.z - grassCenter.y) < 3) return;   // dopiero po ruchu
+  grassCenter.set(P.pos.x, P.pos.z);
+  const cx = Math.round(P.pos.x / GRASS_STEP), cz = Math.round(P.pos.z / GRASS_STEP);
+  const cells = Math.ceil(GRASS_R / GRASS_STEP);
+  let n = 0;
+  for (let ix = -cells; ix <= cells && n < GRASS_MAX; ix++) {
+    for (let iz = -cells; iz <= cells && n < GRASS_MAX; iz++) {
+      if (ix * ix + iz * iz > cells * cells) continue;
+      const gx = cx + ix, gz = cz + iz;
+      const r1 = hash2(gx, gz), r2 = hash2(gx + 7777, gz - 313), r3 = hash2(gx - 99, gz + 1234);
+      if (r3 > 0.975) continue;                                  // minimum łysin
+      const x = gx * GRASS_STEP + (r1 - 0.5) * GRASS_STEP * 0.9;
+      const z = gz * GRASS_STEP + (r2 - 0.5) * GRASS_STEP * 0.9;
+      const y = terrainH(x, z);
+      if (y < WATER_Y + 0.12) continue;                          // nie w wodzie
+      const b = biome(x, z);
+      const hgt = 0.46 + r1 * 0.30 - b * 0.10;                   // do kolan (postać ~2.2 j.)
+      _gm.position.set(x, y - 0.02, z);
+      // prawie pionowo (lekkie pochylenie) — inaczej wygląda jak rozsypana słoma
+      _gm.rotation.set((r2 - 0.5) * 0.07, r1 * Math.PI * 2, (r1 - 0.5) * 0.07);
+      _gm.scale.set(1, hgt, 1);
+      _gm.updateMatrix();
+      grassField.setMatrixAt(n, _gm.matrix);
+      // kolor: las = soczysta zieleń, sucha łąka = cieplejsza; delikatna wariacja
+      const plama = vnoise(x / 9 + 3.1, z / 9 + 8.4);            // miękkie łaty
+      const v = 0.88 + plama * 0.24 + r3 * 0.05;
+      _gc.setRGB((0.86 + b * 0.30) * v, (1.06 - b * 0.04) * v, (0.46 - b * 0.10) * v);
+      grassField.setColorAt(n, _gc);
+      n++;
+    }
+  }
+  grassField.count = n;
+  grassField.instanceMatrix.needsUpdate = true;
+  if (grassField.instanceColor) grassField.instanceColor.needsUpdate = true;
+}
+
+// -------- stare kępki (zostawione dla marketu/dekoracji) --------
 function bladeTexture() {
   const c = document.createElement('canvas'); c.width = c.height = 32;
   const g = c.getContext('2d');
@@ -492,6 +613,29 @@ class Billboard {
 }
 const faceAngle = (x, z) => { const a = Math.atan2(x, z); return a < 0 ? a + Math.PI * 2 : a; };
 
+// czerwony błysk na postaci przy obrażeniach (nakładka z tą samą klatką sprite'a)
+let hitFlash = null, hitFlashMat = null;
+function initHitFlash() {
+  hitFlashMat = new THREE.MeshBasicMaterial({ color: 0xff2a2a, transparent: true, opacity: 0,
+    depthTest: false, alphaTest: 0.5, side: THREE.DoubleSide });
+  hitFlash = new THREE.Mesh(unitGeo, hitFlashMat);
+  hitFlash.renderOrder = 5;
+  hitFlash.visible = false;
+  scene.add(hitFlash);
+}
+function updateHitFlash() {
+  if (!hitFlash) return;
+  const on = P.iframes > 0 && !G.dying;
+  hitFlash.visible = on;
+  if (!on) return;
+  hitFlashMat.map = playerBB.mesh.material.map;          // ta sama klatka co postać
+  hitFlashMat.opacity = 0.35 + 0.45 * Math.abs(Math.sin(P.iframes * 22));
+  hitFlashMat.needsUpdate = true;
+  hitFlash.scale.copy(playerBB.mesh.scale);
+  hitFlash.position.copy(playerBB.mesh.position);
+  hitFlash.rotation.copy(playerBB.mesh.rotation);
+}
+
 // ============================== META (localStorage) ==============================
 const META_KEY = 'horda3d_meta_v1';
 function loadMeta() {
@@ -632,6 +776,7 @@ const G = {
   spawnT: 0, shake: 0, bossAt: 120, ringAt: 60, tier: 0,
   vacuum: 0, buff: { key: null, t: 0 },
   streak: 0, streakT: -9,
+  dying: false, deathT: 0,
 };
 const P = {};
 
@@ -1312,7 +1457,7 @@ function buildChunk(cx, cz) {
     if (MAPS[mapKey].indoor) {                   // market: jasna podłoga
       cr = cg = cb = 0.96 + 0.04 * hash2(Math.round(wx), Math.round(wz));
     } else {
-      cr = 0.82 + b * 0.30; cg = 1.0; cb = 0.80 - b * 0.18;
+      cr = 0.92 + b * 0.34; cg = 1.06; cb = 0.72 - b * 0.16;
       if (h < WATER_Y + 0.5) { cr *= 0.72; cg *= 0.78; cb *= 0.62; }
     }
     cols[i * 3] = cr; cols[i * 3 + 1] = cg; cols[i * 3 + 2] = cb;
@@ -1340,19 +1485,52 @@ function buildChunk(cx, cz) {
       rocks.push(m);
       spills.push({ x, z, r });
     }
-    // ======== MARKET: rzędy regałów, ciasne alejki, przerwy na przejścia ========
+    // ======== MARKET: regały (2 poziomy półek), palety, lady, ciasne alejki ========
     for (let rowZ = -CHUNK / 2 + 4; rowZ < CHUNK / 2; rowZ += 8) {
       for (let sx = -CHUNK / 2 + 5; sx < CHUNK / 2 - 3; sx += 10) {
-        if (rng() < 0.28) continue;              // przerwa = przejście
         const x = wx0 + sx, z = wz0 + rowZ;
         if (Math.abs(x) < 7 && Math.abs(z) < 7) continue;   // czysty spawn
-        const len = 7;
-        const m = new THREE.Mesh(shelfGeo, shelfMat);
-        m.scale.set(len, SHELF_H, 2);
-        m.position.set(x, terrainH(x, z) + SHELF_H / 2, z);
-        scene.add(m);
-        rocks.push(m);                            // rocks = meshe bez obrotu
-        solids.push({ x, z, hw: len / 2, hl: 1, top: terrainH(x, z) + SHELF_H });
+        const g0 = terrainH(x, z);
+        const co = rng();
+        if (co < 0.22) {
+          // PALETA ze skrzynkami — NISKA (0.95), wskoczysz bez podwójnego skoku
+          const pal = new THREE.Mesh(shelfGeo, plankMat);
+          pal.scale.set(3.4, 0.35, 2.6);
+          pal.position.set(x, g0 + 0.175, z);
+          scene.add(pal); rocks.push(pal);
+          const box = new THREE.Mesh(shelfGeo, crateMat);
+          box.scale.set(2.6, 0.6, 2);
+          box.position.set(x, g0 + 0.65, z);
+          scene.add(box); rocks.push(box);
+          solids.push({ x, z, hw: 1.7, hl: 1.3, top: g0 + 0.95 });
+        } else if (co < 0.34) {
+          // LADA / stoisko chłodnicze — średnia (1.5), przeskok ze skoku z rozbiegu
+          const lada = new THREE.Mesh(shelfGeo, coolerMat);
+          lada.scale.set(6, 1.5, 2.2);
+          lada.position.set(x, g0 + 0.75, z);
+          scene.add(lada); rocks.push(lada);
+          solids.push({ x, z, hw: 3, hl: 1.1, top: g0 + 1.5 });
+        } else if (co < 0.62) {
+          continue;                               // przerwa = przejście w alejce
+        } else {
+          // REGAŁ: korpus + 2 wystające półki (bryły) = lepiej czytelny
+          const len = 7;
+          const m = new THREE.Mesh(shelfGeo, shelfMat);
+          m.scale.set(len, SHELF_H, 1.6);
+          m.position.set(x, g0 + SHELF_H / 2, z);
+          scene.add(m); rocks.push(m);
+          for (const [hy, dz] of [[0.8, 1.05], [1.6, 1.05], [0.8, -1.05], [1.6, -1.05]]) {
+            const p2 = new THREE.Mesh(shelfGeo, plankMat);
+            p2.scale.set(len, 0.14, 0.6);
+            p2.position.set(x, g0 + hy, z + dz);
+            scene.add(p2); rocks.push(p2);
+          }
+          const top = new THREE.Mesh(shelfGeo, plankMat);   // blat na górze
+          top.scale.set(len + 0.3, 0.16, 2.1);
+          top.position.set(x, g0 + SHELF_H + 0.08, z);
+          scene.add(top); rocks.push(top);
+          solids.push({ x, z, hw: len / 2, hl: 1.1, top: g0 + SHELF_H + 0.16 });
+        }
       }
     }
   } else {
@@ -1419,7 +1597,6 @@ function buildChunk(cx, cz) {
       if (terrainH(x, z) < WATER_Y + 0.5) continue;
       solids.push(makeTree(x, z, rng, rocks));
     }
-    grass = makeGrass(cx, cz, rng);
     const nDeco = 4 + Math.floor(rng() * 4);
     for (let i = 0; i < nDeco; i++) {
       const x = wx0 + (rng() - 0.5) * CHUNK, z = wz0 + (rng() - 0.5) * CHUNK;
@@ -1535,6 +1712,8 @@ function setMap(key) {
   water.visible = M.water;
   for (const c of clouds) c.m.visible = !M.indoor;
   rebuildWorld();
+  grassCenter.set(1e9, 1e9);
+  updateGrassField();
   for (const c of chests) placeChest(c);
   for (const t of totems) placeTotem(t);
 }
@@ -1721,6 +1900,7 @@ let playerBB = null;
 const clock = new THREE.Clock();
 
 function update(dt) {
+  if (G.dying) { updateDeath(dt); return; }
   G.time += dt;
   document.getElementById('timer').textContent = fmtTime(G.time);
   // komunikat o wzroście poziomu zagrożenia
@@ -1768,6 +1948,7 @@ function update(dt) {
   solveSolids(P.pos, 0.4, P.y);          // regały/pnie/głazy odpychają
   const pTy = terrainH(P.pos.x, P.pos.z);
   ensureChunks();
+  updateGrassField();
   water.position.set(P.pos.x, WATER_Y, P.pos.z);
 
   // ---- fizyka pionowa (spadanie z krawędzi, skok, lądowanie na regale) ----
@@ -1790,8 +1971,9 @@ function update(dt) {
   if (P.airborne) playerBB.play('jump', false);
   else playerBB.play(moving ? 'run' : 'idle');
   if (P.iframes > 0) P.iframes -= dt;
-  playerBB.mesh.visible = !(P.iframes > 0 && Math.floor(P.iframes * 12) % 2 === 0);
+  playerBB.mesh.visible = true;
   playerBB.update(dt, P.pos, P.y, ground);
+  updateHitFlash();
 
   // ---- spawner: krzywa trudności (1 min ~lekko, 4 min = ~4× więcej naraz) ----
   const min = G.time / 60;
@@ -1910,7 +2092,7 @@ function update(dt) {
         G.shake = 0.35;
         const v = document.getElementById('vign');
         v.style.opacity = 1; setTimeout(() => v.style.opacity = 0, 180);
-        if (P.hp <= 0) return gameOver();
+        if (P.hp <= 0) return startDeath();
       }
     }
   }
@@ -2162,8 +2344,53 @@ function update(dt) {
   }
 }
 
+// ŚMIERĆ: slow-motion, zbliżenie, postać pada — dopiero potem ekran końca
+function startDeath() {
+  if (G.dying) return;
+  G.dying = true; G.deathT = 0;
+  G.shake = 0.9;
+  document.getElementById('vign').style.opacity = 1;
+  dmgPop(P.pos.x, P.y + 1.2, P.pos.z, 'KONIEC!', '#ff4a4a', 2.4);
+  novaRing(P.pos.x, P.pos.z, 6);
+  if (hitFlash) hitFlash.visible = false;
+}
+function updateDeath(dt) {
+  G.deathT += dt;
+  const t = G.deathT;
+  // postać przewraca się na bok i zapada w ziemię
+  playerBB.mesh.rotation.z = Math.min(Math.PI / 2, t * 3.2);
+  playerBB.mesh.position.y = P.y - Math.min(0.55, t * 0.5);
+  // kamera zjeżdża blisko i niżej
+  const k = Math.min(1, t / 1.4);
+  const dist = CAM_DIST * (1 - 0.55 * k), hgt = CAM_H * (1 - 0.45 * k);
+  const cx = P.pos.x + Math.sin(camYaw) * dist, cz = P.pos.z + Math.cos(camYaw) * dist;
+  camera.position.set(cx, P.y + hgt + 0.4, cz);
+  camera.lookAt(P.pos.x, P.y + 0.5, P.pos.z);
+  if (G.shake > 0) {
+    G.shake -= dt;
+    camera.position.x += (Math.random() - .5) * G.shake;
+    camera.position.y += (Math.random() - .5) * G.shake;
+  }
+  // wrogowie zwalniają i rozchodzą się (slow-motion)
+  for (const e of G.enemies) {
+    const away = e.pos.clone().sub(P.pos).setY(0).normalize().multiplyScalar(1.2 * dt);
+    e.pos.add(away);
+    e.bb.update(dt * 0.25, e.pos, e.ty);
+  }
+  for (let i = G.pops.length - 1; i >= 0; i--) {
+    const p = G.pops[i]; p.t += dt * 0.4;
+    p.mesh.position.y += 0.9 * dt;
+    p.mesh.rotation.y = camYaw;
+    p.mesh.material.opacity = Math.max(0, 1 - p.t / 1.4);
+    if (p.t > 1.4) { scene.remove(p.mesh); p.mesh.material.dispose(); G.pops.splice(i, 1); }
+  }
+  if (t > 1.8) { G.dying = false; gameOver(); }
+}
+
 function gameOver() {
   G.over = true; G.running = false;
+  document.getElementById('vign').style.opacity = 0;
+  playerBB.mesh.rotation.z = 0;
   META.coins += G.runCoins;
   const s = META.st;
   s.kills += G.kills; s.runs++; s.time += G.time; s.coins += G.runCoins; s.lvl += P.lvl - 1;
@@ -2223,7 +2450,7 @@ function clearWorld() {
 function newGame() {
   clearWorld();
   resetStats();
-  Object.assign(G, { running: true, over: false, paused: false, time: 0, kills: 0, runCoins: 0, spawnT: 0.5, bossAt: 120, ringAt: 60, tier: 0, shake: 0 });
+  Object.assign(G, { running: true, over: false, paused: false, dying: false, deathT: 0, time: 0, kills: 0, runCoins: 0, spawnT: 0.5, bossAt: 120, ringAt: 60, tier: 0, shake: 0 });
   P.pos.set(0, 0, 0);
   P.y = terrainH(0, 0);
   wchest.active = false; wchest.wait = 8;
@@ -2284,9 +2511,12 @@ function loop() {
   chunkMat = new THREE.MeshLambertMaterial({ map: grassTexC, vertexColors: true });
   chunkMatIndoor = new THREE.MeshLambertMaterial({ map: floorTexC, vertexColors: true });
   shelfMat = new THREE.MeshLambertMaterial({ map: shelfTexture() });
+  coolerMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#9fc6d8', '#5d8ba3', 5) });
   spillMat = new THREE.MeshBasicMaterial({ map: spillTexture(), transparent: true, depthWrite: false });
   grassMat = addWind(new THREE.MeshLambertMaterial({ map: bladeTexture(), alphaTest: 0.45,
     side: THREE.DoubleSide, transparent: false }), 0.22, 2.1);
+  bladeMat = makeBladeMaterial();
+  initGrassField();
   crateMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#b98a4e', '#7d5a2e', 4) });
   plankMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#a9793f', '#6d4a22', 6) });
   stoneMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#9a9c96', '#6f7169', 3) });
@@ -2296,6 +2526,7 @@ function loop() {
   P.pos = new THREE.Vector3(0, 0, 0);
   P.y = terrainH(0, 0);
   playerBB = new Billboard(CHARS[charKey].char, CHARS[charKey].scale);
+  initHitFlash();
   resetStats();          // P.pos musi istnieć PRZED chunkami i skrzyniami
   setMap(mapKey);        // buduje świat + rozstawia skrzynie/totemy
   spawnChests(9);
@@ -2351,6 +2582,7 @@ function loop() {
   window.HORDA = {
     G, P, terrainH, chests, totems, openSwap, renderWpns, chunkMap, supportY, onSpill, setMap,
     wchest, META, CHARS, MAPS, setPlayerChar, togglePause, get charKey() { return charKey; },
+    get grass() { return grassField; },
     step(n = 1, dt = 1 / 60) {
       for (let i = 0; i < n; i++) if (G.running && !G.paused) update(dt);
       renderer.render(scene, camera);
