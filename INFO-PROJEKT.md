@@ -251,17 +251,44 @@
 - Kamera: desktop 8.4/7.2 (wyżej), telefon poziomo **4.2/4.4 (bardzo blisko)**;
   mgła 80-190 (widać dalej).
 
+## FOLIAGE + ATMOSFERA v29-v33 (10.08, po referencji Genshina od usera)
+- **DRZEWA = KARTY LIŚCI** (technika leaf cards z douges.dev): korona to 12-20 quadów
+  z proceduralną alfa-teksturą kępki listków (`leafCardTexture`, 4 palety w tym jesienna),
+  rozsianych po elipsoidzie, **instancjonowanych per chunk** (jedna InstancedMesh na
+  paletę → ~2.2 tys. kart przy kilkudziesięciu grupach) i kołysanych `addWind`.
+  Świerki zostają stożkami. Pnie = osobne meshe (kolizja r=0.42, top=99).
+- **CIENIE CHMUR** (`addCloudShadow`): bezszwowa tekstura plam przesuwana po świecie
+  (uniform `uCloudOff`), wpinana do materiałów przez onBeforeCompile — przyciemnia
+  fragment wg pozycji XZ. Działa na terenie i trawie; łatwo dopiąć kolejne materiały.
+  UWAGA na kolejność: `addCloudShadow` przed shaderem wiatru, wiatr wywołuje starą
+  funkcję (`_wind(sh)`), bo inaczej jedna nadpisuje drugą.
+- **TRAWA po uwagach usera**: źdźbła **grubsze i krótsze** (w 0.055, wys. 0.30-0.48 —
+  pomysł usera, lepiej czyta się w pixel-arcie), promień 34 (telefon 22), krok 0.30,
+  strefa wtapiania 18 j., przebudowa co 1.2 j. ruchu (było 3 — stąd „skokowo").
+  Podłoże przemalowane na kolor źdźbeł (#9ad557) — granica dywanu przestała być widoczna.
+- **SZYBOWANIE (Liść sałaty)**: przytrzymanie skoku podczas opadania = vy clamp -1.5,
+  prędkość ×1.45, pixelowy liść nad głową (`lettuce`). Sklep 250 monet albo skrzynia
+  (7% szans na bieg). Zmierzone: lot 44 → 99 klatek, 12.8 j. dystansu w powietrzu.
+- **Przycisk skoku**: 96×96 + `::after{inset:-22px}` (większe pole trafienia),
+  odsunięty 38/52 px od krawędzi + `env(safe-area-inset-*)`.
+- Kamera po iteracjach z userem: desktop 6.8/7.0, telefon poziomo 3.6/4.3.
+
+## ASSETY: user zgodził się na DARMOWE PACZKI (CC0: Kenney, Quaternius, itch.io).
+Do wykorzystania przy rekwizytach/budynkach. Uwaga: GLTF wymaga dociągnięcia
+`GLTFLoader.js` z examples/jsm + importmap — nie ma go w naszym lokalnym three.module.js.
+
 ## ZESPÓŁ AGENTÓW (`.claude/agents/`) — utworzony 10.08
 `grafik-3d` (shadery/foliage/stylizacja), `projektant-gry` (balans, bronie, dopamina),
 `optymalizator` (fps, instancing, telefon), `tester-gry` (scenariusze w przeglądarce,
 zna pułapkę `HORDA.step` i stanów `running/paused`). Wołaj ich narzędziem Agent.
 
-## DO ZROBIENIA (kolejka z rozmowy 10.08)
-1. **Encyklopedia/bestiariusz** — opis wroga odblokowywany po 1. zabiciu (META.st).
-2. **Liście na drzewach = leaf cards** (skrzyżowane quady z alfa-teksturą,
-   instancjonowane, kołysane wiatrem) — technika z douges.dev/Codrops.
-3. Dalsza stylizacja Genshin: gradient nieba, chmury wolumetryczne-billboardy,
-   miękkie cienie pod obiektami, ewentualnie toon-shading terenu.
+## DO ZROBIENIA (kolejność ustalona z userem 10.08: drzewa → woda → kwiatki → trawa)
+1. ~~Drzewa (karty liści)~~ ✅ v33.
+2. **WODA** — teraz płaska niebieska płyta; plan: falująca siatka (animacja
+   wierzchołków w shaderze), dwa odcienie głębi, piana przy brzegu.
+3. **KWIATKI w trawie** + warianty źdźbeł (druga geometria losowana per instancja).
+4. **Encyklopedia/bestiariusz** — opis wroga odblokowywany po 1. zabiciu.
+5. Dalej: gradient nieba, miękkie cienie pod obiektami, toon-shading terenu.
 
 ## Monetyzacja (decyzja usera 8.08)
 - **Steam**: wersja płatna (bez reklam). Pakowanie: Electron albo natywny webview.
