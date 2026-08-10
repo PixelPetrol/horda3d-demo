@@ -273,6 +273,26 @@
   odsunięty 38/52 px od krawędzi + `env(safe-area-inset-*)`.
 - Kamera po iteracjach z userem: desktop 6.8/7.0, telefon poziomo 3.6/4.3.
 
+## ⚠️ DRUGA PUŁAPKA: INSTANCING A POZYCJA W ŚWIECIE (v44)
+Cienie chmur przyciemniały CAŁĄ trawę naraz albo wcale. Powód: w shaderze liczyłem
+`vWPos = modelMatrix * transformed`, a three.js mnoży przez `instanceMatrix` dopiero
+w `project_vertex` — więc wszystkie instancje miały tę samą pozycję.
+LEKARSTWO: w takim kodzie ZAWSZE ręcznie: `#ifdef USE_INSTANCING _wp = instanceMatrix * _wp; #endif`.
+
+## CIENIE (v41-v44)
+- **Shadow map słońca**: `renderer.shadowMap` PCFSoft, `sun.castShadow`, ramka ortho 42 j.
+  PODĄŻA ZA GRACZEM (`updateSun` co klatkę). Cień rzucają pnie, stożki świerków, głazy;
+  teren `receiveShadow`. Karty liści są billboardami (własny `project_vertex`), więc
+  shadow map ich nie ogarnia → każde drzewo dostaje plamę cienia pod koroną (`blobGeo`).
+- **Cienie chmur**: tekstura z fBm (`pnoise` — OKRESOWY szum, kafelkuje się bezszwowo;
+  4 oktawy, próg + kontrast = ostre nieregularne kształty). Dryf `CLOUD_SPD = 9.0`.
+  Wpięte w: teren, trawę, liście, sprite'y postaci (`addCloudShadow` w `buildChar`).
+
+## FONT BITMAPOWY DO LICZB (v44)
+Pixelify mylił 5 z S, a zwykły bezszeryf nie był pixelowy. Rozwiązanie: własny font
+5×7 (`GLIF` w main.js, cyfry + A-Z + polskie znaki), rysowany pikselami z 8-kierunkowym
+konturem, NearestFilter. Napisy skalują się wg proporcji tekstury (`userData.aspect`).
+
 ## ⚠️ PUŁAPKA, KTÓRA KOSZTOWAŁA KILKA ITERACJI (v34-v37)
 Drzewa i trawa renderowały się **CZARNE**. Przyczyna: materiał ma `vertexColors: true`
 (potrzebne do `instanceColor`), a geometria NIE MIAŁA atrybutu `color` — three.js
