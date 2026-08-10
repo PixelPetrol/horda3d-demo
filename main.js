@@ -147,15 +147,15 @@ addEventListener('orientationchange', () => setTimeout(fitCamera, 250));
 function grassTexture() {
   const c = document.createElement('canvas'); c.width = c.height = 256;
   const g = c.getContext('2d');
-  g.fillStyle = '#68a63a'; g.fillRect(0, 0, 256, 256);
+  g.fillStyle = '#8ac94a'; g.fillRect(0, 0, 256, 256);
   for (let i = 0; i < 2600; i++) {
     const x = Math.random() * 256, y = Math.random() * 256;
-    g.fillStyle = Math.random() < .5 ? '#639f37' : (Math.random() < .7 ? '#72b241' : '#5b9433');
+    g.fillStyle = Math.random() < .5 ? '#84c245' : (Math.random() < .7 ? '#93d452' : '#7ab840');
     g.fillRect(x, y, 2, 2);
   }
   for (let i = 0; i < 26; i++) {
     const x = Math.random() * 256, y = Math.random() * 256, r = 8 + Math.random() * 16;
-    g.fillStyle = 'rgba(60,110,45,0.10)';
+    g.fillStyle = 'rgba(90,150,60,0.10)';
     g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
   }
   const t = new THREE.CanvasTexture(c);
@@ -350,9 +350,9 @@ function makeTree(x, z, rng, out) {
 // Jedna InstancedMesh z tysiącami źdźbeł, zakotwiona w siatce ŚWIATA (bez migotania),
 // przebudowywana gdy gracz odejdzie od środka. Gradient w vertex colors + wiatr w shaderze.
 function bladeGeometry() {
-  const w = 0.026, h = 1;                       // wąskie źdźbło (było za szerokie = słoma)
+  const w = 0.055, h = 1;                       // wąskie źdźbło (było za szerokie = słoma)
   const P = [], C = [], I = [];
-  const lvl = [[0, w, 0], [0.45, w * 0.8, 0.03], [0.78, w * 0.5, 0.09], [1, 0, 0.17]];
+  const lvl = [[0, w, 0], [0.5, w * 0.85, 0.03], [0.82, w * 0.6, 0.08], [1, 0, 0.14]];
   const dolem = [0.24, 0.52, 0.14], gora = [0.78, 1.00, 0.42];
   for (let i = 0; i < lvl.length; i++) {
     const [y, hw, z] = lvl[i], t = y;
@@ -385,7 +385,7 @@ function makeBladeMaterial() {
       `#include <begin_vertex>
        vec3 iP = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
        float dC = distance(iP.xz, uCenter);
-       float fade = 1.0 - smoothstep(uR - 7.0, uR - 0.5, dC);   // źdźbła wyrastają z ziemi
+       float fade = 1.0 - smoothstep(uR - 13.0, uR - 0.5, dC);  // szeroka strefa wtapiania
        transformed.y *= fade;
        float h = max(position.y, 0.0);
        float sw = sin(uTime * 2.2 + iP.x * 0.45 + iP.z * 0.35) * 0.28 * h * fade
@@ -395,15 +395,15 @@ function makeBladeMaterial() {
   };
   return m;
 }
-const GRASS_STEP = 0.20;
+const GRASS_STEP = 0.30;
 let GRASS_R = 24, GRASS_MAX = 14000;
 const grassCenter = new THREE.Vector2(1e9, 1e9);
 const _gm = new THREE.Object3D(), _gc = new THREE.Color();
 
 function initGrassField() {
   const maloMocy = matchMedia('(pointer:coarse)').matches || innerWidth < 700;
-  GRASS_R = maloMocy ? 15 : 23;
-  GRASS_MAX = maloMocy ? 14000 : 42000;
+  GRASS_R = maloMocy ? 22 : 34;
+  GRASS_MAX = maloMocy ? 15000 : 46000;
   if (grassField) { scene.remove(grassField); grassField.dispose(); }
   grassField = new THREE.InstancedMesh(bladeGeo, bladeMat, GRASS_MAX);
   grassField.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(GRASS_MAX * 3), 3);
@@ -416,7 +416,7 @@ function updateGrassField() {
   if (!grassField || MAPS[mapKey].indoor) { if (grassField) grassField.count = 0; return; }
   grassCenterU.value.set(P.pos.x, P.pos.z);        // shader ściemnia/skraca źdźbła przy brzegu
   grassRU.value = GRASS_R;
-  if (Math.hypot(P.pos.x - grassCenter.x, P.pos.z - grassCenter.y) < 3) return;   // dopiero po ruchu
+  if (Math.hypot(P.pos.x - grassCenter.x, P.pos.z - grassCenter.y) < 1.2) return;  // częściej = płynniej
   grassCenter.set(P.pos.x, P.pos.z);
   const cx = Math.round(P.pos.x / GRASS_STEP), cz = Math.round(P.pos.z / GRASS_STEP);
   const cells = Math.ceil(GRASS_R / GRASS_STEP);
@@ -432,7 +432,7 @@ function updateGrassField() {
       const y = terrainH(x, z);
       if (y < WATER_Y + 0.12) continue;                          // nie w wodzie
       const b = biome(x, z);
-      const hgt = 0.46 + r1 * 0.30 - b * 0.10;                   // do kolan (postać ~2.2 j.)
+      const hgt = 0.30 + r1 * 0.18 - b * 0.06;                   // KRÓTSZE i grubsze
       _gm.position.set(x, y - 0.02, z);
       // prawie pionowo (lekkie pochylenie) — inaczej wygląda jak rozsypana słoma
       _gm.rotation.set((r2 - 0.5) * 0.07, r1 * Math.PI * 2, (r1 - 0.5) * 0.07);
@@ -613,6 +613,53 @@ class Billboard {
 }
 const faceAngle = (x, z) => { const a = Math.atan2(x, z); return a < 0 ? a + Math.PI * 2 : a; };
 
+// ---- LIŚĆ SAŁATY (lotnia) — pixelowa tekstura + mesh nad postacią ----
+function lettuceTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  // falisty liść: kilka warstw zieleni z ząbkowaną krawędzią
+  const warstwy = [['#3f7a2e', 30], ['#5aa83c', 26], ['#7cc94f', 20], ['#a5e072', 12]];
+  for (const [col, r] of warstwy) {
+    g.fillStyle = col;
+    g.beginPath();
+    for (let a = 0; a <= Math.PI * 2 + 0.01; a += Math.PI / 14) {
+      const fala = 1 + 0.16 * Math.sin(a * 7);
+      const x = 32 + Math.cos(a) * r * fala * 1.35;
+      const y = 34 + Math.sin(a) * r * fala * 0.75;
+      a === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+    }
+    g.closePath(); g.fill();
+  }
+  g.strokeStyle = '#dff0b8'; g.lineWidth = 2;      // nerwy liścia
+  g.beginPath(); g.moveTo(6, 34); g.lineTo(58, 34); g.stroke();
+  for (let i = -2; i <= 2; i++) {
+    g.beginPath(); g.moveTo(32, 34); g.lineTo(32 + i * 12, 34 + (i % 2 ? -12 : 12)); g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+let lettuce = null;
+function initLettuce() {
+  const m = new THREE.MeshBasicMaterial({ map: lettuceTexture(), transparent: true,
+    alphaTest: 0.4, side: THREE.DoubleSide, depthWrite: false });
+  lettuce = new THREE.Mesh(unitGeo, m);
+  lettuce.scale.set(2.2, 1.3, 1);
+  lettuce.visible = false;
+  scene.add(lettuce);
+}
+function updateLettuce(dt) {
+  if (!lettuce) return;
+  lettuce.visible = !!P.gliding;
+  if (!P.gliding) return;
+  const kolysanie = Math.sin(G.time * 5) * 0.12;
+  lettuce.position.set(P.pos.x, P.y + 2.5 + Math.sin(G.time * 3) * 0.07, P.pos.z);
+  lettuce.rotation.set(-0.9 + kolysanie * 0.4, camYaw, kolysanie);
+}
+
 // czerwony błysk na postaci przy obrażeniach (nakładka z tą samą klatką sprite'a)
 let hitFlash = null, hitFlashMat = null;
 function initHitFlash() {
@@ -673,6 +720,7 @@ const SHOP_UNLOCKS = [
   { key: 'bumerang', ico: 'radio', nm: 'Radio-bumerang',  ds: 'Leci i wraca, kosząc po drodze', price: 250 },
   { key: 'tarcza',   ico: 'tarcza', nm: 'Tarcza',         ds: 'Blokuje 1 trafienie co jakiś czas', price: 120 },
   { key: 'djump',    ico: 'skok', nm: 'Podwójny skok',         ds: 'Drugi skok w powietrzu — przeskakuj regały (bywa też w skrzyniach)', price: 300 },
+  { key: 'glide',    ico: 'skok', nm: 'Liść sałaty',            ds: 'PRZYTRZYMAJ skok w locie = szybujesz i uciekasz hordzie', price: 250 },
   { key: 'skarpeta', ico: 'skarpeta', nm: 'Skarpeta', ds: 'Śmierdząca aura truje wokół', price: 180 },
   { key: 'wiatrowka', ico: 'wiatr', nm: 'Wiatrówka',      ds: 'Promień przeszywa całą linię', price: 220 },
   { key: 'kura',     ico: 'kura', nm: 'Kura-kamikaze',   ds: 'Biegnie i wybucha. Kura.', price: 350 },
@@ -787,6 +835,7 @@ function resetStats() {
     pos: new THREE.Vector3(0, 0, 0),
     hp: maxHp, maxHp,
     iframes: 0, y: 1.55, vy: 0, airborne: false, usedDouble: false, runDjump: false, shieldCd: 0,
+    gliding: false, runGlide: false,
     vx: 0, vz: 0,
     weapons: [{ key: 'kule', lvl: 1, t: 0 }],   // max 3 sloty
     passives: {},                                // key -> poziom
@@ -806,19 +855,24 @@ const hasWeapon = k => P.weapons.find(w => w.key === k);
 // ============================== WEJŚCIE ==============================
 const keys = {};
 const hasDjump = () => META.unlocked.djump || P.runDjump;
+const hasGlide = () => META.unlocked.glide || P.runGlide;
+let jumpHeld = false;                              // przytrzymanie = SZYBOWANIE
 function tryJump() {
   if (!G.running || G.paused) return;
   if (!P.airborne) { P.vy = 8.2; P.airborne = true; }
-  else if (hasDjump() && !P.usedDouble) {          // 🦘🦘 podwójny skok
+  else if (hasDjump() && !P.usedDouble) {          // podwójny skok
     P.vy = 7.6; P.usedDouble = true;
     dmgPop(P.pos.x, P.y + 0.4, P.pos.z, 'HOP!', '#aaeeff', 1.1);
   }
 }
 addEventListener('keydown', e => {
   keys[e.code] = true;
-  if (e.code === 'Space') { e.preventDefault(); tryJump(); }
+  if (e.code === 'Space') { e.preventDefault(); if (!jumpHeld) tryJump(); jumpHeld = true; }
 });
-addEventListener('keyup', e => { keys[e.code] = false; });
+addEventListener('keyup', e => {
+  keys[e.code] = false;
+  if (e.code === 'Space') jumpHeld = false;
+});
 
 // dotyk: lewa połowa = joystick; mysz / prawa połowa dotyku = obrót kamery
 const stickEl = document.getElementById('stick'), knobEl = document.getElementById('knob');
@@ -858,7 +912,15 @@ function endTouch(e) {
 }
 addEventListener('pointerup', endTouch);
 addEventListener('pointercancel', endTouch);
-document.getElementById('jbtn').addEventListener('pointerdown', e => { e.stopPropagation(); tryJump(); });
+{
+  const jb = document.getElementById('jbtn');
+  jb.addEventListener('pointerdown', e => { e.stopPropagation(); jumpHeld = true; tryJump(); });
+  const puscil = () => { jumpHeld = false; };
+  jb.addEventListener('pointerup', puscil);
+  jb.addEventListener('pointercancel', puscil);
+  jb.addEventListener('pointerleave', puscil);
+  addEventListener('pointerup', puscil);            // gdy palec zjedzie poza przycisk
+}
 
 // ============================== WROGOWIE ==============================
 const ENEMY_TYPES = {
@@ -1457,7 +1519,7 @@ function buildChunk(cx, cz) {
     if (MAPS[mapKey].indoor) {                   // market: jasna podłoga
       cr = cg = cb = 0.96 + 0.04 * hash2(Math.round(wx), Math.round(wz));
     } else {
-      cr = 0.92 + b * 0.34; cg = 1.06; cb = 0.72 - b * 0.16;
+      cr = 0.90 + b * 0.32; cg = 1.04; cb = 0.60 - b * 0.14;   // ton jak źdźbła
       if (h < WATER_Y + 0.5) { cr *= 0.72; cg *= 0.78; cb *= 0.62; }
     }
     cols[i * 3] = cr; cols[i * 3 + 1] = cg; cols[i * 3 + 2] = cb;
@@ -1932,6 +1994,7 @@ function update(dt) {
   const inWater = !P.airborne && terrainH(P.pos.x, P.pos.z) < WATER_Y - 0.04;
   let spd = speedF() * (inWater ? 0.6 : 1);
   if (G.buff.key === 'szyb') spd *= 1.45;
+  if (P.gliding) spd *= 1.45;                    // szybując lecisz szybciej = ucieczka od hordy
   // strome zbocze (mesa): pieszo wolno POD GÓRĘ, ale skokiem normalnie
   if (ml > 0.05 && !P.airborne) {
     const inv = 1 / Math.max(ml, 0.001);
@@ -1951,16 +2014,20 @@ function update(dt) {
   updateGrassField();
   water.position.set(P.pos.x, WATER_Y, P.pos.z);
 
-  // ---- fizyka pionowa (spadanie z krawędzi, skok, lądowanie na regale) ----
+  // ---- fizyka pionowa (spadanie z krawędzi, skok, SZYBOWANIE, lądowanie) ----
   const ground = supportY(P.pos.x, P.pos.z, P.y);
   if (P.airborne) {
     P.vy -= 22 * dt;
+    // LIŚĆ SAŁATY: przytrzymanie skoku podczas opadania = powolne szybowanie
+    P.gliding = hasGlide() && jumpHeld && P.vy < -0.6;
+    if (P.gliding) P.vy = Math.max(P.vy, -1.5);
     P.y += P.vy * dt;
     if (P.vy <= 0 && P.y <= ground) {                    // lądowanie
-      P.y = ground; P.vy = 0; P.airborne = false; P.usedDouble = false;
+      P.y = ground; P.vy = 0; P.airborne = false; P.usedDouble = false; P.gliding = false;
       if (stompLvl() > 0) nova(P.pos.x, P.pos.z, stompRad(stompLvl()), stompDmg(stompLvl()));
     }
   } else {
+    P.gliding = false;
     if (ground < P.y - 0.5) { P.airborne = true; P.vy = 0; }   // zszedłeś z krawędzi → SPADASZ
     else P.y = ground;                                          // podążanie za terenem
   }
@@ -1974,6 +2041,7 @@ function update(dt) {
   playerBB.mesh.visible = true;
   playerBB.update(dt, P.pos, P.y, ground);
   updateHitFlash();
+  updateLettuce(dt);
 
   // ---- spawner: krzywa trudności (1 min ~lekko, 4 min = ~4× więcej naraz) ----
   const min = G.time / 60;
@@ -2530,6 +2598,7 @@ function loop() {
   P.y = terrainH(0, 0);
   playerBB = new Billboard(CHARS[charKey].char, CHARS[charKey].scale);
   initHitFlash();
+  initLettuce();
   resetStats();          // P.pos musi istnieć PRZED chunkami i skrzyniami
   setMap(mapKey);        // buduje świat + rozstawia skrzynie/totemy
   spawnChests(9);
