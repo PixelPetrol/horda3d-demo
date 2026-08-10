@@ -10,10 +10,10 @@ const WORLD_R = 130;
 let CAM_DIST = 9.2, CAM_H = 6.4;
 function fitCamera() {
   const wys = innerHeight, poziomo = innerWidth > innerHeight;
-  if (poziomo && wys <= 560) { CAM_DIST = 3.5; CAM_H = 3.9; camera.fov = 60; }   // telefon poziomo: BARDZO blisko
-  else if (wys <= 560) { CAM_DIST = 5.2; CAM_H = 4.9; camera.fov = 58; }
-  else if (innerWidth <= 520) { CAM_DIST = 5.7; CAM_H = 5.2; camera.fov = 58; }  // telefon pionowo
-  else { CAM_DIST = 7.0; CAM_H = 6.4; camera.fov = 58; }                          // desktop
+  if (poziomo && wys <= 560) { CAM_DIST = 3.6; CAM_H = 4.3; camera.fov = 60; }   // telefon poziomo
+  else if (wys <= 560) { CAM_DIST = 5.0; CAM_H = 5.4; camera.fov = 58; }
+  else if (innerWidth <= 520) { CAM_DIST = 5.5; CAM_H = 5.8; camera.fov = 58; }  // telefon pionowo
+  else { CAM_DIST = 6.8; CAM_H = 7.0; camera.fov = 58; }                          // desktop
   camera.updateProjectionMatrix();
 }
 const DIR_ROWS = ['south','south-east','east','north-east','north','north-west','west','south-west'];
@@ -147,10 +147,10 @@ addEventListener('orientationchange', () => setTimeout(fitCamera, 250));
 function grassTexture() {
   const c = document.createElement('canvas'); c.width = c.height = 256;
   const g = c.getContext('2d');
-  g.fillStyle = '#8ac94a'; g.fillRect(0, 0, 256, 256);
+  g.fillStyle = '#9ad557'; g.fillRect(0, 0, 256, 256);
   for (let i = 0; i < 2600; i++) {
     const x = Math.random() * 256, y = Math.random() * 256;
-    g.fillStyle = Math.random() < .5 ? '#84c245' : (Math.random() < .7 ? '#93d452' : '#7ab840');
+    g.fillStyle = Math.random() < .5 ? '#93cf50' : (Math.random() < .7 ? '#a3e05e' : '#8bc74a');
     g.fillRect(x, y, 2, 2);
   }
   for (let i = 0; i < 26; i++) {
@@ -282,8 +282,58 @@ const clouds = [];
 const rockMat = new THREE.MeshLambertMaterial({ color: 0x8a8f85, flatShading: true });
 const rockGeo = new THREE.IcosahedronGeometry(1, 0);
 
-// ============================== WIATR (wspólny czas dla shaderów) ==============================
+// ============================== WIATR + CIENIE CHMUR ==============================
 const windU = { value: 0 };
+
+// Cienie chmur: proceduralna tekstura plam przesuwana po świecie (projekcja z góry).
+// Wpinana do materiałów terenu/trawy/postaci — przyciemnia fragmenty wg pozycji XZ.
+function cloudShadowTexture() {
+  const S = 256;
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 22; i++) {                      // miękkie plamy cienia
+    const x = Math.random() * S, y = Math.random() * S, r = 18 + Math.random() * 46;
+    const gr = g.createRadialGradient(x, y, r * 0.15, x, y, r);
+    gr.addColorStop(0, 'rgba(0,0,0,0.55)');
+    gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr;
+    g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+    if (x < r || x > S - r || y < r || y > S - r) {   // powielenie dla bezszwowości
+      for (const [dx, dy] of [[S, 0], [-S, 0], [0, S], [0, -S]]) {
+        const g2 = g.createRadialGradient(x + dx, y + dy, r * 0.15, x + dx, y + dy, r);
+        g2.addColorStop(0, 'rgba(0,0,0,0.55)'); g2.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = g2;
+        g.beginPath(); g.arc(x + dx, y + dy, r, 0, 7); g.fill();
+      }
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+const cloudShadowU = { value: null };
+const cloudOffU = { value: new THREE.Vector2() };
+const CLOUD_SCALE = 0.0075, CLOUD_SPD = 0.9;          // skala plam i prędkość dryfu
+
+// wpina cienie chmur do dowolnego materiału (po pozycji w świecie)
+function addCloudShadow(mat) {
+  const stary = mat.onBeforeCompile;
+  mat.onBeforeCompile = sh => {
+    if (stary) stary(sh);
+    sh.uniforms.uCloud = cloudShadowU;
+    sh.uniforms.uCloudOff = cloudOffU;
+    sh.vertexShader = 'varying vec3 vWPos;\n' + sh.vertexShader.replace('#include <fog_vertex>',
+      '#include <fog_vertex>\n  vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = 'uniform sampler2D uCloud;uniform vec2 uCloudOff;varying vec3 vWPos;\n' +
+      sh.fragmentShader.replace('#include <dithering_fragment>',
+      `#include <dithering_fragment>
+       float cs = texture2D(uCloud, vWPos.xz * ${CLOUD_SCALE.toFixed(5)} + uCloudOff).r;
+       gl_FragColor.rgb *= mix(0.62, 1.0, cs);`);
+  };
+  mat.needsUpdate = true;
+  return mat;
+}
 function addWind(mat, amp = 0.16, freq = 1.7) {
   mat.onBeforeCompile = sh => {
     sh.uniforms.uTime = windU;
@@ -314,15 +364,59 @@ const pineMat = addWind(new THREE.MeshLambertMaterial({ color: 0x2f5f3a, flatSha
 const coneGeo = new THREE.ConeGeometry(1, 1, 7);
 coneGeo.translate(0, 0.5, 0);
 
-function makeTree(x, z, rng, out) {
+// ---- KARTY LIŚCI: kępka liści na quadzie z alfą (pixel art) ----
+function leafCardTexture(odcien) {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  // kilkanaście „listków" ułożonych w nieregularną kępkę
+  const listki = 26;
+  for (let i = 0; i < listki; i++) {
+    const a = (i / listki) * Math.PI * 2 + Math.random();
+    const r = 8 + Math.random() * 20;
+    const x = 32 + Math.cos(a) * r, y = 32 + Math.sin(a) * r * 0.82;
+    const w = 7 + Math.random() * 8, h = 5 + Math.random() * 6;
+    const j = Math.random();
+    g.fillStyle = j < 0.3 ? odcien[0] : (j < 0.7 ? odcien[1] : odcien[2]);
+    g.save(); g.translate(x, y); g.rotate(Math.random() * 3.14);
+    g.beginPath(); g.ellipse(0, 0, w / 2, h / 2, 0, 0, 7); g.fill();
+    g.restore();
+  }
+  // gęstszy, ciemniejszy środek = głębia korony
+  g.globalAlpha = 0.55; g.fillStyle = odcien[0];
+  g.beginPath(); g.ellipse(32, 34, 16, 12, 0, 0, 7); g.fill();
+  g.globalAlpha = 1;
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+let leafCardMats = null;
+const leafCardGeo = new THREE.PlaneGeometry(1, 1);
+function initLeafCards() {
+  const palety = [
+    ['#2f6b28', '#4a9138', '#6fbc4c'],   // soczysta zieleń
+    ['#35722c', '#57a03f', '#83cc58'],   // jaśniejsza
+    ['#2a5f34', '#43884a', '#63ad63'],   // chłodna
+    ['#6b5220', '#9c7a2a', '#c9a23c'],   // jesienna (rzadka)
+  ];
+  leafCardMats = palety.map((p, i) => addWind(new THREE.MeshBasicMaterial({
+    map: leafCardTexture(p), transparent: true, alphaTest: 0.42,
+    side: THREE.DoubleSide, depthWrite: true }), i === 3 ? 0.20 : 0.16, 1.5));
+}
+
+// drzewo = pień + KORONA Z KART LIŚCI (zbierane do wspólnego bufora chunka)
+function makeTree(x, z, rng, out, karty) {
   const g0 = terrainH(x, z);
-  const h = 2.4 + rng() * 2.2;
-  const iglaste = rng() < 0.35;
+  const h = 2.6 + rng() * 2.4;
+  const iglaste = rng() < 0.28;
   const tr = new THREE.Mesh(trunkGeo, trunkMat);
-  tr.scale.set(1, h * (iglaste ? 0.45 : 0.62), 1);
+  tr.scale.set(1 + rng() * 0.3, h * (iglaste ? 0.5 : 0.6), 1 + rng() * 0.3);
   tr.position.set(x, g0, z);
   scene.add(tr); out.push(tr);
-  if (iglaste) {                                   // świerk: 3 stożki
+
+  if (iglaste) {                                   // świerk: stożki (zostają bryłami)
     for (let i = 0; i < 3; i++) {
       const s = (1.5 - i * 0.35) * (0.75 + rng() * 0.3);
       const c = new THREE.Mesh(coneGeo, pineMat);
@@ -331,16 +425,24 @@ function makeTree(x, z, rng, out) {
       c.rotation.y = rng() * 3;
       scene.add(c); out.push(c);
     }
-  } else {                                          // liściaste: 2-3 bryły korony
-    const lm = leafMats[Math.floor(rng() * leafMats.length)];
-    const n = 2 + Math.floor(rng() * 2);
-    for (let i = 0; i < n; i++) {
-      const s = (1.15 - i * 0.22) * (0.85 + rng() * 0.4);
-      const b = new THREE.Mesh(leafGeo, lm);
-      b.scale.set(s * 1.15, s * 0.95, s * 1.15);
-      b.position.set(x + (rng() - .5) * 0.7, g0 + h * 0.66 + i * 0.5, z + (rng() - .5) * 0.7);
-      b.rotation.set(rng() * 3, rng() * 3, rng() * 3);
-      scene.add(b); out.push(b);
+  } else {
+    // korona: karty liści rozsiane po elipsoidzie — gęsta i ruchoma
+    const mat = rng() < 0.10 ? 3 : Math.floor(rng() * 3);
+    const ile = 12 + Math.floor(rng() * 8);
+    const rx = 1.5 + rng() * 0.7, ry = 1.0 + rng() * 0.5;
+    const cy = g0 + h * 0.72;
+    for (let i = 0; i < ile; i++) {
+      const a = rng() * Math.PI * 2, u = rng() * 2 - 1;
+      const s = Math.sqrt(1 - u * u);
+      karty.push({
+        mat,
+        x: x + Math.cos(a) * s * rx,
+        y: cy + u * ry + ry * 0.25,
+        z: z + Math.sin(a) * s * rx,
+        sc: 1.5 + rng() * 1.1,
+        rot: rng() * Math.PI * 2,
+        tilt: (rng() - 0.5) * 0.6,
+      });
     }
   }
   return { c: 1, x, z, r: 0.42, top: 99 };          // kolizja pnia
@@ -376,7 +478,10 @@ const grassCenterU = { value: new THREE.Vector2() };
 const grassRU = { value: 20 };
 function makeBladeMaterial() {
   const m = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  addCloudShadow(m);
+  const _wind = m.onBeforeCompile;
   m.onBeforeCompile = sh => {
+    if (_wind) _wind(sh);
     sh.uniforms.uTime = windU;
     sh.uniforms.uCenter = grassCenterU;
     sh.uniforms.uR = grassRU;
@@ -385,7 +490,7 @@ function makeBladeMaterial() {
       `#include <begin_vertex>
        vec3 iP = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
        float dC = distance(iP.xz, uCenter);
-       float fade = 1.0 - smoothstep(uR - 13.0, uR - 0.5, dC);  // szeroka strefa wtapiania
+       float fade = 1.0 - smoothstep(uR - 18.0, uR - 0.5, dC);  // bardzo szerokie wtapianie
        transformed.y *= fade;
        float h = max(position.y, 0.0);
        float sw = sin(uTime * 2.2 + iP.x * 0.45 + iP.z * 0.35) * 0.28 * h * fade
@@ -1530,7 +1635,7 @@ function buildChunk(cx, cz) {
   mesh.position.set(wx0, 0, wz0);
   scene.add(mesh);
   const rng = chunkRng(cx, cz);
-  const deco = [], rocks = [], solids = [], spills = [];
+  const deco = [], rocks = [], solids = [], spills = [], leaves = [];
   let grass = null;
 
   if (MAPS[mapKey].indoor) {
@@ -1651,13 +1756,34 @@ function buildChunk(cx, cz) {
         }
       }
     }
-    // ======== ŁĄKI: DRZEWA 3D + trawa + dekoracje ========
+    // ======== ŁĄKI: DRZEWA (pnie + karty liści) + dekoracje ========
     const las = biome(wx0, wz0) <= 0.45;
     const nTrees = las ? 4 + Math.floor(rng() * 4) : (rng() < 0.5 ? 1 : 0);
+    const karty = [];
     for (let i = 0; i < nTrees; i++) {
       const x = wx0 + (rng() - 0.5) * CHUNK, z = wz0 + (rng() - 0.5) * CHUNK;
       if (terrainH(x, z) < WATER_Y + 0.5) continue;
-      solids.push(makeTree(x, z, rng, rocks));
+      solids.push(makeTree(x, z, rng, rocks, karty));
+    }
+    // wszystkie liście chunka → po jednej InstancedMesh na paletę (mało draw calli)
+    if (karty.length) {
+      const _o = new THREE.Object3D();
+      for (let mi = 0; mi < leafCardMats.length; mi++) {
+        const grupa = karty.filter(k => k.mat === mi);
+        if (!grupa.length) continue;
+        const inst = new THREE.InstancedMesh(leafCardGeo, leafCardMats[mi], grupa.length);
+        grupa.forEach((k, i) => {
+          _o.position.set(k.x, k.y, k.z);
+          _o.rotation.set(k.tilt, k.rot, 0);
+          _o.scale.set(k.sc, k.sc * 0.8, 1);
+          _o.updateMatrix();
+          inst.setMatrixAt(i, _o.matrix);
+        });
+        inst.instanceMatrix.needsUpdate = true;
+        inst.frustumCulled = false;
+        scene.add(inst);
+        leaves.push(inst);
+      }
     }
     const nDeco = 4 + Math.floor(rng() * 4);
     for (let i = 0; i < nDeco; i++) {
@@ -1690,7 +1816,7 @@ function buildChunk(cx, cz) {
       }
     }
   }
-  return { mesh, deco, rocks, solids, spills, grass };
+  return { mesh, deco, rocks, solids, spills, grass, leaves };
 }
 
 // czy punkt jest na rozlanej wodzie (market) — wtedy ŚLIZG
@@ -1760,6 +1886,7 @@ function rebuildWorld() {
     for (const m of ch.deco) scene.remove(m);
     for (const m of ch.rocks) scene.remove(m);
     if (ch.grass) { scene.remove(ch.grass); ch.grass.dispose(); }
+    if (ch.leaves) for (const l of ch.leaves) { scene.remove(l); l.dispose(); }
   }
   chunkMap.clear();
   lastCC = null;
@@ -1797,6 +1924,7 @@ function ensureChunks() {
     for (const m of ch.deco) scene.remove(m);
     for (const m of ch.rocks) scene.remove(m);
     if (ch.grass) { scene.remove(ch.grass); ch.grass.dispose(); }
+    if (ch.leaves) for (const l of ch.leaves) { scene.remove(l); l.dispose(); }
     chunkMap.delete(key);
   }
 }
@@ -2406,6 +2534,7 @@ function update(dt) {
     for (const m of ch.deco) m.rotation.y = camYaw;
 
   windU.value = G.time;
+  cloudOffU.value.set(G.time * CLOUD_SPD * 0.004, G.time * CLOUD_SPD * 0.0022);
 
   // ---- chmury ----
   for (const c of clouds) {
@@ -2579,14 +2708,16 @@ function loop() {
   await buildChar('przyjaciel', ['idle', 'run']);
   await buildChar('rudeusz', ['idle', 'run']);
   await loadDecoMats();
-  chunkMat = new THREE.MeshLambertMaterial({ map: grassTexC, vertexColors: true });
+  chunkMat = addCloudShadow(new THREE.MeshLambertMaterial({ map: grassTexC, vertexColors: true }));
   chunkMatIndoor = new THREE.MeshLambertMaterial({ map: floorTexC, vertexColors: true });
   shelfMat = new THREE.MeshLambertMaterial({ map: shelfTexture() });
   coolerMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#9fc6d8', '#5d8ba3', 5) });
   spillMat = new THREE.MeshBasicMaterial({ map: spillTexture(), transparent: true, depthWrite: false });
   grassMat = addWind(new THREE.MeshLambertMaterial({ map: bladeTexture(), alphaTest: 0.45,
     side: THREE.DoubleSide, transparent: false }), 0.22, 2.1);
+  cloudShadowU.value = cloudShadowTexture();
   bladeMat = makeBladeMaterial();
+  initLeafCards();
   initGrassField();
   crateMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#b98a4e', '#7d5a2e', 4) });
   plankMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#a9793f', '#6d4a22', 6) });
