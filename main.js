@@ -333,21 +333,34 @@ function makeTree(x, z, rng, out) {
 
 // -------- TRAWA (instancing + kołysanie, jak w nowych Zeldach) --------
 function bladeTexture() {
-  const c = document.createElement('canvas'); c.width = 32; c.height = 32;
+  const c = document.createElement('canvas'); c.width = c.height = 32;
   const g = c.getContext('2d');
-  for (const [x, w, col] of [[8, 4, '#5aa347'], [15, 5, '#6fbf55'], [23, 4, '#4d9139']]) {
-    g.fillStyle = col;
+  // szersze, jaśniejsze źdźbła z rozjaśnionymi końcówkami (styl Zeldy)
+  const blades = [
+    [3, 7, 30, 6, '#5fae4a', '#8fd96e'],
+    [11, 9, 30, 1, '#74c95c', '#a6e884'],
+    [20, 8, 30, 5, '#569f43', '#84cd63'],
+    [26, 6, 30, 11, '#68bb52', '#9ade78'],
+  ];
+  for (const [x, w, base, top, col, tip] of blades) {
+    const grd = g.createLinearGradient(0, base, 0, top);
+    grd.addColorStop(0, col); grd.addColorStop(1, tip);
+    g.fillStyle = grd;
     g.beginPath();
-    g.moveTo(x, 32); g.lineTo(x + w, 32); g.lineTo(x + w / 2 + 1, 4); g.closePath(); g.fill();
+    g.moveTo(x, base);
+    g.lineTo(x + w, base);
+    g.quadraticCurveTo(x + w * 0.75, (base + top) / 2, x + w * 0.5 + 1, top);
+    g.quadraticCurveTo(x + w * 0.25, (base + top) / 2, x, base);
+    g.closePath(); g.fill();
   }
   const t = new THREE.CanvasTexture(c);
   t.magFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
 let grassMat = null;
-const grassGeo = new THREE.PlaneGeometry(0.9, 0.75);
-grassGeo.translate(0, 0.375, 0);
-const GRASS_PER_CHUNK = 130;
+const grassGeo = new THREE.PlaneGeometry(1.15, 0.95);
+grassGeo.translate(0, 0.475, 0);
+const GRASS_PER_CHUNK = 150;
 function makeGrass(cx, cz, rng) {
   const wx0 = cx * CHUNK, wz0 = cz * CHUNK;
   const inst = new THREE.InstancedMesh(grassGeo, grassMat, GRASS_PER_CHUNK);
