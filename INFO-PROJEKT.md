@@ -294,6 +294,34 @@ technika z douges.dev), więc korona jest gęsta z każdej strony; 18-28 klastr�
 mocno zachodzących na siebie, rozkład ku środkowi (pow(rng, 0.55)), `instanceColor`
 przyciemnia spód korony. Pnie pogrubione (skala 1.9-2.6) i skrócone.
 
+## KONTROLER / GAMEPAD API (10.08) — zweryfikowany w przeglądarce sztucznym padem
+Cel: handheldy typu **Retroid Pocket 6** (Android/przeglądarka) oraz pady Xbox/PS.
+Kod: sekcja „KONTROLER (Gamepad API)" w `main.js` (`PAD`, `pollPads`, `gpMove`).
+- **Odpytywanie co klatkę** — `pollPads(dt)` na początku `loop()` ORAZ w `HORDA.step()`
+  (stan pada nie przychodzi zdarzeniami, trzeba go czytać z `navigator.getGamepads()`).
+- **Lewy drążek** = ruch, analogowo. Martwa strefa `PAD_DZ = 0.18`, po jej odjęciu
+  skala rośnie liniowo do 1 (`padStick`). Wynik ląduje w `PAD.mx/PAD.mz`, a `update()`
+  bierze je zamiast klawiatury (dotyk ma pierwszeństwo przed padem).
+- **Prawy drążek** = obrót kamery: `camYaw -= rx * 2.6 * dt` (ta sama martwa strefa).
+- **A (0)** = skok — woła istniejące `tryJump()` i ustawia `jumpHeld`, więc
+  PRZYTRZYMANIE = szybowanie na liściu sałaty. Zbocze narastające (`hit()`), więc
+  trzymanie nie wyzwala skoku wielokrotnie; puszczenie zeruje `jumpHeld`.
+- **Start (9)** = pauza / wznowienie, **B (1)** = wstecz (`gpBack`: pauza → WRACAM,
+  ekran końca → menu, menu → zakładka Graj; karty i wymiennik trzeba wybrać).
+- **Nawigacja po menu**: D-pad (12-15) albo lewy drążek przesuwa zaznaczenie po
+  WIDOCZNYCH `.tab,.tile,.card,.bigbtn,.btn2` w najwyższym overlayu (`topOverlay`),
+  wybór sąsiada geometrycznie (`gpMove` — najbliższy środek z karą 2.2× za zbaczanie
+  w bok), powtarzanie co 0.22 s. A = `click()`. Zaznaczenie = klasa **`.gp-sel`**
+  (złota pixelowa ramka w `index.html`, styl jak `.tile.sel`). W overlayu ruch
+  gracza jest wyzerowany, po wejściu do gry zaznaczenie znika.
+- `gamepadconnected`/`gamepaddisconnected` → komunikat przez `toastBuff` (znika po 2.5 s).
+- Zmierzone: martwa strefa 0.15 → 0.0000 j. ruchu; pełne wychylenie → 5.43 j./s;
+  0.5 → `PAD.mx` 0.390 i 2.49 j./s (analogowo); prawy drążek 1 s → camYaw -2.6 rad;
+  A → skok 1.46 j. / 42 klatki, z przytrzymaniem 62 klatki i `vy` obcięte na -1.5.
+- **DO SPRAWDZENIA NA SPRZĘCIE**: zakładamy `mapping: 'standard'`. Część padów
+  na Androidzie zgłasza układ niestandardowy (prawy drążek na osiach 2/5, D-pad
+  jako oś 9) — jeśli Retroid tak zrobi, trzeba dopisać fallback po `gp.mapping`.
+
 ## ASSETY: user zgodził się na DARMOWE PACZKI (CC0: Kenney, Quaternius, itch.io).
 Do wykorzystania przy rekwizytach/budynkach. Uwaga: GLTF wymaga dociągnięcia
 `GLTFLoader.js` z examples/jsm + importmap — nie ma go w naszym lokalnym three.module.js.
