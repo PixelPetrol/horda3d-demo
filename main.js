@@ -309,44 +309,43 @@ const windU = { value: 0 };
 
 // Cienie chmur: proceduralna tekstura plam przesuwana po świecie (projekcja z góry).
 // Wpinana do materiałów terenu/trawy/postaci — przyciemnia fragmenty wg pozycji XZ.
+// OKRESOWY szum (kafelkuje się bezszwowo) — lattice wrapowany modulo `per`
+function pnoise(x, z, per) {
+  const ix = Math.floor(x), iz = Math.floor(z);
+  const fx = x - ix, fz = z - iz;
+  const sx = fx * fx * (3 - 2 * fx), sz = fz * fz * (3 - 2 * fz);
+  const w = i => ((i % per) + per) % per;
+  const a = hash2(w(ix), w(iz)), b = hash2(w(ix + 1), w(iz));
+  const c2 = hash2(w(ix), w(iz + 1)), d = hash2(w(ix + 1), w(iz + 1));
+  return a + (b - a) * sx + (c2 - a) * sz + (a - b - c2 + d) * sx * sz;
+}
+// MAPA SZUMU (fBm, 4 oktawy) → realnie poszarpane kształty chmur zamiast kółek
 function cloudShadowTexture() {
   const S = 256;
   const c = document.createElement('canvas'); c.width = c.height = S;
   const g = c.getContext('2d');
-  g.fillStyle = '#fff'; g.fillRect(0, 0, S, S);
-  for (let i = 0; i < 46; i++) {                      // nieregularne plamy cienia
-    const x = Math.random() * S, y = Math.random() * S, r = 9 + Math.random() * 22;
-    const gr = g.createRadialGradient(x, y, r * 0.15, x, y, r);
-    gr.addColorStop(0, 'rgba(0,0,0,0.95)');
-    gr.addColorStop(0.6, 'rgba(0,0,0,0.7)');
-    gr.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = gr;
-    g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
-    if (x < r || x > S - r || y < r || y > S - r) {   // powielenie dla bezszwowości
-      for (const [dx, dy] of [[S, 0], [-S, 0], [0, S], [0, -S]]) {
-        const g2 = g.createRadialGradient(x + dx, y + dy, r * 0.15, x + dx, y + dy, r);
-        g2.addColorStop(0, 'rgba(0,0,0,0.95)'); g2.addColorStop(0.6, 'rgba(0,0,0,0.7)'); g2.addColorStop(1, 'rgba(0,0,0,0)');
-        g.fillStyle = g2;
-        g.beginPath(); g.arc(x + dx, y + dy, r, 0, 7); g.fill();
-      }
+  const img = g.createImageData(S, S);
+  const OKT = [[3, 0.52], [6, 0.26], [12, 0.14], [24, 0.08]];   // okres, waga
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      let v = 0;
+      for (const [per, waga] of OKT) v += pnoise(x / S * per, y / S * per, per) * waga;
+      // ostre krawędzie: próg + wąska strefa przejścia
+      const cien = Math.max(0, Math.min(1, (v - 0.46) * 6.5 + 0.5));
+      const b = cien * 255;
+      const i = (y * S + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = b;
+      img.data[i + 3] = 255;
     }
   }
-  // OSTRE, NIEREGULARNE krawędzie: kontrast na gotowych plamach zamiast miękkich gradientów
-  const px = g.getImageData(0, 0, S, S);
-  for (let i = 0; i < px.data.length; i += 4) {
-    const v = px.data[i] / 255;
-    const ostre = Math.max(0, Math.min(1, (v - 0.52) * 4.5 + 0.5));
-    const b = ostre * 255;
-    px.data[i] = px.data[i + 1] = px.data[i + 2] = b;
-  }
-  g.putImageData(px, 0, 0);
+  g.putImageData(img, 0, 0);
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   return t;
 }
 const cloudShadowU = { value: null };
 const cloudOffU = { value: new THREE.Vector2() };
-const CLOUD_SCALE = 0.019, CLOUD_SPD = 2.4;          // skala plam i prędkość dryfu
+const CLOUD_SCALE = 0.016, CLOUD_SPD = 9.0;          // skala plam i prędkość dryfu
 
 // wpina cienie chmur do dowolnego materiału (po pozycji w świecie)
 function addCloudShadow(mat) {
@@ -355,8 +354,16 @@ function addCloudShadow(mat) {
     if (stary) stary(sh);
     sh.uniforms.uCloud = cloudShadowU;
     sh.uniforms.uCloudOff = cloudOffU;
+    // UWAGA: przy instancingu three.js mnoży przez instanceMatrix dopiero w project_vertex,
+    // więc trzeba to zrobić RĘCZNIE — inaczej wszystkie instancje mają tę samą pozycję
+    // i cała trawa ciemnieje naraz (albo wcale).
     sh.vertexShader = 'varying vec3 vWPos;\n' + sh.vertexShader.replace('#include <fog_vertex>',
-      '#include <fog_vertex>\n  vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      `#include <fog_vertex>
+       vec4 _wp = vec4(transformed, 1.0);
+       #ifdef USE_INSTANCING
+         _wp = instanceMatrix * _wp;
+       #endif
+       vWPos = (modelMatrix * _wp).xyz;`);
     sh.fragmentShader = 'uniform sampler2D uCloud;uniform vec2 uCloudOff;varying vec3 vWPos;\n' +
       sh.fragmentShader.replace('#include <dithering_fragment>',
       `#include <dithering_fragment>
@@ -398,26 +405,46 @@ coneGeo.translate(0, 0.5, 0);
 
 // ---- KARTY LIŚCI: kępka liści na quadzie z alfą (pixel art) ----
 function leafCardTexture(odcien) {
-  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const c = document.createElement('canvas'); c.width = c.height = 96;
   const g = c.getContext('2d');
   g.imageSmoothingEnabled = false;
-  // kilkanaście „listków" ułożonych w nieregularną kępkę
-  const listki = 26;
-  for (let i = 0; i < listki; i++) {
-    const a = (i / listki) * Math.PI * 2 + Math.random();
-    const r = 8 + Math.random() * 20;
-    const x = 32 + Math.cos(a) * r, y = 32 + Math.sin(a) * r * 0.82;
-    const w = 7 + Math.random() * 8, h = 5 + Math.random() * 6;
-    const j = Math.random();
-    g.fillStyle = j < 0.3 ? odcien[0] : (j < 0.7 ? odcien[1] : odcien[2]);
-    g.save(); g.translate(x, y); g.rotate(Math.random() * 3.14);
-    g.beginPath(); g.ellipse(0, 0, w / 2, h / 2, 0, 0, 7); g.fill();
+  // POJEDYNCZY LIŚĆ: spiczasty, z ząbkowaną krawędzią i nerwem (nie owalna plamka)
+  const SK = 96 / 64;                                       // skala wzgl. dawnego 64 px
+  const listek = (x0, y0, dl0, kat, kolor, jasny) => {
+    const x = x0 * SK, y = y0 * SK, dl = dl0 * SK;
+    g.save(); g.translate(x, y); g.rotate(kat);
+    const sz = dl * 0.52;
+    g.fillStyle = kolor;
+    g.beginPath();
+    g.moveTo(0, -dl / 2);                                  // czubek
+    for (let i = 1; i <= 6; i++) {                         // prawa krawędź z ząbkami
+      const t = i / 6, zab = (i % 2 ? 1.0 : 0.78);
+      g.lineTo(Math.sin(t * Math.PI) * sz * zab, -dl / 2 + t * dl);
+    }
+    for (let i = 5; i >= 0; i--) {                         // lewa krawędź
+      const t = i / 6, zab = (i % 2 ? 1.0 : 0.78);
+      g.lineTo(-Math.sin(t * Math.PI) * sz * zab, -dl / 2 + t * dl);
+    }
+    g.closePath(); g.fill();
+    g.strokeStyle = jasny; g.lineWidth = 1;                // nerw główny
+    g.beginPath(); g.moveTo(0, -dl / 2 + 1); g.lineTo(0, dl / 2 - 1); g.stroke();
     g.restore();
+  };
+  // kępka: listki rozłożone promieniście, ciemniejsze w środku
+  const listki = 22;
+  for (let i = 0; i < listki; i++) {
+    const a = (i / listki) * Math.PI * 2 + Math.random() * 0.5;
+    const r = 6 + Math.random() * 18;
+    const x = 32 + Math.cos(a) * r, y = 34 + Math.sin(a) * r * 0.8;
+    const j = Math.random();
+    const kol = j < 0.32 ? odcien[0] : (j < 0.72 ? odcien[1] : odcien[2]);
+    listek(x, y, 13 + Math.random() * 9, a + Math.PI / 2 + (Math.random() - .5), kol, odcien[2]);
   }
-  // gęstszy, ciemniejszy środek = głębia korony
-  g.globalAlpha = 0.55; g.fillStyle = odcien[0];
-  g.beginPath(); g.ellipse(32, 34, 16, 12, 0, 0, 7); g.fill();
-  g.globalAlpha = 1;
+  for (let i = 0; i < 8; i++) {                            // wypełnienie środka
+    const a = Math.random() * Math.PI * 2, r = Math.random() * 9;
+    listek(32 + Math.cos(a) * r, 34 + Math.sin(a) * r, 12 + Math.random() * 6,
+      Math.random() * Math.PI * 2, odcien[0], odcien[1]);
+  }
   const t = new THREE.CanvasTexture(c);
   t.magFilter = t.minFilter = THREE.NearestFilter;
   t.generateMipmaps = false;
@@ -1449,29 +1476,91 @@ function spark(x, y, z) {
 
 // ---- wyskakujące napisy (obrażenia, KILL) — tekstury cache'owane per napis ----
 const popCache = new Map();
+// ---- WŁASNY FONT BITMAPOWY 5×7: pixelowy I czytelny (Pixelify mylił 5 z S) ----
+const GLIF = {
+  '0': ['01110','10001','10011','10101','11001','10001','01110'],
+  '1': ['00100','01100','00100','00100','00100','00100','01110'],
+  '2': ['01110','10001','00001','00010','00100','01000','11111'],
+  '3': ['11110','00001','00001','01110','00001','00001','11110'],
+  '4': ['00010','00110','01010','10010','11111','00010','00010'],
+  '5': ['11111','10000','11110','00001','00001','10001','01110'],
+  '6': ['00110','01000','10000','11110','10001','10001','01110'],
+  '7': ['11111','00001','00010','00100','01000','01000','01000'],
+  '8': ['01110','10001','10001','01110','10001','10001','01110'],
+  '9': ['01110','10001','10001','01111','00001','00010','01100'],
+  'A': ['01110','10001','10001','11111','10001','10001','10001'],
+  'B': ['11110','10001','10001','11110','10001','10001','11110'],
+  'C': ['01110','10001','10000','10000','10000','10001','01110'],
+  'D': ['11110','10001','10001','10001','10001','10001','11110'],
+  'E': ['11111','10000','10000','11110','10000','10000','11111'],
+  'F': ['11111','10000','10000','11110','10000','10000','10000'],
+  'G': ['01110','10001','10000','10111','10001','10001','01111'],
+  'I': ['01110','00100','00100','00100','00100','00100','01110'],
+  'K': ['10001','10010','10100','11000','10100','10010','10001'],
+  'L': ['10000','10000','10000','10000','10000','10000','11111'],
+  'M': ['10001','11011','10101','10101','10001','10001','10001'],
+  'N': ['10001','11001','10101','10011','10001','10001','10001'],
+  'O': ['01110','10001','10001','10001','10001','10001','01110'],
+  'P': ['11110','10001','10001','11110','10000','10000','10000'],
+  'R': ['11110','10001','10001','11110','10100','10010','10001'],
+  'S': ['01111','10000','10000','01110','00001','00001','11110'],
+  'T': ['11111','00100','00100','00100','00100','00100','00100'],
+  'U': ['10001','10001','10001','10001','10001','10001','01110'],
+  'W': ['10001','10001','10001','10101','10101','11011','10001'],
+  'X': ['10001','10001','01010','00100','01010','10001','10001'],
+  'Y': ['10001','10001','01010','00100','00100','00100','00100'],
+  'Z': ['11111','00001','00010','00100','01000','10000','11111'],
+  'Ą': ['01110','10001','10001','11111','10001','10001','10011'],
+  'Ę': ['11111','10000','10000','11110','10000','10000','11111'],
+  'Ń': ['10001','11001','10101','10011','10001','10001','10001'],
+  '!': ['00100','00100','00100','00100','00100','00000','00100'],
+  '?': ['01110','10001','00001','00010','00100','00000','00100'],
+  '+': ['00000','00100','00100','11111','00100','00100','00000'],
+  '-': ['00000','00000','00000','11111','00000','00000','00000'],
+  '.': ['00000','00000','00000','00000','00000','00110','00110'],
+  ' ': ['00000','00000','00000','00000','00000','00000','00000'],
+};
 function popMat(str, color) {
   const key = color + '|' + str;
   let m = popCache.get(key);
   if (m) return m;
-  const c = document.createElement('canvas'); c.width = 320; c.height = 112;   // 2× ostrzej
+  const txt = str.toUpperCase();
+  const PX = 7, ODST = 1, MARG = 2;                 // wielkość piksela, odstęp, margines (w pikselach fontu)
+  const znaki = [...txt].map(z => GLIF[z] || GLIF['?']);
+  const szerZn = 5, wysZn = 7;
+  const wPx = znaki.length * (szerZn + ODST) - ODST + MARG * 2;
+  const hPx = wysZn + MARG * 2;
+  const c = document.createElement('canvas');
+  c.width = wPx * PX; c.height = hPx * PX;
   const g = c.getContext('2d');
-  // CZYTELNOŚĆ przed stylem: gruby bezszeryf zamiast pixelowego (Pixelify myli 5 z S)
-  g.font = '900 62px "Arial Black", Impact, Arial, sans-serif';
-  g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.lineJoin = 'round';
-  g.lineWidth = 16; g.strokeStyle = '#000'; g.strokeText(str, 160, 56);        // gruby kontur
-  g.lineWidth = 6; g.strokeStyle = 'rgba(0,0,0,0.85)'; g.strokeText(str, 160, 56);
-  g.fillStyle = color; g.fillText(str, 160, 56);
+  // 1) KONTUR: ten sam napis w czerni, przesunięty w 8 kierunkach (pixelowa obwódka)
+  const rysuj = (kolor, ox, oy) => {
+    g.fillStyle = kolor;
+    znaki.forEach((gl, n) => {
+      const bx = MARG + n * (szerZn + ODST);
+      for (let y = 0; y < wysZn; y++)
+        for (let x = 0; x < szerZn; x++)
+          if (gl[y][x] === '1') g.fillRect((bx + x + ox) * PX, (MARG + y + oy) * PX, PX, PX);
+    });
+  };
+  for (const [ox, oy] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]]) rysuj('#0b0b0f', ox, oy);
+  rysuj(color, 0, 0);                                // 2) właściwy napis
   const t = new THREE.CanvasTexture(c);
-  t.minFilter = t.magFilter = THREE.LinearFilter; t.generateMipmaps = false;
+  t.magFilter = t.minFilter = THREE.NearestFilter;   // twarde piksele
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
   m = new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, depthTest: false, fog: false });
+  m.userData.aspect = c.width / c.height;
   popCache.set(key, m);
   return m;
 }
 function dmgPop(x, ty, z, str, color = '#ffe066', scale = 1) {
   if (G.pops.length > 70) return;                 // bezpiecznik przy hordach
-  const mesh = new THREE.Mesh(unitGeo, popMat(str, color).clone());
-  mesh.scale.set(2.6 * scale, 0.9 * scale, 1);
+  const mat = popMat(str, color);
+  const mesh = new THREE.Mesh(unitGeo, mat.clone());
+  const asp = mat.userData.aspect || 2.9;
+  const wys = 0.85 * scale;
+  mesh.scale.set(wys * asp, wys, 1);
   mesh.position.set(x + (Math.random() - .5) * 0.7, ty + 1.7, z);
   scene.add(mesh);
   G.pops.push({ mesh, t: 0 });
