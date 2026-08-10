@@ -1,6 +1,6 @@
 # HORDA 3D — nowy projekt „na poważnie" (survivors-like à la Megabonk)
 
-> Stan: 9.08.2026 — **prototyp v15 działa** (testowany w przeglądarce).
+> Stan: 9.08.2026 — **prototyp v18 działa** (testowany w przeglądarce).
 > v11 = PEŁNY SYSTEM BRONI: 3 sloty, 6 broni, pasywy, wymiennik ze skrzyń,
 > odblokowania w sklepie za monety. Wcześniej: mapa nieskończona, ewolucje,
 > skrzynie/totemy/jeziora/biomy/elity. Wszystko zweryfikowane, konsola czysta.
@@ -178,6 +178,45 @@
 - Pułapka: `import ... from './spritedata.js?v=N'` — po regeneracji spritedata
   PODBIJ v, inaczej stary cache = „Cannot read properties of undefined (img)".
 - W index.html jest łapacz błędów do window.__err (debug; usunąć przed wydaniem).
+
+## MENU + POSTACIE + PROGRESJA v16-v18 (9.08 — duża porcja z feedbacku usera)
+- **MENU Z ZAKŁADKAMI** (#tabs / .panel): ▶ Graj (podsumowanie wyboru) · 🗺️ Mapy ·
+  🧍 Postacie · 🛒 Sklep · 📊 Statystyki. Wybór mapy/postaci zapisywany
+  (META.lastMap/lastChar). Kafelki `.tile` wspólne dla map/postaci/sklepu.
+- **5 POSTACI** (rejestr `CHARS`, mnożniki spd/hp/dmg/mag, kupowane za monety):
+  👧 Kasia (0, baza) · 🧔 Piotr (200: +1❤, +25% dmg, wolniejszy) · 🐕 Rudeusz
+  (300: +35% speed, -1❤) · 🧙 Kapturek (400: magnes ×2, +2❤, słabsze ciosy) ·
+  🔥 Węgielek (500: +45% dmg, tylko 3❤). `setPlayerChar` podmienia Billboard.
+- **STATYSTYKI GLOBALNE** (META.st, zapis po każdym biegu): zabici łącznie, biegi,
+  najdłuższy bieg, rekord zabitych, bossowie, skrzynie z bronią, poziomy, monety,
+  łączny czas. Ekran końca pokazuje „🏆 NOWY REKORD CZASU".
+- **PAUZA** (ESC / przycisk ⏸ na dotyku): podsumowanie biegu (czas, zabici, bronie,
+  postać, mapa) + „WRACAM" / „🏠 Do menu (kończy bieg)". Wyjście czyści świat.
+- **🎁 ZŁOTA SKRZYNIA Z BRONIĄ** (życzenie usera): NOWE BRONIE ZNIKNĘŁY Z KART —
+  dostajesz je tylko z pływającej złotej skrzyni (jedna naraz, respawn 25-45 s po
+  zabraniu). **Strzałka #wArrow w HUD** wskazuje kierunek (obrót wzgl. camYaw)
+  i dystans w metrach. Wolny slot → wybór nowej broni; pełne 3 → wymiennik.
+- **PLATFORMY / STRUKTURY TERENU** („teren wyglądał jak zrobiony przez dzieciaka"):
+  per chunk 30% stos skrzyń (schodki 0.9/1.7/1.3), 18% drewniany podest na palach
+  (taras 2.1 + stopień wejściowy), 12% kamienne schody 3-stopniowe. Materiały
+  proceduralne (stripeTexture: skrzynia/deski/kamień). Wszystko to solidy —
+  da się na nie wskoczyć i z nich spaść.
+- **WSPINACZKA WROGÓW** (życzenie usera): wrogowie mają własną wysokość `e.ty`
+  z fizyką; gdy gracz ucieknie wyżej (P.y > e.ty+0.6) i coś ich blokuje,
+  **wspinają się 0.95 j./s** — półka daje chwilę oddechu, ale nie jest bezpieczna.
+  Schodzenie/spadanie 9 j./s. `solveSolids` zwraca teraz wysokość blokady.
+- **PROGRESJA TRUDNOŚCI** (user: „4. minuta = 4× więcej, musi być trudniej"):
+  interval 1.3 s → /(1+min×0.55); paczki `1+min×1.6` (4. min ≈ 7 naraz); cap 500.
+  **FALA OKRĄŻAJĄCA** co 30 s od 1. min: pierścień 10+min×5 wrogów ze WSZYSTKICH
+  stron (spawnEnemy z zadanym kątem). Bossowie co 2 min, od 5. min po kilku.
+  Skalowanie: HP `1+min×0.55+(t/300)²×1.5`, prędkość +3.5%/min (cap ×1.5),
+  obrażenia kontaktowe ×2 od 5.5 min, ×3 od 10 min. Elity 6%+1.5%/min.
+  HUD pokazuje **⚠️ ZAGROŻENIE N** + toast przy zmianie poziomu.
+  Zmierzone: 1 min = 10 wrogów, 4 min = 215 wrogów na mapie.
+- **TELEFON PION I POZIOM**: menu przewijalne, `clamp()` w rozmiarach czcionek,
+  media `max-height:520px` (poziom = wszystko ciaśniej, kafelki 30vw) i
+  `max-width:520px` (pion = pasek broni nad przyciskiem skoku). Zweryfikowane
+  na 375×812 i 812×375.
 
 ## Monetyzacja (decyzja usera 8.08)
 - **Steam**: wersja płatna (bez reklam). Pakowanie: Electron albo natywny webview.
