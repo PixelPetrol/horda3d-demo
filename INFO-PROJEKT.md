@@ -273,6 +273,27 @@
   odsunięty 38/52 px od krawędzi + `env(safe-area-inset-*)`.
 - Kamera po iteracjach z userem: desktop 6.8/7.0, telefon poziomo 3.6/4.3.
 
+## ⚠️ PUŁAPKA, KTÓRA KOSZTOWAŁA KILKA ITERACJI (v34-v37)
+Drzewa i trawa renderowały się **CZARNE**. Przyczyna: materiał ma `vertexColors: true`
+(potrzebne do `instanceColor`), a geometria NIE MIAŁA atrybutu `color` — three.js
+włącza wtedy define USE_COLOR i mnoży przez nieistniejący atrybut = zero = czerń.
+LEKARSTWO: każda geometria używana z takim materiałem musi mieć BIAŁY atrybut `color`
+(patrz `clumpGeometry()` i `leafCardGeo`). Jeśli coś nagle jest czarne — sprawdź to NAJPIERW.
+
+## TRAWA v37 = KĘPKI (research: forum three.js + Codrops)
+Zamiast ~35 tys. pojedynczych źdźbeł (7 wierzchołków każde) → **~9,7 tys. kępek
+na DWÓCH SKRZYŻOWANYCH QUADACH** z alfa-teksturą pęku źdźbeł (`clumpTexture`,
+16 wygiętych źdźbeł z gradientem ciemna nasada → jasny czubek).
+Wg forum („image of a grass clump on a 2 triangle quad") to najtańszy sposób na
+gęsty dywan: 4 trójkąty na kępkę zamiast 5 na pojedyncze źdźbło, a wizualnie
+dużo gęściej. Promień 40 (telefon 26), krok 0.62, losowy obrót i przechył (±0.22 rad).
+
+## KORONY DRZEW v37
+Karty liści są **billboardowane w vertex shaderze** (przesunięcie w view space —
+technika z douges.dev), więc korona jest gęsta z każdej strony; 18-28 klastrów
+mocno zachodzących na siebie, rozkład ku środkowi (pow(rng, 0.55)), `instanceColor`
+przyciemnia spód korony. Pnie pogrubione (skala 1.9-2.6) i skrócone.
+
 ## ASSETY: user zgodził się na DARMOWE PACZKI (CC0: Kenney, Quaternius, itch.io).
 Do wykorzystania przy rekwizytach/budynkach. Uwaga: GLTF wymaga dociągnięcia
 `GLTFLoader.js` z examples/jsm + importmap — nie ma go w naszym lokalnym three.module.js.
