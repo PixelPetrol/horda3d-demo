@@ -17,6 +17,27 @@
   .pxi{image-rendering:pixelated;vertical-align:middle;display:inline-block}
   #c{display:block;width:100vw;height:100vh}
 
+  /* ================= EKRAN ŁADOWANIA ================= */
+  #loadOv{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;
+      align-items:center;justify-content:center;gap:14px;padding:16px;text-align:center;
+      background:#121a12;
+      /* pixelowe „grządki" w tle */
+      background-image:repeating-linear-gradient(90deg,#162115 0 22px,#131d13 22px 44px),
+                       radial-gradient(ellipse at 50% 30%,rgba(120,200,90,.10),transparent 60%);
+      transition:opacity .45s}
+  #loadOv.znika{opacity:0;pointer-events:none}
+  #loadLogo{width:min(72vw,440px);max-height:32vh;object-fit:contain;
+      filter:drop-shadow(0 5px 0 rgba(0,0,0,.6));animation:logoDysz 2.4s ease-in-out infinite}
+  @keyframes logoDysz{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-6px) scale(1.015)}}
+  #loadBarWrap{width:min(78vw,420px);height:26px;background:#0c120c;position:relative;
+      box-shadow:-4px 0 0 0 #1b1b22,4px 0 0 0 #1b1b22,0 -4px 0 0 #1b1b22,0 4px 0 0 #1b1b22,
+                 inset 0 4px 0 0 #060906}
+  #loadBar{height:100%;width:0%;transition:width .25s;
+      background:repeating-linear-gradient(90deg,#f5a623 0 10px,#ffc451 10px 20px);
+      box-shadow:inset 0 5px 0 0 rgba(255,255,255,.28), inset 0 -5px 0 0 rgba(0,0,0,.3)}
+  #loadTxt{font-size:clamp(13px,3.6vw,17px);color:#ffd75e;letter-spacing:1px}
+  #loadTip{font-size:clamp(11px,3vw,13px);color:#9fd08a;max-width:460px;line-height:1.5;min-height:34px}
+
   /* ================= HUD ================= */
   #hud{position:fixed;inset:0;pointer-events:none;z-index:5}
   #xpwrap{position:absolute;top:0;left:0;right:0;height:14px;background:rgba(0,0,0,.55)}
@@ -239,6 +260,14 @@
 <body>
 <canvas id="c"></canvas>
 
+<!-- ekran ładowania (widoczny do czasu wczytania arkuszy i zbudowania świata) -->
+<div id="loadOv">
+  <img id="loadLogo" class="pxi" src="assets/logo.png" alt="VEGGIE FAMIGLIA">
+  <div id="loadBarWrap"><div id="loadBar"></div></div>
+  <div id="loadTxt">Krojenie warzyw…</div>
+  <div id="loadTip"></div>
+</div>
+
 <div id="hud">
   <div id="xpwrap"><div id="xpbar"></div></div>
   <div id="lvl">POZIOM 1</div>
@@ -339,6 +368,6 @@
   addEventListener('error', e => window.__err.push(String(e.message) + ' @ ' + (e.filename || '') + ':' + e.lineno));
   addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
 </script>
-<script type="module" src="main.js?v=49"></script>
+<script type="module" src="main.js?v=51"></script>
 </body>
 </html>

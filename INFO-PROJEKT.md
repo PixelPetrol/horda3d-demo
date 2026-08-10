@@ -371,10 +371,40 @@ Do wykorzystania przy rekwizytach/budynkach. Uwaga: GLTF wymaga dociągnięcia
 `optymalizator` (fps, instancing, telefon), `tester-gry` (scenariusze w przeglądarce,
 zna pułapkę `HORDA.step` i stanów `running/paused`). Wołaj ich narzędziem Agent.
 
+## WODA STYLIZOWANA (10.08, po researchu — „woda tragedia" wg właściciela)
+Research: Roystan „Toon Water" (piana z RÓŻNICY GŁĘBI + próg na przewijanym szumie),
+Harry Alisavakis „Stylized water shader" (3 pasy koloru wg głębi + linie piany z `sin()`
+biegnące do brzegu), Codrops/R3F „Stylized Water" (bufor głębi sceny = za drogi →
+piana malowana z pozycji w świecie), forum three.js „Unlit water shader with foam".
+- **MAPA GŁĘBI ZAMIAST DEPTH-TEXTURY.** Nie renderujemy sceny do depth bufora — mamy
+  `terrainH(x,z)` w JS, więc `updateWaterColors()` (nazwa została, treść nowa) wypieka
+  `WATER_Y - terrainH` do `DataTexture` 144² (RedFormat, LinearFilter) obejmującej
+  340 j. wokół gracza (2.36 j./texel, głębia kodowana -4..+4). Shader czyta ją
+  **PER PIKSEL** — stara wersja liczyła kolor per wierzchołek siatki 6.2 j., stąd
+  brak brzegu. Przebudowa ~2 ms, dopiero po 18 j. ruchu (mapa ma 170 j. zapasu).
+- **ODLEGŁOŚĆ OD BRZEGU W METRACH**: `brzeg = głębia / spadek_dna`, gdzie spadek liczony
+  z 4 dodatkowych próbek mapy głębi (±1 texel). Bez tego piana ma szerokość „w metrach
+  głębi": na stromym brzegu nitka, na płaskim zalewa pół jeziora.
+- **PIANA**: stały mokry rąbek ~0.5 m + poszarpana kipiel do ~2 m z falującym progiem
+  (szum) i pasmami `sin()` biegnącymi do brzegu; dziury z drobnego szumu, żeby nie była
+  płytą. Piana + iskierki idą też w `totalEmissiveRadiance` — nie szarzeją w cieniu.
+- **3 PASY GŁĘBI** (nie gradient): jeziora mają max ~1.7 j. głębi (66% powierzchni <0.5!),
+  więc progi to 0.40-0.58 i 0.94-1.14 — turkus → błękit → granat, krawędzie falowane
+  szumem i `sin()`. **Zmierz zakres głębi, zanim ustawisz progi.**
+- **FALE**: siatka 420×420 / 140 segmentów (3 j./segment, było 6.2 — fale się nie mieściły),
+  3 nakładające się sinusy o długości 24-30 j., **wygaszane przy brzegu**
+  (`smoothstep(0.05,1.10,głębia)`), żeby tafla nie przebijała plaży. Do tego łagodne
+  jaśnienie grzbietów / ciemnienie dolin (`col *= 1 + vFala*0.75`).
+- **ISKIERKI**: iloczyn dwóch przewijających się w przeciwne strony próbek bezszwowego
+  szumu (`waterNoiseTexture`, ten sam `pnoise` co chmury), próg 1.00-1.09 = rzadkie błyski.
+- Przezroczystość rośnie z głębią (0.74 → 0.96), piana kryje. `addCloudShadow(waterMat)`
+  — woda była jedyną płaszczyzną bez plam chmur.
+- Zmierzone: śr. 4.8 ms/klatkę przy marszu, max 10-15 ms (razem z chunkami i trawą),
+  konsola czysta, market (bez wody) bez zmian.
+
 ## DO ZROBIENIA (kolejność ustalona z userem 10.08: drzewa → woda → kwiatki → trawa)
 1. ~~Drzewa (karty liści)~~ ✅ v33.
-2. **WODA** — teraz płaska niebieska płyta; plan: falująca siatka (animacja
-   wierzchołków w shaderze), dwa odcienie głębi, piana przy brzegu.
+2. ~~**WODA**~~ ✅ 10.08 (pasy głębi, piana z mapy głębi, fale, iskierki — sekcja wyżej).
 3. **KWIATKI w trawie** + warianty źdźbeł (druga geometria losowana per instancja).
 4. ~~Encyklopedia/bestiariusz~~ ✅ 10.08 (zakładka Bestiariusz, wpis po 1. zabiciu).
 5. Dalej: gradient nieba, miękkie cienie pod obiektami, toon-shading terenu.

@@ -36,17 +36,6 @@ const CHARS = {
                 char: 'carrotello_squattello', price: 0, spd: 1.15, hp: 0, dmg: 0.9, mag: 1.3, scale: 1.22 },
   beetino:    { nm: 'Beetino Bouncerino', ds: 'Buraczino Betonino — czołg z bramki. Wolny, ale twardy.',
                 char: 'beetino_bouncerino', price: 250, spd: 0.85, hp: 3, dmg: 1.1, mag: 0.9, scale: 1.32 },
-  // ===== stara obsada (placeholdery z Rudeusza) =====
-  kasia:      { nm: 'Kasia', ds: 'Zbalansowana. Nic Cię nie zaskoczy.',
-                char: 'kasia', price: 0, spd: 1, hp: 0, dmg: 1, mag: 1, scale: 1 },
-  piotr:      { nm: 'Piotr', ds: '+1 serce, +25% obrażeń, ale wolniejszy',
-                char: 'piotr', price: 200, spd: 0.88, hp: 1, dmg: 1.25, mag: 1, scale: 1 },
-  rudeusz:    { nm: 'Rudeusz', ds: 'Bardzo szybki i mały, ale kruchy (-1 serce)',
-                char: 'rudeusz', price: 300, spd: 1.35, hp: -1, dmg: 0.9, mag: 1.4, scale: 1.05 },
-  przyjaciel: { nm: 'Kapturek', ds: 'Ogromny magnes i +2 serca, słabsze ciosy',
-                char: 'przyjaciel', price: 400, spd: 0.95, hp: 2, dmg: 0.8, mag: 2.0, scale: 1 },
-  wegielek:   { nm: 'Węgielek', ds: 'Mały demon: +45% obrażeń, tylko 3 serca',
-                char: 'wegielek', price: 500, spd: 1.1, hp: -2, dmg: 1.45, mag: 1.2, scale: 1.1 },
 };
 // portret postaci = pierwsza klatka jej arkusza (pixel art zamiast emoji)
 const portretCache = new Map();
@@ -1129,7 +1118,7 @@ const META_KEY = 'horda3d_meta_v1';
 function loadMeta() {
   const def = () => ({
     coins: 0, up: { serce: 0, dmg: 0, szyb: 0, magnes: 0 }, unlocked: {},
-    chars: { kasia: 1 }, lastChar: 'kasia', lastMap: 'laki',
+    chars: { carrotello: 1 }, lastChar: 'carrotello', lastMap: 'laki',
     st: { kills: 0, runs: 0, time: 0, best: 0, bestKills: 0, bosses: 0, coins: 0, chests: 0, lvl: 0 },
     bestiary: {},                                  // typ wroga -> ile razy zabity (bestiariusz)
     audio: { muz: 0.55, glos: 0.9, mute: 0 },      // głośności i wyciszenie (zakładka Dźwięk)
@@ -1142,7 +1131,7 @@ function loadMeta() {
       up: Object.assign(d.up, m.up),
       unlocked: Object.assign(d.unlocked, m.unlocked),
       chars: Object.assign(d.chars, m.chars),
-      lastChar: m.lastChar || 'kasia', lastMap: m.lastMap || 'laki',
+      lastChar: m.lastChar || 'carrotello', lastMap: m.lastMap || 'laki',
       st: Object.assign(d.st, m.st),
       // stare zapisy nie mają bestiariusza — domyślnie pusty, nic nie psujemy
       bestiary: Object.assign(d.bestiary, m.bestiary),
@@ -1538,22 +1527,12 @@ const ENEMY_TYPES = {
     wiruje: true, bigXp: true,
     nm: 'Lollini Spinnini',
     ds: 'Wielki lizak na patyku, który obraca się jak tarcza pilarska. Wolny jak niedziela, ale kto podejdzie za blisko, ten poznaje smak wiśniowej przemocy.' },
-  // ===== stara obsada (placeholdery z Rudeusza) =====
-  dresiarz: { hp: 3, speed: 2.7, dmg: 1, scale: 1.0, xp: 1, walk: 'run', death: 'death',
-    nm: 'Dresiarz Adidasini',
-    ds: 'Trzy paski, jeden neuron. Kuca od urodzenia, biegnie za Tobą, bo „masz zegarek". Kiedyś wygrał zakład o kebaba i od tamtej pory nie potrafi przestać biec.' },
-  zul:      { hp: 6, speed: 2.0, dmg: 1, scale: 1.05, xp: 3, walk: 'walk', death: 'death', char: 'enemy', bigXp: true,
-    nm: 'Żul Monopolowy',
-    ds: 'Filozof spod sklepu, myśliciel bez kaucji. Idzie wolno, bo dźwiga ciężar egzystencji i dwie reklamówki. Twardszy, niż wygląda — jest zakonserwowany od środka.' },
-  wegielek: { hp: 1, speed: 3.9, dmg: 1, scale: 0.9, xp: 1, walk: 'run',
-    nm: 'Węgielek Brunatnini',
-    ds: 'Grudka czystego zła i niskiej kaloryczności. Jeden punkt życia, zero instynktu samozachowawczego. Podpala się z samej ekscytacji, że Cię widzi.' },
-  dzik:     { hp: 5, speed: 5.2, dmg: 1, scale: 2.1, xp: 4, walk: 'run', bigXp: true,
-    nm: 'Dzik Osiedlowy',
-    ds: 'Sto kilo szynki rozpędzonej do prędkości hulajnogi. Nie zna hamulców, zna tylko ryj. Żywi się kebabem, zawartością śmietnika i cudzym spokojem.' },
-  boss:     { hp: 90, speed: 2.4, dmg: 2, scale: 1.9, xp: 25, walk: 'run', char: 'doctorAngry', boss: true,
-    nm: 'Doktor Wściekliniusz',
-    ds: 'Przyjmuje bez kolejki, bije bez znieczulenia. Twierdzi, że to „tylko badanie kontrolne", ale ma dziewięćdziesiąt punktów życia i bardzo ciężką rękę.' },
+  // ===== BOSS: DON CHIPSO (wg biblii — torba chipsów; do czasu własnego sprite'a
+  //          używamy powiększonego Chipsettiego, bo to ten sam „materiał") =====
+  boss: { hp: 90, speed: 2.2, dmg: 2, scale: 2.7, xp: 25, walk: 'run',
+    char: 'chipsetti_soldatetti', boss: true,
+    nm: 'Don Chipso',
+    ds: 'Głowa Famiglii. Mówi szeptem, bo kto ma sól, nie musi krzyczeć. Wymięty jak jego sumienie, tłusty jak jego interesy. Osiedle traktuje jak talerz: co na nim leży, uważa za swoje.' },
 };
 
 let eliteRingMat = null;
@@ -2015,7 +1994,7 @@ const stompDmg = l => l * 1.5 * (P.evo.sejsm ? 2 : 1) * dmgAll();
 const PASSIVES = {
   moc:    { ico: 'fala', nm: 'Moc',     ds: '+15% obrażeń wszystkiego', max: 5 },
   tempo:  { ico: 'pioruny', nm: 'Tempo',   ds: '+12% szybkości ataków',    max: 5 },
-  buty:   { ico: 'but', nm: 'Buty dresiarza', ds: '+10% szybkości ruchu', max: 5 },
+  buty:   { ico: 'but', nm: 'Klapki Carrotella', ds: '+10% szybkości ruchu', max: 5 },
   magnes: { ico: 'magnes', nm: 'Magnes',  ds: '+35% zasięgu zbierania',   max: 5 },
   krytyk: { ico: 'celownik', nm: 'Krytyk',  ds: '+10% szansy na cios ×3',   max: 5 },
   serce:  { ico: 'serce', nm: 'Serducho', ds: '+1 max serce i pełne leczenie', max: 5 },
@@ -3356,7 +3335,49 @@ function loop() {
 }
 
 // ============================== START ==============================
+// ---- EKRAN ŁADOWANIA: pasek postępu + rotujące porady ----
+const PORADY = [
+  'Złota skrzynia = nowa broń. Idź za strzałką na ekranie.',
+  'Marshmallini po śmierci dzieli się na dwa mniejsze. Planuj kolejność.',
+  'Sodino syczy przed wybuchem — to Twoja sekunda na ucieczkę.',
+  'Gummini odbija się i nie da się go odepchnąć. Nie licz na knockback.',
+  'Lollini kręci się jak piła. Wolny, ale nie właź pod tarczę.',
+  'Liść sałaty: PRZYTRZYMAJ skok w locie, żeby szybować nad hordą.',
+  'Na regale w markecie horda wspina się powoli — to Twoja chwila oddechu.',
+  'Woda spowalnia i Ciebie, i przekąski. Skokiem przeskoczysz zatoczkę.',
+  'Totem daje buff na 18 sekund. Warto po niego zboczyć z trasy.',
+  'Monety zostają po śmierci — każdy przegrany bieg i tak coś daje.',
+];
+const loadOv = document.getElementById('loadOv');
+const loadBar = document.getElementById('loadBar');
+const loadTxt = document.getElementById('loadTxt');
+const loadTip = document.getElementById('loadTip');
+let krokLad = 0;
+const KROKOW = 13;                                   // ile etapów startu (dopasowane do boot)
+function ladowanie(opis) {
+  krokLad++;
+  if (loadBar) loadBar.style.width = Math.min(100, krokLad / KROKOW * 100) + '%';
+  if (loadTxt) loadTxt.textContent = opis;
+  // Oddaj klatkę przeglądarce, żeby pasek się przerysował. UWAGA: rAF jest
+  // WSTRZYMYWANY w karcie w tle — bez awaryjnego setTimeout ładowanie wisiałoby
+  // w nieskończoność u każdego, kto przełączy kartę podczas startu.
+  return new Promise(r => {
+    let gotowe = false;
+    const koniec = () => { if (!gotowe) { gotowe = true; r(); } };
+    requestAnimationFrame(() => setTimeout(koniec, 0));
+    setTimeout(koniec, 150);
+  });
+}
+if (loadTip) {
+  loadTip.textContent = PORADY[Math.floor(Math.random() * PORADY.length)];
+  setInterval(() => {
+    if (loadOv && !loadOv.classList.contains('znika'))
+      loadTip.textContent = PORADY[Math.floor(Math.random() * PORADY.length)];
+  }, 2600);
+}
+
 (async function boot() {
+  await ladowanie('Rozpakowywanie kości…');
   const bone = await flatMat('assets/bone.png');
   boneMatCache = bone.mat; boneAspect = bone.w / bone.h;
   coinMat = new THREE.MeshBasicMaterial({ map: coinTexture(), transparent: true, depthWrite: false });
@@ -3378,24 +3399,19 @@ function loop() {
   bottleMat = (await flatMat('assets/bottle.png')).mat;
   radioMat = (await flatMat('assets/radio.png')).mat;
   heartMat = emojiMat('❤️');
-  await buildChar('kasia', ['idle', 'run', 'jump']);
-  await buildChar('dresiarz', ['run', 'death']);
-  await buildChar('enemy', ['walk', 'death']);
-  await buildChar('wegielek', ['run']);
-  await buildChar('dzik', ['run']);
-  await buildChar('doctorAngry', ['run']);
   await buildChar('kura_braz', ['walk']);
   // postacie grywalne (potrzebne też do portretów w menu)
-  await buildChar('piotr', ['idle', 'run', 'jump']);
-  await buildChar('przyjaciel', ['idle', 'run']);
-  await buildChar('rudeusz', ['idle', 'run']);
   // ===== VEGGIE FAMIGLIA =====
+  await ladowanie('Budzenie Carrotella…');
   await buildChar('carrotello_squattello', ['idle', 'run', 'jump']);
+  await ladowanie('Beetino zakłada okulary…');
   await buildChar('beetino_bouncerino', ['run', 'jump']);
+  await ladowanie('Zwoływanie Famiglia Snackoni…');
   for (const w of ['chipsetti_soldatetti', 'marshmallini_fluffini', 'gummini_bouncini',
                    'friesetti_spearetti', 'sodino_explodino', 'lollini_spinnini']) {
     await buildChar(w, ['run']);
   }
+  await ladowanie('Sadzenie krzaków…');
   await loadDecoMats();
   chunkMat = addCloudShadow(new THREE.MeshLambertMaterial({ map: grassTexC, vertexColors: true }));
   chunkMatIndoor = new THREE.MeshLambertMaterial({ map: floorTexC, vertexColors: true });
@@ -3413,7 +3429,7 @@ function loop() {
   plankMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#a9793f', '#6d4a22', 6) });
   stoneMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#9a9c96', '#6f7169', 3) });
 
-  charKey = META.chars[META.lastChar] ? META.lastChar : 'kasia';
+  charKey = (META.chars[META.lastChar] && CHARS[META.lastChar]) ? META.lastChar : 'carrotello';
   mapKey = MAPS[META.lastMap] ? META.lastMap : 'laki';
   P.pos = new THREE.Vector3(0, 0, 0);
   P.y = terrainH(0, 0);
@@ -3422,9 +3438,12 @@ function loop() {
   initLettuce();
   resetStats();          // P.pos musi istnieć PRZED chunkami i skrzyniami
   setMap(mapKey);        // buduje świat + rozstawia skrzynie/totemy
+  await ladowanie('Ukrywanie skrzyń…');
   spawnChests(9);
+  await ladowanie('Stawianie totemów…');
   spawnTotems(3, colImg);
   drawHearts();
+  await ladowanie('Otwieranie sklepu…');
   renderShop(); renderMaps(); renderChars(); renderStats(); renderBestiary(); renderPick();
   AUDIO.initUI();        // suwaki głośności w zakładce Dźwięk
   AUDIO.setPostac(charKey);
@@ -3433,7 +3452,10 @@ function loop() {
   camera.position.set(0, terrainH(0, 0) + CAM_H, CAM_DIST);
   camera.lookAt(0, 1.3, -2.2);
   playerBB.update(0, P.pos, P.y, P.y);
+  await ladowanie('Sól i cukier na pozycjach…');
   loop();
+  await ladowanie('Gotowe!');
+  if (loadOv) { loadOv.classList.add('znika'); setTimeout(() => loadOv.remove(), 500); }
 
   const menu = document.getElementById('startOv');
   document.getElementById('btnStart').onclick = () => { menu.style.display = 'none'; newGame(); };
