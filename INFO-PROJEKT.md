@@ -1,6 +1,6 @@
 # HORDA 3D — nowy projekt „na poważnie" (survivors-like à la Megabonk)
 
-> Stan: 8.08.2026 późna noc — **prototyp v11 działa** (testowany w przeglądarce).
+> Stan: 9.08.2026 — **prototyp v15 działa** (testowany w przeglądarce).
 > v11 = PEŁNY SYSTEM BRONI: 3 sloty, 6 broni, pasywy, wymiennik ze skrzyń,
 > odblokowania w sklepie za monety. Wcześniej: mapa nieskończona, ewolucje,
 > skrzynie/totemy/jeziora/biomy/elity. Wszystko zweryfikowane, konsola czysta.
@@ -150,6 +150,34 @@
 - Silnik: user pytał „czy nie lepszy inny?" — DECYZJA: zostajemy przy Three.js
   (momentum, demo-link, Capacitor/Electron); rewizja tylko przy twardej ścianie
   (fizyka/konsole/perf. nie do obejścia instancingiem).
+
+## FIZYKA + MARKET + BRONIE v13-v15 (9.08 — feedback usera)
+- **LICZBY ×250** (było ×25): dmgNum = round(dmg*250/10)*10, min 50. Wstrząs
+  kamery rośnie z serią killi (0.06 + streak*0.03, cap 0.5).
+- **PRAWDZIWA FIZYKA PIONOWA** (koniec „przyklejenia do ziemi"): P.y + P.vy +
+  P.airborne; zejście z krawędzi (ground < y-0.5) = SPADANIE z grawitacją;
+  lądowanie na szczycie regału (supportY) albo terenie; kamera i kontakt
+  z wrogami liczone z P.y (wysoko nad wrogiem = nie dosięgnie).
+- **KOLIZJE** (`solids` per chunk + solveSolids): pnie dębów (okrąg r=0.45,
+  top=99 czyli nieprzeskakiwalne), głazy (okrąg, top = 0.75×wysokość → DA SIĘ
+  przeskoczyć), regały marketu (AABB hw×hl, top=2.3). Wrogowie też kolidują
+  (blokują się na regałach — 12 przy regałach, 0 w środku w teście).
+- **MAPA 🛒 MARKET** (MAPS + wybór na ekranie startu, `setMap` przebudowuje świat):
+  płaska podłoga w kafle, rzędy regałów co 8 j. z przerwami (28%) = CIASNE ALEJKI,
+  proceduralna tekstura regału z „towarem", mgła 34-95, bez wody/chmur.
+  **ROZLANA WODA = ŚLISKO**: plamy (r 2.2-4.6) w chunku; na nich grip 18→1.2
+  (bezwładność, wypada się w poślizg), wrogowie ×0.55 prędkości.
+- **🦘🦘 PODWÓJNY SKOK**: sklep 300🪙 (na stałe) LUB skrzynia 8% (na bieg).
+  Zbalansowane: 1 skok = 1.46 j. (regał 2.3 = NIE wejdziesz), 2 skoki = 2.67 j.
+  (wejdziesz na regał). To jest brama do „ucieczki na regał" w markecie.
+- **4 NOWE BRONIE** (odblokowania): 🧦 Skarpeta biologiczna (aura trująca wokół),
+  💨 Wiatrówka (promień przeszywa linię), 🐔 Kura-kamikaze (biegnie do wroga
+  i wybucha — Billboard z kura_braz), + wcześniejsze. Razem **9 broni**.
+- **SKRZYNIE a bronie** (poprawka usera): przy WOLNYM slocie skrzynia daje
+  🎁 NOWĄ BROŃ (openNewWeapon), wymiennik 🔄 dopiero gdy masz pełne 3.
+- Pułapka: `import ... from './spritedata.js?v=N'` — po regeneracji spritedata
+  PODBIJ v, inaczej stary cache = „Cannot read properties of undefined (img)".
+- W index.html jest łapacz błędów do window.__err (debug; usunąć przed wydaniem).
 
 ## Monetyzacja (decyzja usera 8.08)
 - **Steam**: wersja płatna (bez reklam). Pakowanie: Electron albo natywny webview.
