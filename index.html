@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>HORDA 3D — prototyp</title>
+<title>VEGGIE FAMIGLIA — Brainrot Survivors</title>
 <style>
   @font-face{font-family:'Pixel';font-style:normal;font-weight:400;font-display:swap;
     src:url(fonts/pixelify-latinext.woff2) format('woff2');
@@ -58,6 +58,9 @@
   .ov{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
       background:rgba(8,12,20,.88);backdrop-filter:blur(5px);z-index:10;text-align:center;
       padding:12px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  #logo{width:min(84vw,560px);max-height:34vh;object-fit:contain;margin:0 0 2px;
+      filter:drop-shadow(0 6px 0 rgba(0,0,0,.55))}
+  @media (max-height:520px){ #logo{max-height:26vh;width:min(56vw,420px)} }
   .ov h1{font-size:clamp(28px,8vw,52px);margin:0 0 4px;letter-spacing:1px;line-height:1}
   .ov h1 .g{background:linear-gradient(90deg,#ffd75e,#ff9d3f);-webkit-background-clip:text;background-clip:text;color:transparent}
   .ov h2{margin:0 0 10px;font-size:clamp(17px,4.5vw,25px);text-shadow:0 2px 6px #000}
@@ -132,6 +135,25 @@
         0 -3px 0 0 #ffd75e, 0 3px 0 0 #ffd75e}
   #kodInfo{width:100%;font-size:13px;min-height:18px;color:#7ee787}
   #kodInfo.zle{color:#ff8b7a}
+
+  /* ustawienia dźwięku — suwaki w stylu pixel (twarde krawędzie, bez zaokrągleń) */
+  #sndBox{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:8px}
+  .snd{pointer-events:auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;
+      width:min(92vw,430px);padding:11px 14px;background:#171d2c;
+      box-shadow:inset 0 3px 0 0 #263049, inset 0 -3px 0 0 #0e1421,
+        -3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  .snd label{font-size:clamp(11px,3vw,14px);font-weight:700;width:120px;text-align:left}
+  .snd b{font-size:13px;color:#ffd75e;width:46px;text-align:right}
+  .snd input[type=range]{-webkit-appearance:none;appearance:none;flex:1;min-width:120px;height:14px;
+      background:#0e1421;border:0;outline:0;cursor:pointer;
+      box-shadow:-3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  .snd input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:22px;
+      background:#f5c542;border:0;border-radius:0;
+      box-shadow:inset 0 4px 0 0 #ffe89a, inset 0 -4px 0 0 #c08f14,
+        -3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22}
+  .snd input[type=range]::-moz-range-thumb{width:16px;height:22px;background:#f5c542;border:3px solid #1b1b22;
+      border-radius:0}
+  #btnMute.sel{background:#4a3a14;color:#ffd75e}
 
   /* statystyki */
   #statsList{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
@@ -236,7 +258,7 @@
 
 <!-- ================= MENU GŁÓWNE ================= -->
 <div id="startOv" class="ov">
-  <h1>HORDA <span class="g">3D</span></h1>
+  <img id="logo" class="pxi" src="assets/logo.png" alt="VEGGIE FAMIGLIA — Brainrot Survivors">
   <div id="tabs">
     <div class="tab sel" data-tab="graj" data-ico="play">Graj</div>
 
@@ -244,6 +266,7 @@
     <div class="tab" data-tab="postacie" data-ico="postac">Postacie</div>
     <div class="tab" data-tab="bestia" data-ico="czaszka">Bestiariusz</div>
     <div class="tab" data-tab="sklep" data-ico="sklep">Sklep</div>
+    <div class="tab" data-tab="dzwiek" data-ico="glosnik">Dźwięk</div>
     <div class="tab" data-tab="staty" data-ico="wykres">Statystyki</div>
   </div>
 
@@ -271,6 +294,17 @@
       <div id="kodInfo"></div>
     </div>
     <div class="grid" id="shopItems"></div>
+  </div>
+  <div class="panel" id="p-dzwiek">
+    <p>Muzyka rusza po pierwszym kliknięciu — tak wymagają przeglądarki.
+       W menu gra motyw główny, w biegu utwór losowany, przy bossie osobny kawałek.</p>
+    <div id="sndBox">
+      <div class="snd"><label id="etyMuz" for="volMuz">Muzyka</label>
+        <input id="volMuz" type="range" min="0" max="100" step="1" value="55"><b id="volMuzV">55%</b></div>
+      <div class="snd"><label id="etyGlos" for="volGlos">Głosy i efekty</label>
+        <input id="volGlos" type="range" min="0" max="100" step="1" value="90"><b id="volGlosV">90%</b></div>
+      <button class="btn2" id="btnMute">WYCISZ WSZYSTKO</button>
+    </div>
   </div>
   <div class="panel" id="p-staty"><div id="statsList"></div></div>
 </div>
@@ -305,6 +339,6 @@
   addEventListener('error', e => window.__err.push(String(e.message) + ' @ ' + (e.filename || '') + ':' + e.lineno));
   addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
 </script>
-<script type="module" src="main.js?v=45"></script>
+<script type="module" src="main.js?v=49"></script>
 </body>
 </html>

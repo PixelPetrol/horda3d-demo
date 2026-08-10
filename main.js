@@ -1,7 +1,8 @@
 // HORDA 3D v4 — teren 3D + kamera za plecami + meta-progresja (monety/sklep)
 import * as THREE from './lib/three.module.js';
-import { SPRITEDATA } from './spritedata.js?v=2';
+import { SPRITEDATA } from './spritedata.js?v=4';
 import { icon, ico } from './icons.js?v=1';
+import { AUDIO } from './audio.js?v=1';            // muzyka wg fazy gry + kwestie głosowe
 
 // ============================== USTAWIENIA ==============================
 const PX2U = 1 / 55;
@@ -30,6 +31,12 @@ let mapKey = 'laki';
 
 // ============================== POSTACIE ==============================
 const CHARS = {
+  // ===== VEGGIE FAMIGLIA (statystyki wg biblii postaci v1.1) =====
+  carrotello: { nm: 'Carrotello Squattello', ds: 'Marchewino Dresino — szybki, ogromny magnes. Starter.',
+                char: 'carrotello_squattello', price: 0, spd: 1.15, hp: 0, dmg: 0.9, mag: 1.3, scale: 1.22 },
+  beetino:    { nm: 'Beetino Bouncerino', ds: 'Buraczino Betonino — czołg z bramki. Wolny, ale twardy.',
+                char: 'beetino_bouncerino', price: 250, spd: 0.85, hp: 3, dmg: 1.1, mag: 0.9, scale: 1.32 },
+  // ===== stara obsada (placeholdery z Rudeusza) =====
   kasia:      { nm: 'Kasia', ds: 'Zbalansowana. Nic Cię nie zaskoczy.',
                 char: 'kasia', price: 0, spd: 1, hp: 0, dmg: 1, mag: 1, scale: 1 },
   piotr:      { nm: 'Piotr', ds: '+1 serce, +25% obrażeń, ale wolniejszy',
@@ -63,7 +70,7 @@ function portret(charName) {
   portretCache.set(charName, url);
   return url;
 }
-let charKey = 'kasia';
+let charKey = 'carrotello';
 
 // ============================== TEREN (value noise) ==============================
 function hash2(ix, iz) {
@@ -921,7 +928,13 @@ class Billboard {
   }
   play(an, loop = true) {
     if (this.anim === an) return;
-    if (!LIB[this.char].anims[an]) return;
+    if (!LIB[this.char].anims[an]) {
+      // brak takiej animacji (np. Beetino nie ma 'idle') — bierz pierwszą dostępną,
+      // ale tylko gdy nic jeszcze nie gramy, żeby nie przerywać bieżącej
+      if (this.anim) return;
+      an = Object.keys(LIB[this.char].anims)[0];
+      if (!an) return;
+    }
     this.anim = an; this.t = 0; this.loop = loop; this.done = false;
   }
   update(dt, pos, ty, groundY = ty) {
@@ -1023,6 +1036,7 @@ function loadMeta() {
     chars: { kasia: 1 }, lastChar: 'kasia', lastMap: 'laki',
     st: { kills: 0, runs: 0, time: 0, best: 0, bestKills: 0, bosses: 0, coins: 0, chests: 0, lvl: 0 },
     bestiary: {},                                  // typ wroga -> ile razy zabity (bestiariusz)
+    audio: { muz: 0.55, glos: 0.9, mute: 0 },      // głośności i wyciszenie (zakładka Dźwięk)
   });
   try {
     const m = JSON.parse(localStorage.getItem(META_KEY)) || {};
@@ -1036,6 +1050,8 @@ function loadMeta() {
       st: Object.assign(d.st, m.st),
       // stare zapisy nie mają bestiariusza — domyślnie pusty, nic nie psujemy
       bestiary: Object.assign(d.bestiary, m.bestiary),
+      // stare zapisy nie mają ustawień dźwięku — biorą domyślne
+      audio: Object.assign(d.audio, m.audio),
     };
   } catch { return def(); }
 }
@@ -1048,6 +1064,7 @@ function saveMetaSoon() {
   if (saveT) return;
   saveT = setTimeout(() => { saveT = 0; saveMeta(); }, 2000);
 }
+AUDIO.init(META, saveMeta);                        // dźwięk czyta/zapisuje głośności w META
 
 const SHOP = [
   { key: 'serce',  ico: 'serce', nm: 'Twarde serce',   ds: '+1 serce na start',      base: 50, max: 3 },
@@ -1401,6 +1418,31 @@ function pollPads(dt) {
 // ============================== WROGOWIE ==============================
 // nm/ds = wpis do BESTIARIUSZA (odblokowywany po pierwszym zabiciu danego typu)
 const ENEMY_TYPES = {
+  // ===== LA FAMIGLIA SNACKONI (wg biblii v1.1; HP/3.5, speed×2.5) =====
+  chipsetti: { hp: 3, speed: 2.75, dmg: 1, scale: 0.85, xp: 1, walk: 'run', char: 'chipsetti_soldatetti',
+    nm: 'Chipsetti Soldatetti',
+    ds: 'Szeregowy Famiglii — wymięty chips z ambicjami. Atakuje wyłącznie w rojach, bo w pojedynkę jest tylko okruchem. Łamie się efektownie i to jego jedyny talent.' },
+  marshmallini: { hp: 8, speed: 1.75, dmg: 1, scale: 1.0, xp: 2, walk: 'run', char: 'marshmallini_fluffini',
+    dzieli: true, bigXp: true,
+    nm: 'Marshmallini Fluffini',
+    ds: 'Gąbczasty bandzior o konsystencji poduszki. Powolny i miękki, ale gdy go rozwalisz, robią się z niego DWA mniejsze problemy. Fizyka pianki, logika hydry.' },
+  gummini: { hp: 4, speed: 3.0, dmg: 1, scale: 0.9, xp: 1, walk: 'run', char: 'gummini_bouncini',
+    skacze: true, bezKb: true,
+    nm: 'Gummini Bouncini',
+    ds: 'Żelkowy miś, który nie chodzi — on się odbija. Nie da się go odepchnąć, bo cała jego istota to sprężyna. Galaretowaty, uparty i lepki jak wyrzut sumienia.' },
+  friesetti: { hp: 4, speed: 4.0, dmg: 1, scale: 0.95, xp: 2, walk: 'run', char: 'friesetti_spearetti',
+    bigXp: true,
+    nm: 'Friesetti Spearetti',
+    ds: 'Frytka-włócznik, szarżuje w porcjach po pięć. Chuda, długa i boleśnie szybka. Zostawia za sobą smugę soli i poczucie, że to była zła decyzja.' },
+  sodino: { hp: 6, speed: 2.5, dmg: 1, scale: 0.95, xp: 2, walk: 'run', char: 'sodino_explodino',
+    kamikaze: true, bigXp: true,
+    nm: 'Sodino Explodino',
+    ds: 'Wstrząśnięta puszka z zapłonem zamiast rozumu. Syczy, biegnie i wybucha — w tej kolejności, zawsze. Po nim zostaje kałuża coli i cisza.' },
+  lollini: { hp: 17, speed: 1.25, dmg: 2, scale: 1.35, xp: 4, walk: 'run', char: 'lollini_spinnini',
+    wiruje: true, bigXp: true,
+    nm: 'Lollini Spinnini',
+    ds: 'Wielki lizak na patyku, który obraca się jak tarcza pilarska. Wolny jak niedziela, ale kto podejdzie za blisko, ten poznaje smak wiśniowej przemocy.' },
+  // ===== stara obsada (placeholdery z Rudeusza) =====
   dresiarz: { hp: 3, speed: 2.7, dmg: 1, scale: 1.0, xp: 1, walk: 'run', death: 'death',
     nm: 'Dresiarz Adidasini',
     ds: 'Trzy paski, jeden neuron. Kuca od urodzenia, biegnie za Tobą, bo „masz zegarek". Kiedyś wygrał zakład o kebaba i od tamtej pory nie potrafi przestać biec.' },
@@ -1425,7 +1467,7 @@ const hpScale = () => 1 + G.time / 60 * 0.55 + Math.pow(G.time / 300, 2) * 1.5; 
 const spdScale = () => Math.min(1.5, 1 + G.time / 60 * 0.035);
 const dmgScale = () => G.time > 600 ? 3 : (G.time > 330 ? 2 : 1);               // 5.5 min → 2, 10 min → 3
 
-function spawnEnemy(type, angle = null) {
+function spawnEnemy(type, angle = null, przy = null) {
   const T = ENEMY_TYPES[type];
   const a = angle === null ? Math.random() * Math.PI * 2 : angle;
   const r = 34 + Math.random() * 10;
@@ -1433,10 +1475,11 @@ function spawnEnemy(type, angle = null) {
   const elite = !T.boss && G.time > 60 && Math.random() < 0.06 + G.time / 60 * 0.015;
   const e = {
     type, T, elite,
-    pos: new THREE.Vector3(P.pos.x + Math.sin(a) * r, 0, P.pos.z + Math.cos(a) * r),
+    pos: przy ? new THREE.Vector3(przy.x, 0, przy.z)
+              : new THREE.Vector3(P.pos.x + Math.sin(a) * r, 0, P.pos.z + Math.cos(a) * r),
     hp: T.hp * (T.boss ? 1 : hpMul) * (elite ? 6 : 1),
     dying: false, hitCd: 0, kb: new THREE.Vector3(), orbCd: 0, climbing: false,
-    ty: 0, vy: 0, jumpCd: 1 + Math.random() * 3,
+    ty: 0, vy: 0, jumpCd: 1 + Math.random() * 3, faza: Math.random() * 6.28,
     bb: new Billboard(T.char || type, T.scale * (elite ? 1.45 : 1)),
   };
   e.ty = terrainH(e.pos.x, e.pos.z);
@@ -1447,6 +1490,7 @@ function spawnEnemy(type, angle = null) {
   }
   e.bb.play(T.walk);
   G.enemies.push(e);
+  return e;
 }
 
 function killEnemy(e, i) {
@@ -1464,7 +1508,11 @@ function killEnemy(e, i) {
   G.streak = (G.time - G.streakT < 1.3) ? G.streak + 1 : 1;
   G.streakT = G.time;
   G.shake = Math.max(G.shake, Math.min(0.5, 0.06 + G.streak * 0.03));
-  if (e.T.boss) { dmgPop(e.pos.x, e.ty + 1.2, e.pos.z, 'BOSS DOWN!', '#ff5555', 2.6); META.st.bosses++; saveMeta(); }
+  AUDIO.seria(G.streak);                           // przy dużej serii postać się odezwie (rzadko)
+  if (e.T.boss) { dmgPop(e.pos.x, e.ty + 1.2, e.pos.z, 'BOSS DOWN!', '#ff5555', 2.6); META.st.bosses++; saveMeta();
+    // muzyka bossa wraca do utworu z biegu dopiero, gdy padnie OSTATNI boss
+    if (!G.enemies.some(o => o !== e && o.T.boss && !o.dying)) AUDIO.bossOff();
+  }
   else if (e.elite) dmgPop(e.pos.x, e.ty + 0.8, e.pos.z, 'ELITA!', '#ffd75e', 1.9);
   else dmgPop(e.pos.x, e.ty + 0.5, e.pos.z, G.streak > 1 ? 'KILL x' + G.streak : 'KILL',
     '#ff6a5e', Math.min(1.1 + G.streak * 0.12, 2.2));
@@ -1484,6 +1532,13 @@ function killEnemy(e, i) {
   // serca: elity 30%, boss zawsze 2
   if (e.T.boss) { G.hps.push(makeHeart(e.pos.x - 0.8, e.pos.z)); G.hps.push(makeHeart(e.pos.x + 0.8, e.pos.z)); }
   else if (e.elite && Math.random() < 0.3) G.hps.push(makeHeart(e.pos.x, e.pos.z));
+  // Marshmallini po śmierci DZIELI SIĘ na dwa mniejsze (wg biblii)
+  if (e.T.dzieli && !e.mini) {
+    for (const bok of [-1, 1]) {
+      const m = spawnEnemy(e.type, null, { x: e.pos.x + bok * 0.8, z: e.pos.z });
+      if (m) { m.mini = true; m.hp = m.maxHp = e.T.hp * 0.5 * hpScale(); m.bb.mesh.scale.multiplyScalar(0.62); }
+    }
+  }
   if (e.ring) { scene.remove(e.ring); e.ring = null; }
   if (e.T.death && LIB[e.T.char || e.type].anims[e.T.death]) {
     e.dying = true; e.bb.play(e.T.death, false);
@@ -1947,9 +2002,13 @@ function openSwap() {
 }
 // skrzynia przy WOLNYM slocie: prezent — wybór nowej broni bez oddawania
 function openNewWeapon() {
-  const opts = Object.keys(WEAPONS).filter(k =>
+  const wszystkie = Object.keys(WEAPONS).filter(k =>
     !hasWeapon(k) && (!WEAPONS[k].locked || META.unlocked[k]));
-  if (!opts.length) { G.runCoins += 15; drawCoins(); return; }
+  if (!wszystkie.length) { G.runCoins += 15; drawCoins(); return; }
+  // LOSUJEMY 2 propozycje (nie pokazujemy całej listy — wybór ma coś znaczyć)
+  const opts = [];
+  const pula = wszystkie.slice();
+  while (opts.length < 2 && pula.length) opts.push(pula.splice(Math.floor(Math.random() * pula.length), 1)[0]);
   G.paused = true;
   const wrap = document.getElementById('swapList'); wrap.innerHTML = '';
   document.getElementById('swapTitle').textContent = 'ZNALEZIONA BROŃ! Co bierzesz?';
@@ -1974,9 +2033,12 @@ function openNewWeapon() {
 }
 
 function pickNewWeapon(oldW) {
-  const opts = Object.keys(WEAPONS).filter(k =>
+  const wszystkie = Object.keys(WEAPONS).filter(k =>
     !hasWeapon(k) && (!WEAPONS[k].locked || META.unlocked[k]));
-  if (!opts.length) { G.runCoins += 15; drawCoins(); return closeSwap(); }
+  if (!wszystkie.length) { G.runCoins += 15; drawCoins(); return closeSwap(); }
+  const opts = [];
+  const pula = wszystkie.slice();
+  while (opts.length < 2 && pula.length) opts.push(pula.splice(Math.floor(Math.random() * pula.length), 1)[0]);
   const wrap = document.getElementById('swapList'); wrap.innerHTML = '';
   document.getElementById('swapTitle').textContent = 'Co bierzesz w zamian?';
   for (const key of opts) {
@@ -2647,12 +2709,17 @@ function update(dt) {
   if (G.spawnT <= 0 && G.enemies.length < CAP) {
     G.spawnT = interval;
     const batch = Math.round(1 + min * 1.6);                     // 4. min: ~7 na raz
+    // TIMELINE wg biblii: chipsetti od 0:00, marshmallini 1:00, gummini 2:00,
+    // friesetti 3:00, sodino 4:00, lollini 4:30
+    const pula = ['chipsetti'];
+    if (G.time > 60) pula.push('marshmallini');
+    if (G.time > 120) pula.push('gummini');
+    if (G.time > 180) pula.push('friesetti');
+    if (G.time > 240) pula.push('sodino');
+    if (G.time > 270) pula.push('lollini');
     for (let b = 0; b < batch && G.enemies.length < CAP; b++) {
-      const roll = Math.random();
-      let type = 'dresiarz';
-      if (G.time > 40 && roll < 0.32) type = 'zul';
-      if (G.time > 75 && roll > 0.72) type = 'wegielek';
-      if (G.time > 130 && roll > 0.88) type = 'dzik';
+      // chipsetti zawsze dominują (szeregowi), reszta doprawia hordę
+      const type = Math.random() < 0.45 ? 'chipsetti' : pula[Math.floor(Math.random() * pula.length)];
       spawnEnemy(type);
     }
   }
@@ -2660,7 +2727,8 @@ function update(dt) {
   if (G.time > 60 && G.time > G.ringAt) {
     G.ringAt = G.time + 30;
     const n = Math.round(10 + min * 5);
-    const typy = G.time > 130 ? ['dresiarz', 'zul', 'wegielek', 'dzik'] : ['dresiarz', 'zul', 'wegielek'];
+    const typy = G.time > 180 ? ['chipsetti', 'gummini', 'friesetti', 'marshmallini']
+                              : ['chipsetti', 'chipsetti', 'marshmallini'];
     for (let k = 0; k < n && G.enemies.length < CAP; k++) {
       spawnEnemy(typy[Math.floor(Math.random() * typy.length)], (k / n) * Math.PI * 2);
     }
@@ -2671,6 +2739,7 @@ function update(dt) {
     G.bossAt += 120;
     const ile = 1 + Math.floor(G.time / 300);
     for (let b = 0; b < ile; b++) spawnEnemy('boss');
+    AUDIO.bossOn();                                              // muzyka przełącza się na walkę z bossem
   }
 
   // ---- separacja wrogów ----
@@ -2716,8 +2785,38 @@ function update(dt) {
     if (wspin > 0.18) es *= 0.35;
     if (MAPS[mapKey].indoor && onSpill(e.pos.x, e.pos.z)) es *= 0.55;   // im też ślisko
     e.pos.addScaledVector(to, es * dt);
-    e.pos.add(e.kb.clone().multiplyScalar(dt * 8));
-    e.kb.multiplyScalar(Math.max(0, 1 - dt * 10));
+    if (!e.T.bezKb) {                                  // Gummini są odporne na odrzut
+      e.pos.add(e.kb.clone().multiplyScalar(dt * 8));
+      e.kb.multiplyScalar(Math.max(0, 1 - dt * 10));
+    } else e.kb.set(0, 0, 0);
+    if (e.T.wiruje) {
+      // Lollini kręci się jak piła TARCZOWA — ale że to billboard, symulujemy to
+      // ściskaniem w poziomie (jak obracający się dysk oglądany z boku) + chwile spoczynku
+      const cykl = (G.time * 0.55 + e.faza) % 3.0;
+      if (cykl < 1.9) {                                  // faza wirowania
+        const spin = Math.cos(G.time * 9 + e.faza);
+        e.bb.mesh.scale.x = e.bb.h * (0.32 + 0.68 * Math.abs(spin));
+      } else {
+        e.bb.mesh.scale.x = e.bb.h;                      // chwila przerwy — po prostu idzie
+      }
+    }
+    if (e.T.kamikaze && d < 2.2 && !e.zapalony) {                 // Sodino: syczy i wybucha
+      e.zapalony = true; e.lont = 1.0;
+    }
+    if (e.zapalony) {
+      e.lont -= dt;
+      e.bb.mesh.scale.setScalar(e.bb.h * (1 + Math.sin(G.time * 30) * 0.12));
+      if (e.lont <= 0) {
+        nova(e.pos.x, e.pos.z, 2.6, 0);                           // wybuch rani TYLKO gracza
+        if (e.pos.distanceTo(P.pos) < 2.6 && P.iframes <= 0 && P.y - e.ty < 1.2) {
+          P.hp -= 1; P.iframes = 0.9; drawHearts(); G.shake = 0.4;
+          if (P.hp <= 0) { startDeath(); }
+        }
+        dmgPop(e.pos.x, e.ty + 0.8, e.pos.z, 'BUM!', '#ff9d3f', 1.6);
+        killEnemy(e, i);
+        continue;
+      }
+    }
 
     // ---- kolizja, SKOKI i WSPINACZKA na półki ----
     const blockTop = solveSolids(e.pos, 0.35, e.ty);
@@ -2731,6 +2830,10 @@ function update(dt) {
       // przeszkoda + gracz wyżej: podskocz (niska) albo mozolnie się wspinaj (wysoka)
       if (blockTop - e.ty < 1.5 && e.jumpCd <= 0) { e.vy = 6.6; e.jumpCd = 1.6; }
       else { e.ty = Math.min(blockTop + 0.06, e.ty + 0.95 * dt); e.climbing = true; }
+    } else if (e.T.skacze) {
+      e.climbing = false;
+      const podskok = Math.abs(Math.sin(G.time * 4.5 + e.faza)) * 0.75;   // ciągłe odbijanie
+      e.ty = eGround + podskok;
     } else {
       e.climbing = false;
       // co jakiś czas podskakują z radości (i przeskakują drobne nierówności)
@@ -2947,6 +3050,7 @@ function update(dt) {
         P.xp -= P.xpNeed; P.lvl++;
         P.xpNeed = Math.round(5 + P.lvl * 3.2);
         document.getElementById('lvl').textContent = 'POZIOM ' + P.lvl;
+        AUDIO.event('awans');
         showCards();
       }
       document.getElementById('xpbar').style.width = (P.xp / P.xpNeed * 100) + '%';
@@ -3031,6 +3135,7 @@ function startDeath() {
   dmgPop(P.pos.x, P.y + 1.2, P.pos.z, 'KONIEC!', '#ff4a4a', 2.4);
   novaRing(P.pos.x, P.pos.z, 6);
   if (hitFlash) hitFlash.visible = false;
+  AUDIO.event('smierc');                           // ostatnia kwestia postaci
 }
 function updateDeath(dt) {
   G.deathT += dt;
@@ -3067,6 +3172,7 @@ function updateDeath(dt) {
 
 function gameOver() {
   G.over = true; G.running = false;
+  AUDIO.endRun();                                  // koniec biegu = powrót do motywu głównego
   document.getElementById('vign').style.opacity = 0;
   playerBB.mesh.rotation.z = 0;
   META.coins += G.runCoins;
@@ -3138,6 +3244,7 @@ function newGame() {
   document.getElementById('tier').innerHTML = ico('ostrzezenie', 14) + ' ZAGROŻENIE 1';
   document.getElementById('xpbar').style.width = '0%';
   drawHearts(); drawCoins(); renderWpns();
+  AUDIO.startRun(charKey);                         // losowy utwór na bieg + kwestia na start
   camYaw = 0;
   camera.position.set(0, terrainH(0, 0) + CAM_H, CAM_DIST);
 }
@@ -3186,6 +3293,13 @@ function loop() {
   await buildChar('piotr', ['idle', 'run', 'jump']);
   await buildChar('przyjaciel', ['idle', 'run']);
   await buildChar('rudeusz', ['idle', 'run']);
+  // ===== VEGGIE FAMIGLIA =====
+  await buildChar('carrotello_squattello', ['idle', 'run', 'jump']);
+  await buildChar('beetino_bouncerino', ['run', 'jump']);
+  for (const w of ['chipsetti_soldatetti', 'marshmallini_fluffini', 'gummini_bouncini',
+                   'friesetti_spearetti', 'sodino_explodino', 'lollini_spinnini']) {
+    await buildChar(w, ['run']);
+  }
   await loadDecoMats();
   chunkMat = addCloudShadow(new THREE.MeshLambertMaterial({ map: grassTexC, vertexColors: true }));
   chunkMatIndoor = new THREE.MeshLambertMaterial({ map: floorTexC, vertexColors: true });
@@ -3216,6 +3330,9 @@ function loop() {
   spawnTotems(3, colImg);
   drawHearts();
   renderShop(); renderMaps(); renderChars(); renderStats(); renderBestiary(); renderPick();
+  AUDIO.initUI();        // suwaki głośności w zakładce Dźwięk
+  AUDIO.setPostac(charKey);
+  AUDIO.menu();          // motyw główny — ruszy przy pierwszym kliknięciu (autoplay policy)
   fitCamera();
   camera.position.set(0, terrainH(0, 0) + CAM_H, CAM_DIST);
   camera.lookAt(0, 1.3, -2.2);
@@ -3279,6 +3396,7 @@ function loop() {
   document.getElementById('btnQuit').onclick = () => {
     togglePause(false);
     G.running = false; clearWorld();
+    AUDIO.endRun();                               // z powrotem motyw główny
     document.getElementById('wArrow').style.display = 'none';
     menu.style.display = 'flex';
     saveMeta();                                   // zapisz liczniki bestiariusza z przerwanego biegu
@@ -3294,7 +3412,7 @@ function loop() {
   window.HORDA = {
     G, P, terrainH, chests, totems, openSwap, renderWpns, chunkMap, supportY, onSpill, setMap,
     wchest, META, CHARS, MAPS, ENEMY_TYPES, spawnEnemy, killEnemy, renderBestiary, saveMeta,
-    setPlayerChar, togglePause, get charKey() { return charKey; },
+    setPlayerChar, togglePause, get charKey() { return charKey; }, AUDIO,
     get grass() { return grassField; },
     PAD, pollPads, get camYaw() { return camYaw; }, get gpSel() { return gpSel; },
     step(n = 1, dt = 1 / 60) {
