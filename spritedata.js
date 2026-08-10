@@ -645,5 +645,58 @@ export const SPRITEDATA={
     }
    }
   }
+ },
+ "kura_braz": {
+  "img": "assets/kura_braz.png",
+  "size": 48,
+  "footOff": 5,
+  "anims": {
+   "idle": {
+    "fps": 3,
+    "frames": {
+     "south": 4,
+     "south-east": 4,
+     "east": 4,
+     "north-east": 4,
+     "north": 4,
+     "north-west": 4,
+     "west": 4,
+     "south-west": 4
+    },
+    "rows": {
+     "south": 0,
+     "south-east": 1,
+     "east": 1,
+     "north-east": 1,
+     "north": 2,
+     "north-west": 3,
+     "west": 3,
+     "south-west": 3
+    }
+   },
+   "walk": {
+    "fps": 8,
+    "frames": {
+     "south": 4,
+     "south-east": 4,
+     "east": 4,
+     "north-east": 4,
+     "north": 4,
+     "north-west": 4,
+     "west": 4,
+     "south-west": 4
+    },
+    "rows": {
+     "south": 0,
+     "south-east": 1,
+     "east": 1,
+     "north-east": 1,
+     "north": 2,
+     "north-west": 3,
+     "west": 3,
+     "south-west": 3
+    }
+   }
+  }
  }
 };

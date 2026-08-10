@@ -52,6 +52,10 @@
   .btn2{pointer-events:auto;cursor:pointer;margin-top:12px;padding:10px 26px;font-size:16px;font-weight:700;color:#fff;
       background:#2b3550;border:2px solid #ffffff33;border-radius:12px}
   .btn2:hover{border-color:#ffd75e}
+  #mapPick{display:flex;gap:10px;margin-top:14px}
+  .mapBtn{pointer-events:auto;cursor:pointer;padding:10px 20px;font-size:16px;font-weight:700;color:#fff;
+      background:#232c40;border:2px solid #ffffff22;border-radius:12px}
+  .mapBtn.sel{border-color:#ffd75e;background:#3a3620;box-shadow:0 0 14px rgba(255,215,94,.35)}
   #shopItems{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;max-width:760px}
   .shopIt{pointer-events:auto;cursor:pointer;width:160px;padding:14px 12px;border-radius:14px;border:2px solid #ffffff22;
       background:linear-gradient(180deg,#232c40,#171d2c)}
@@ -94,6 +98,10 @@
   <h1>HORDA <span class="g">3D</span></h1>
   <p>Prototyp survivors-like. Przetrwaj jak najdłużej — postać strzela <b>sama</b>,
      Ty tylko biegasz, zbierasz 🦴 i wybierasz ulepszenia.</p>
+  <div id="mapPick">
+    <div class="mapBtn sel" data-map="laki">🌄 Łąki</div>
+    <div class="mapBtn" data-map="market">🛒 Market</div>
+  </div>
   <button class="bigbtn" id="btnStart">▶ GRAJ</button>
   <button class="btn2" id="btnShop">🛒 SKLEP <span id="shopCoins"></span></button>
   <p id="ctrl">Sterowanie: <b>WASD</b> ruch · <b>SPACJA</b> skok · <b>Q/E lub mysz</b> obrót kamery<br>
@@ -124,6 +132,11 @@
   <button class="btn2" id="btnShop2">🛒 SKLEP <span id="shopCoins2"></span></button>
 </div>
 
-<script type="module" src="main.js?v=12"></script>
+<script>
+  window.__err = [];
+  addEventListener('error', e => window.__err.push(String(e.message) + ' @ ' + (e.filename || '') + ':' + e.lineno));
+  addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
+</script>
+<script type="module" src="main.js?v=15"></script>
 </body>
 </html>

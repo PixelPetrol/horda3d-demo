@@ -1,6 +1,6 @@
 // HORDA 3D v4 — teren 3D + kamera za plecami + meta-progresja (monety/sklep)
 import * as THREE from './lib/three.module.js';
-import { SPRITEDATA } from './spritedata.js?v=1';
+import { SPRITEDATA } from './spritedata.js?v=2';
 
 // ============================== USTAWIENIA ==============================
 const PX2U = 1 / 55;
@@ -8,6 +8,13 @@ const WORLD_R = 130;
 const CAM_DIST = 9.2, CAM_H = 6.4;                // nisko, za plecami (Megabonk)
 const DIR_ROWS = ['south','south-east','east','north-east','north','north-west','west','south-west'];
 let camYaw = 0;                                    // obrót kamery wokół gracza
+
+// ============================== MAPY ==============================
+const MAPS = {
+  laki:   { nm: '🌄 Łąki',  sky: 0x9cc8ec, fog: [55, 135], water: true,  indoor: false },
+  market: { nm: '🛒 Market', sky: 0xb8bfc7, fog: [34, 95],  water: false, indoor: true },
+};
+let mapKey = 'laki';
 
 // ============================== TEREN (value noise) ==============================
 function hash2(ix, iz) {
@@ -38,6 +45,7 @@ function mesaH(x, z) {
   return (4 + 3 * hash2(cx + 8, cz + 21)) * s * s * (3 - 2 * s);
 }
 function terrainH(x, z) {
+  if (MAPS[mapKey].indoor) return 1.55;              // market: idealnie płaska podłoga
   const raw = 5.4 * vnoise(x / 40 + 37.7, z / 40 + 11.3)
             + 1.6 * vnoise(x / 14 + 91.1, z / 14 + 55.5) - 1.15;
   const r = Math.hypot(x, z);
@@ -105,6 +113,67 @@ scene.add(water);
 
 const grassTexC = grassTexture();
 grassTexC.repeat.set(1, 1);      // skala siedzi w UV chunków
+
+// -------- podłoga marketu (kafle lastryko) --------
+function floorTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#d8d5cf'; g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 1600; i++) {
+    g.fillStyle = Math.random() < .5 ? '#cfccc5' : '#e2dfd9';
+    g.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+  }
+  g.strokeStyle = '#b8b5ae'; g.lineWidth = 3;
+  for (let i = 0; i <= 256; i += 64) {
+    g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 256); g.stroke();
+    g.beginPath(); g.moveTo(0, i); g.lineTo(256, i); g.stroke();
+  }
+  g.fillStyle = '#cdbfa3'; g.fillRect(64, 128, 64, 64);   // beżowy akcent
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.NearestFilter;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const floorTexC = floorTexture();
+
+// -------- regał sklepowy (tekstura z "towarem") --------
+function shelfTexture() {
+  const c = document.createElement('canvas'); c.width = 128; c.height = 64;
+  const g = c.getContext('2d');
+  g.fillStyle = '#8a6440'; g.fillRect(0, 0, 128, 64);          // korpus
+  const kolory = ['#d84f4f', '#4f9ed8', '#57b85a', '#e8c33f', '#b06fd8', '#e88b3f'];
+  for (let row = 0; row < 3; row++) {
+    const y = 4 + row * 20;
+    g.fillStyle = '#6e4d2e'; g.fillRect(0, y + 14, 128, 4);    // deska półki
+    for (let x = 4; x < 120; x += 10) {                        // produkty
+      g.fillStyle = kolory[Math.floor(Math.random() * kolory.length)];
+      g.fillRect(x, y + 2 + Math.random() * 3, 7, 10);
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.NearestFilter;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+let shelfMat = null;   // tworzony w boot
+const shelfGeo = new THREE.BoxGeometry(1, 1, 1);
+const SHELF_H = 2.3;   // za wysoko na 1 skok — trzeba 🦘🦘 albo obejść
+
+// rozlana woda w markecie — ślisko!
+function spillTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const gr = g.createRadialGradient(32, 32, 6, 32, 32, 31);
+  gr.addColorStop(0, 'rgba(150,205,240,0.75)');
+  gr.addColorStop(0.75, 'rgba(120,190,235,0.5)');
+  gr.addColorStop(1, 'rgba(120,190,235,0)');
+  g.fillStyle = gr; g.beginPath(); g.arc(32, 32, 31, 0, 7); g.fill();
+  g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = 2;
+  g.beginPath(); g.arc(26, 26, 9, 0.5, 2.6); g.stroke();
+  return new THREE.CanvasTexture(c);
+}
+let spillMat = null;
 
 // -------- chmury --------
 function cloudTexture() {
@@ -266,6 +335,10 @@ const SHOP_UNLOCKS = [
   { key: 'butelka',  ico: '🍾', nm: 'Broń: Butelka żula',    ds: 'Leci łukiem i wybucha',          price: 200 },
   { key: 'bumerang', ico: '📻', nm: 'Broń: Radio-bumerang',  ds: 'Leci i wraca, kosząc po drodze', price: 250 },
   { key: 'tarcza',   ico: '🛡️', nm: 'Pasyw: Tarcza',         ds: 'Blokuje 1 trafienie co jakiś czas', price: 120 },
+  { key: 'djump',    ico: '🦘', nm: 'Podwójny skok',         ds: 'Drugi skok w powietrzu — przeskakuj regały (bywa też w skrzyniach)', price: 300 },
+  { key: 'skarpeta', ico: '🧦', nm: 'Broń: Skarpeta biolog.', ds: 'Śmierdząca aura truje wokół', price: 180 },
+  { key: 'wiatrowka', ico: '💨', nm: 'Broń: Wiatrówka',      ds: 'Promień przeszywa całą linię', price: 220 },
+  { key: 'kura',     ico: '🐔', nm: 'Broń: Kura-kamikaze',   ds: 'Biegnie i wybucha. Kura.', price: 350 },
 ];
 const shopPrice = it => it.base * Math.pow(2, META.up[it.key]);
 
@@ -306,7 +379,7 @@ const G = {
   running: false, over: false, paused: false,
   time: 0, kills: 0, runCoins: 0,
   enemies: [], gems: [], coins: [], shots: [], orbs: [], sparks: [], rings: [],
-  lobs: [], boomers: [], bolts: [], pops: [], hps: [],
+  lobs: [], boomers: [], bolts: [], pops: [], hps: [], kury: [],
   spawnT: 0, shake: 0, bossAt: 180,
   vacuum: 0, buff: { key: null, t: 0 },
   streak: 0, streakT: -9,
@@ -317,7 +390,8 @@ function resetStats() {
   Object.assign(P, {
     pos: new THREE.Vector3(0, 0, 0),
     hp: 5 + META.up.serce, maxHp: 5 + META.up.serce,
-    iframes: 0, airY: 0, vy: 0, shieldCd: 0,
+    iframes: 0, y: 1.55, vy: 0, airborne: false, usedDouble: false, runDjump: false, shieldCd: 0,
+    vx: 0, vz: 0,
     weapons: [{ key: 'kule', lvl: 1, t: 0 }],   // max 3 sloty
     passives: {},                                // key -> poziom
     evo: {},                                     // key -> true
@@ -335,8 +409,14 @@ const hasWeapon = k => P.weapons.find(w => w.key === k);
 
 // ============================== WEJŚCIE ==============================
 const keys = {};
+const hasDjump = () => META.unlocked.djump || P.runDjump;
 function tryJump() {
-  if (G.running && !G.paused && P.airY <= 0) { P.vy = 8.2; P.airY = 0.001; }
+  if (!G.running || G.paused) return;
+  if (!P.airborne) { P.vy = 8.2; P.airborne = true; }
+  else if (hasDjump() && !P.usedDouble) {          // 🦘🦘 podwójny skok
+    P.vy = 7.6; P.usedDouble = true;
+    dmgPop(P.pos.x, P.y + 0.4, P.pos.z, '🦘🦘', '#aaeeff', 1.1);
+  }
 }
 addEventListener('keydown', e => {
   keys[e.code] = true;
@@ -421,6 +501,7 @@ function killEnemy(e, i) {
   // KILL + combo (kille w oknie 1.3 s nabijają serię)
   G.streak = (G.time - G.streakT < 1.3) ? G.streak + 1 : 1;
   G.streakT = G.time;
+  G.shake = Math.max(G.shake, Math.min(0.5, 0.06 + G.streak * 0.03));
   if (e.T.boss) dmgPop(e.pos.x, e.ty + 1.2, e.pos.z, 'BOSS DOWN!', '#ff5555', 2.6);
   else if (e.elite) dmgPop(e.pos.x, e.ty + 0.8, e.pos.z, 'ELITA!', '#ffd75e', 1.9);
   else dmgPop(e.pos.x, e.ty + 0.5, e.pos.z, G.streak > 1 ? 'KILL x' + G.streak : 'KILL',
@@ -529,8 +610,8 @@ function dmgPop(x, ty, z, str, color = '#ffe066', scale = 1) {
   scene.add(mesh);
   G.pops.push({ mesh, t: 0 });
 }
-// wyświetlana liczba obrażeń (dopaminowa skala ×25, zaokrąglona do 5)
-const dmgNum = d => String(Math.max(5, Math.round(d * 25 / 5) * 5));
+// wyświetlana liczba obrażeń (dopaminowa skala ×250, zaokrąglona do 10)
+const dmgNum = d => String(Math.max(50, Math.round(d * 250 / 10) * 10));
 
 // ---- serca-dropy ❤️ ----
 let heartMat = null;
@@ -675,6 +756,78 @@ const WEAPONS = {
       G.boomers.push({ mesh: m, dir, t: 0, dur: 1.6, dist: 8 + 0.6 * w.lvl, lvl: w.lvl, hit: new Set() });
     },
   },
+  skarpeta: {
+    ico: '🧦', nm: 'Skarpeta biologiczna', ds: 'Śmierdząca AURA truje wszystko wokół Ciebie', max: 5, locked: true,
+    lvlDs: l => `promień ${(2.2 + 0.35 * l).toFixed(1)}, trucie co 0.7 s`,
+    tick(w, dt) {
+      w.t -= dt;
+      if (w.t > 0) return;
+      w.t = 0.7;
+      const r = 2.2 + 0.35 * w.lvl, ad = (0.8 + 0.25 * w.lvl) * dmgAll();
+      novaRing(P.pos.x, P.pos.z, r * 0.9);
+      for (let j = G.enemies.length - 1; j >= 0; j--) {
+        const e = G.enemies[j];
+        if (e.dying) continue;
+        const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z;
+        if (dx * dx + dz * dz < r * r) {
+          e.hp -= ad;
+          dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(ad), '#a8e05f', 0.75);
+          if (e.hp <= 0) killEnemy(e, j);
+        }
+      }
+    },
+  },
+  wiatrowka: {
+    ico: '💨', nm: 'Wiatrówka z bazaru', ds: 'PROMIEŃ przeszywa wszystko na linii strzału', max: 5, locked: true,
+    lvlDs: l => `co ${(2.2 - 0.15 * l).toFixed(2)} s, obrażenia +${l}`,
+    tick(w, dt) {
+      w.t -= dt;
+      if (w.t > 0) return;
+      const alive = G.enemies.filter(e => !e.dying && e.pos.distanceTo(P.pos) < 18);
+      if (!alive.length) return;
+      w.t = 2.2 - 0.15 * w.lvl;
+      let far = alive[0], fd = 0;
+      for (const e of alive) { const d = e.pos.distanceTo(P.pos); if (d > fd) { fd = d; far = e; } }
+      const dir = far.pos.clone().sub(P.pos).setY(0).normalize();
+      // tracer poziomy
+      const tr = new THREE.Mesh(boltGeo, boltMat.clone());
+      tr.scale.set(0.6, 18 / 14, 0.6);
+      tr.position.set(P.pos.x + dir.x * 9, terrainH(P.pos.x, P.pos.z) + 1.0, P.pos.z + dir.z * 9);
+      tr.rotation.set(Math.PI / 2, 0, -Math.atan2(dir.x, dir.z));
+      scene.add(tr);
+      G.bolts.push({ mesh: tr, t: 0 });
+      const wd = (2 + 0.5 * w.lvl) * dmgAll();
+      for (let j = G.enemies.length - 1; j >= 0; j--) {
+        const e = G.enemies[j];
+        if (e.dying) continue;
+        const ex = e.pos.x - P.pos.x, ez = e.pos.z - P.pos.z;
+        const along = ex * dir.x + ez * dir.z;
+        if (along < 0 || along > 18) continue;
+        const perp = Math.abs(ex * dir.z - ez * dir.x);
+        if (perp < 0.9) {
+          e.hp -= wd;
+          e.kb.copy(dir).multiplyScalar(2);
+          spark(e.pos.x, e.ty + 1.0, e.pos.z);
+          dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(wd), '#e0f0ff', 1);
+          if (e.hp <= 0) killEnemy(e, j);
+        }
+      }
+    },
+  },
+  kura: {
+    ico: '🐔', nm: 'Kura-kamikaze', ds: 'Kura biegnie do wroga i WYBUCHA', max: 5, locked: true,
+    lvlDs: l => `wybuch r=${(2.5 + 0.3 * l).toFixed(1)}, co ${(4.5 - 0.35 * l).toFixed(1)} s`,
+    tick(w, dt) {
+      w.t -= dt;
+      if (w.t > 0) return;
+      const alive = G.enemies.filter(e => !e.dying && e.pos.distanceTo(P.pos) < 16);
+      if (!alive.length) return;
+      w.t = 4.5 - 0.35 * w.lvl;
+      const bb = new Billboard('kura_braz', 1.3);
+      bb.play('walk');
+      G.kury.push({ bb, pos: P.pos.clone(), t: 0, lvl: w.lvl });
+    },
+  },
 };
 const stompLvl = () => { const w = hasWeapon('tupniecie'); return w ? w.lvl : 0; };
 const stompRad = l => 3 + l * 0.7 + (P.evo.sejsm ? 2 : 0);
@@ -775,6 +928,34 @@ function openSwap() {
   wrap.appendChild(skip);
   document.getElementById('swapOv').style.display = 'flex';
 }
+// skrzynia przy WOLNYM slocie: prezent — wybór nowej broni bez oddawania
+function openNewWeapon() {
+  const opts = Object.keys(WEAPONS).filter(k =>
+    !hasWeapon(k) && (!WEAPONS[k].locked || META.unlocked[k]));
+  if (!opts.length) { G.runCoins += 15; drawCoins(); return; }
+  G.paused = true;
+  const wrap = document.getElementById('swapList'); wrap.innerHTML = '';
+  document.getElementById('swapTitle').textContent = '🎁 ZNALEZIONA BROŃ! Co bierzesz?';
+  for (const key of opts) {
+    const W = WEAPONS[key];
+    const d = document.createElement('div');
+    d.className = 'card gold';
+    d.innerHTML = `<div class="ico">${W.ico}</div><div class="nm">${W.nm}</div><div class="ds">${W.ds}</div>`;
+    d.onclick = () => {
+      P.weapons.push({ key, lvl: 1, t: 0 });
+      renderWpns();
+      closeSwap();
+    };
+    wrap.appendChild(d);
+  }
+  const skip = document.createElement('div');
+  skip.className = 'card';
+  skip.innerHTML = `<div class="ico">✋</div><div class="nm">Nie, dzięki</div><div class="ds">+10 monet</div>`;
+  skip.onclick = () => { G.runCoins += 10; drawCoins(); closeSwap(); };
+  wrap.appendChild(skip);
+  document.getElementById('swapOv').style.display = 'flex';
+}
+
 function pickNewWeapon(oldW) {
   const opts = Object.keys(WEAPONS).filter(k =>
     !hasWeapon(k) && (!WEAPONS[k].locked || META.unlocked[k]));
@@ -833,11 +1014,15 @@ async function loadDecoMats() {
 }
 
 // losowa pozycja na lądzie W POBLIŻU GRACZA (mapa nieskończona)
+const _probe = new THREE.Vector3();
 function landSpot(rMin = 14, rMax = 85) {
   for (let tries = 0; tries < 60; tries++) {
     const a = Math.random() * Math.PI * 2, r = rMin + Math.sqrt(Math.random()) * (rMax - rMin);
     const x = P.pos.x + Math.sin(a) * r, z = P.pos.z + Math.cos(a) * r;
-    if (terrainH(x, z) < WATER_Y + 0.35) continue;              // nie w wodzie
+    if (terrainH(x, z) < WATER_Y + 0.35 && !MAPS[mapKey].indoor) continue;   // nie w wodzie
+    _probe.set(x, 0, z);
+    solveSolids(_probe, 0.7, 0);
+    if (Math.hypot(_probe.x - x, _probe.z - z) > 0.3) continue;              // nie w regale/pniu
     return { x, z };
   }
   return null;
@@ -870,50 +1055,167 @@ function buildChunk(cx, cz) {
     const il = 1 / Math.hypot(dhx, 1, dhz);
     norms[i * 3] = -dhx * il; norms[i * 3 + 1] = il; norms[i * 3 + 2] = -dhz * il;
     const b = biome(wx, wz);
-    let cr = 0.82 + b * 0.30, cg = 1.0, cb = 0.80 - b * 0.18;
-    if (h < WATER_Y + 0.5) { cr *= 0.72; cg *= 0.78; cb *= 0.62; }
+    let cr, cg, cb;
+    if (MAPS[mapKey].indoor) {                   // market: jasna podłoga
+      cr = cg = cb = 0.96 + 0.04 * hash2(Math.round(wx), Math.round(wz));
+    } else {
+      cr = 0.82 + b * 0.30; cg = 1.0; cb = 0.80 - b * 0.18;
+      if (h < WATER_Y + 0.5) { cr *= 0.72; cg *= 0.78; cb *= 0.62; }
+    }
     cols[i * 3] = cr; cols[i * 3 + 1] = cg; cols[i * 3 + 2] = cb;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(norms, 3));
-  const mesh = new THREE.Mesh(geo, chunkMat);
+  const mesh = new THREE.Mesh(geo, MAPS[mapKey].indoor ? chunkMatIndoor : chunkMat);
   mesh.position.set(wx0, 0, wz0);
   scene.add(mesh);
-  // dekoracje deterministyczne per chunk
   const rng = chunkRng(cx, cz);
-  const deco = [], rocks = [];
-  const nDeco = 5 + Math.floor(rng() * 5);
-  for (let i = 0; i < nDeco; i++) {
-    const x = wx0 + (rng() - 0.5) * CHUNK, z = wz0 + (rng() - 0.5) * CHUNK;
-    if (terrainH(x, z) < WATER_Y + 0.3) continue;
-    const las = biome(x, z) <= 0.45;
-    const cands = decoMats.filter(d => d.forest === null || d.forest === las);
-    let tw = 0; for (const d of cands) tw += d.weight;
-    let roll = rng() * tw, pick = cands[0];
-    for (const d of cands) { roll -= d.weight; if (roll <= 0) { pick = d; break; } }
-    const m = new THREE.Mesh(unitGeo, pick.mat);
-    m.position.set(x, terrainH(x, z) - 0.04, z);
-    m.scale.set(pick.h * pick.aspect, pick.h, 1);
-    m.rotation.y = camYaw;
-    scene.add(m);
-    deco.push(m);
-  }
-  if (rng() < 0.4) {                            // głaz 3D
-    const x = wx0 + (rng() - 0.5) * CHUNK, z = wz0 + (rng() - 0.5) * CHUNK;
-    if (terrainH(x, z) > WATER_Y + 0.3) {
-      const s = 0.5 + rng() * 1.6;
-      const m = new THREE.Mesh(rockGeo, rockMat);
-      m.scale.set(s * (1 + rng() * .5), s * (0.55 + rng() * .3), s);
-      m.position.set(x, terrainH(x, z) + s * 0.2, z);
-      m.rotation.y = rng() * 7;
+  const deco = [], rocks = [], solids = [], spills = [];
+
+  if (MAPS[mapKey].indoor) {
+    // ======== MARKET: rozlana woda (ŚLISKO!) ========
+    const nPlam = rng() < 0.55 ? 1 + Math.floor(rng() * 2) : 0;
+    for (let i = 0; i < nPlam; i++) {
+      const x = wx0 + (rng() - 0.5) * CHUNK, z = wz0 + (rng() - 0.5) * CHUNK;
+      if (Math.abs(x) < 7 && Math.abs(z) < 7) continue;
+      const r = 2.2 + rng() * 2.4;
+      const m = new THREE.Mesh(blobGeo, spillMat);
+      m.scale.set(r * 2, 1, r * 2);
+      m.position.set(x, terrainH(x, z) + 0.03, z);
       scene.add(m);
       rocks.push(m);
+      spills.push({ x, z, r });
+    }
+    // ======== MARKET: rzędy regałów, ciasne alejki, przerwy na przejścia ========
+    for (let rowZ = -CHUNK / 2 + 4; rowZ < CHUNK / 2; rowZ += 8) {
+      for (let sx = -CHUNK / 2 + 5; sx < CHUNK / 2 - 3; sx += 10) {
+        if (rng() < 0.28) continue;              // przerwa = przejście
+        const x = wx0 + sx, z = wz0 + rowZ;
+        if (Math.abs(x) < 7 && Math.abs(z) < 7) continue;   // czysty spawn
+        const len = 7;
+        const m = new THREE.Mesh(shelfGeo, shelfMat);
+        m.scale.set(len, SHELF_H, 2);
+        m.position.set(x, terrainH(x, z) + SHELF_H / 2, z);
+        scene.add(m);
+        rocks.push(m);                            // rocks = meshe bez obrotu
+        solids.push({ x, z, hw: len / 2, hl: 1, top: terrainH(x, z) + SHELF_H });
+      }
+    }
+  } else {
+    // ======== ŁĄKI: dekoracje + głazy ========
+    const nDeco = 5 + Math.floor(rng() * 5);
+    for (let i = 0; i < nDeco; i++) {
+      const x = wx0 + (rng() - 0.5) * CHUNK, z = wz0 + (rng() - 0.5) * CHUNK;
+      if (terrainH(x, z) < WATER_Y + 0.3) continue;
+      const las = biome(x, z) <= 0.45;
+      const cands = decoMats.filter(d => d.forest === null || d.forest === las);
+      let tw = 0; for (const d of cands) tw += d.weight;
+      let roll = rng() * tw, pick = cands[0];
+      for (const d of cands) { roll -= d.weight; if (roll <= 0) { pick = d; break; } }
+      const m = new THREE.Mesh(unitGeo, pick.mat);
+      m.position.set(x, terrainH(x, z) - 0.04, z);
+      m.scale.set(pick.h * pick.aspect, pick.h, 1);
+      m.rotation.y = camYaw;
+      scene.add(m);
+      deco.push(m);
+      if (pick.h >= 3) solids.push({ c: 1, x, z, r: 0.45, top: 99 });   // pień dębu
+    }
+    if (rng() < 0.4) {                            // głaz 3D
+      const x = wx0 + (rng() - 0.5) * CHUNK, z = wz0 + (rng() - 0.5) * CHUNK;
+      if (terrainH(x, z) > WATER_Y + 0.3) {
+        const s = 0.5 + rng() * 1.6;
+        const m = new THREE.Mesh(rockGeo, rockMat);
+        m.scale.set(s * (1 + rng() * .5), s * (0.55 + rng() * .3), s);
+        m.position.set(x, terrainH(x, z) + s * 0.2, z);
+        m.rotation.y = rng() * 7;
+        scene.add(m);
+        rocks.push(m);
+        // niski głaz — do przeskoczenia!
+        solids.push({ c: 1, x, z, r: s * 0.9, top: terrainH(x, z) + s * 0.75 });
+      }
     }
   }
-  return { mesh, deco, rocks };
+  return { mesh, deco, rocks, solids, spills };
 }
-let chunkMat = null;   // tworzony w boot (po teksturze)
+
+// czy punkt jest na rozlanej wodzie (market) — wtedy ŚLIZG
+function onSpill(x, z) {
+  const cx = Math.floor(x / CHUNK), cz = Math.floor(z / CHUNK);
+  for (let gx = cx - 1; gx <= cx + 1; gx++) for (let gz = cz - 1; gz <= cz + 1; gz++) {
+    const ch = chunkMap.get(gx + ',' + gz);
+    if (!ch || !ch.spills.length) continue;
+    for (const s of ch.spills) {
+      const dx = x - s.x, dz = z - s.z;
+      if (dx * dx + dz * dz < s.r * s.r) return true;
+    }
+  }
+  return false;
+}
+
+// ---- kolizje ze SOLIDAMI (regały-AABB, pnie/głazy-okręgi) ----
+function solveSolids(pos, r, feetY) {
+  const cx = Math.floor(pos.x / CHUNK), cz = Math.floor(pos.z / CHUNK);
+  for (let gx = cx - 1; gx <= cx + 1; gx++) for (let gz = cz - 1; gz <= cz + 1; gz++) {
+    const ch = chunkMap.get(gx + ',' + gz);
+    if (!ch || !ch.solids.length) continue;
+    for (const s of ch.solids) {
+      if (feetY > s.top - 0.25) continue;         // jesteś NAD przeszkodą
+      if (s.c) {
+        const dx = pos.x - s.x, dz = pos.z - s.z, rr = s.r + r;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < rr * rr && d2 > 1e-6) {
+          const d = Math.sqrt(d2), p = (rr - d) / d;
+          pos.x += dx * p; pos.z += dz * p;
+        }
+      } else {
+        const dx = pos.x - s.x, dz = pos.z - s.z;
+        const ox = s.hw + r - Math.abs(dx), oz = s.hl + r - Math.abs(dz);
+        if (ox > 0 && oz > 0) {
+          if (ox < oz) pos.x += (dx > 0 ? ox : -ox);
+          else pos.z += (dz > 0 ? oz : -oz);
+        }
+      }
+    }
+  }
+}
+// wysokość podparcia: teren LUB szczyt regału, na którym stoisz
+function supportY(x, z, feetY) {
+  let g = terrainH(x, z);
+  const cx = Math.floor(x / CHUNK), cz = Math.floor(z / CHUNK);
+  for (let gx = cx - 1; gx <= cx + 1; gx++) for (let gz = cz - 1; gz <= cz + 1; gz++) {
+    const ch = chunkMap.get(gx + ',' + gz);
+    if (!ch || !ch.solids.length) continue;
+    for (const s of ch.solids) {
+      if (s.c || s.top > feetY + 0.25) continue;
+      if (Math.abs(x - s.x) < s.hw && Math.abs(z - s.z) < s.hl) g = Math.max(g, s.top);
+    }
+  }
+  return g;
+}
+let chunkMat = null, chunkMatIndoor = null;   // tworzone w boot
 let lastCC = null;
+function rebuildWorld() {
+  for (const [, ch] of chunkMap) {
+    scene.remove(ch.mesh); ch.mesh.geometry.dispose();
+    for (const m of ch.deco) scene.remove(m);
+    for (const m of ch.rocks) scene.remove(m);
+  }
+  chunkMap.clear();
+  lastCC = null;
+  ensureChunks();
+}
+function setMap(key) {
+  mapKey = key;
+  const M = MAPS[key];
+  scene.background.setHex(M.sky);
+  scene.fog.color.setHex(M.sky);
+  scene.fog.near = M.fog[0]; scene.fog.far = M.fog[1];
+  water.visible = M.water;
+  for (const c of clouds) c.m.visible = !M.indoor;
+  rebuildWorld();
+  for (const c of chests) placeChest(c);
+  for (const t of totems) placeTotem(t);
+}
 function ensureChunks() {
   const pcx = Math.round(P.pos.x / CHUNK), pcz = Math.round(P.pos.z / CHUNK);
   const cc = pcx + ',' + pcz;
@@ -957,9 +1259,14 @@ function spawnChests(n) {
 }
 function chestReward(c) {
   const roll = Math.random();
-  if (roll < 0.12) {                 // 🔄 WYMIENNIK — wymiana broni!
-    openSwap();
-  } else if (roll < 0.60) {          // monety
+  if (roll < 0.12) {                 // broń: nowa (wolny slot) albo WYMIENNIK (pełne 3)
+    if (P.weapons.length < 3) openNewWeapon();
+    else openSwap();
+  } else if (roll < 0.20 && !hasDjump()) {   // 🦘🦘 PODWÓJNY SKOK (na ten bieg)
+    P.runDjump = true;
+    toastBuff('🦘🦘 PODWÓJNY SKOK do końca biegu!');
+    setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2500);
+  } else if (roll < 0.62) {          // monety
     for (let k = 0; k < 5 + Math.floor(Math.random() * 6); k++)
       G.coins.push(makeCoin(c.pos.x + (Math.random() - .5) * 2, c.pos.z + (Math.random() - .5) * 2));
   } else if (roll < 0.87) {          // kości XP
@@ -990,16 +1297,22 @@ function spawnTotems(n, colMat) {
   for (let i = 0; i < n; i++) {
     const mat = colMat.mat.clone(); mat.transparent = true;
     const m = new THREE.Mesh(unitGeo, mat);
-    const s = landSpot(18, 70) || { x: P.pos.x - 20, z: P.pos.z - 20 };
     m.scale.set(2.2 * (colMat.w / colMat.h), 2.2, 1);
-    m.position.set(s.x, terrainH(s.x, s.z) - 0.02, s.z);
     scene.add(m);
     const ring = new THREE.Mesh(blobGeo, new THREE.MeshBasicMaterial({ map: ringTex, transparent: true, depthWrite: false }));
     ring.scale.set(3, 1, 3);
-    ring.position.set(s.x, terrainH(s.x, s.z) + 0.06, s.z);
     scene.add(ring);
-    totems.push({ mesh: m, ring, pos: new THREE.Vector3(s.x, 0, s.z), cd: 0, mat });
+    const t = { mesh: m, ring, pos: new THREE.Vector3(), cd: 0, mat };
+    placeTotem(t);
+    totems.push(t);
   }
+}
+function placeTotem(t) {
+  const s = landSpot(18, 70) || { x: P.pos.x - 20, z: P.pos.z - 20 };
+  t.pos.set(s.x, 0, s.z);
+  t.mesh.position.set(s.x, terrainH(s.x, s.z) - 0.02, s.z);
+  t.ring.position.set(s.x, terrainH(s.x, s.z) + 0.06, s.z);
+  t.cd = 0; t.mat.opacity = 1; t.ring.visible = true;
 }
 function toastBuff(txt) {
   const el = document.getElementById('buff');
@@ -1053,41 +1366,49 @@ function update(dt) {
   const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);
   const rx = -fz, rz = fx;
   const wx = fx * -mz + rx * mx, wz = fz * -mz + rz * mx;
-  const inWater = terrainH(P.pos.x, P.pos.z) < WATER_Y - 0.04 && P.airY <= 0;
+  const inWater = !P.airborne && terrainH(P.pos.x, P.pos.z) < WATER_Y - 0.04;
   let spd = speedF() * (inWater ? 0.6 : 1);
   if (G.buff.key === 'szyb') spd *= 1.45;
   // strome zbocze (mesa): pieszo wolno POD GÓRĘ, ale skokiem normalnie
-  if (ml > 0.05 && P.airY <= 0) {
+  if (ml > 0.05 && !P.airborne) {
     const inv = 1 / Math.max(ml, 0.001);
     const ahead = terrainH(P.pos.x + wx * inv * 0.7, P.pos.z + wz * inv * 0.7) - terrainH(P.pos.x, P.pos.z);
     if (ahead > 0.35) spd *= 0.5;
   }
-  P.pos.x += wx * spd * dt;
-  P.pos.z += wz * spd * dt;              // mapa bez końca — zero klamry
+  // ŚLISKO na rozlanej wodzie (market): bezwładność zamiast sterowania 1:1
+  const slip = !P.airborne && MAPS[mapKey].indoor && onSpill(P.pos.x, P.pos.z);
+  const grip = slip ? 1.2 : 18;                    // jak szybko prędkość goni wejście
+  P.vx += (wx * spd - P.vx) * Math.min(1, grip * dt);
+  P.vz += (wz * spd - P.vz) * Math.min(1, grip * dt);
+  P.pos.x += P.vx * dt;
+  P.pos.z += P.vz * dt;                  // mapa bez końca — zero klamry
+  solveSolids(P.pos, 0.4, P.y);          // regały/pnie/głazy odpychają
   const pTy = terrainH(P.pos.x, P.pos.z);
   ensureChunks();
   water.position.set(P.pos.x, WATER_Y, P.pos.z);
 
-  // ---- skok ----
-  const wasAir = P.airY > 0;
-  if (P.airY > 0 || P.vy > 0) {
-    P.airY += P.vy * dt;
+  // ---- fizyka pionowa (spadanie z krawędzi, skok, lądowanie na regale) ----
+  const ground = supportY(P.pos.x, P.pos.z, P.y);
+  if (P.airborne) {
     P.vy -= 22 * dt;
-    if (P.airY <= 0) { P.airY = 0; P.vy = 0; }
+    P.y += P.vy * dt;
+    if (P.vy <= 0 && P.y <= ground) {                    // lądowanie
+      P.y = ground; P.vy = 0; P.airborne = false; P.usedDouble = false;
+      if (stompLvl() > 0) nova(P.pos.x, P.pos.z, stompRad(stompLvl()), stompDmg(stompLvl()));
+    }
+  } else {
+    if (ground < P.y - 0.5) { P.airborne = true; P.vy = 0; }   // zszedłeś z krawędzi → SPADASZ
+    else P.y = ground;                                          // podążanie za terenem
   }
-  if (wasAir && P.airY === 0 && stompLvl() > 0) {       // lądowanie = fala!
-    nova(P.pos.x, P.pos.z, stompRad(stompLvl()), stompDmg(stompLvl()));
-  }
-  const airborne = P.airY > 0.25;
   if (P.shieldCd > 0) P.shieldCd -= dt;
 
   const moving = ml > 0.05;
   if (moving) playerBB.facing = faceAngle(wx, wz);
-  if (airborne) playerBB.play('jump', false);
+  if (P.airborne) playerBB.play('jump', false);
   else playerBB.play(moving ? 'run' : 'idle');
   if (P.iframes > 0) P.iframes -= dt;
   playerBB.mesh.visible = !(P.iframes > 0 && Math.floor(P.iframes * 12) % 2 === 0);
-  playerBB.update(dt, P.pos, pTy + P.airY, pTy);
+  playerBB.update(dt, P.pos, P.y, ground);
 
   // ---- spawner (HORDY: paczki rosną z czasem) ----
   G.spawnT -= dt;
@@ -1149,14 +1470,16 @@ function update(dt) {
     // wspinaczka na mesę = powolutku (chwila oddechu dla gracza na górce)
     const wspin = terrainH(e.pos.x + to.x * 0.7, e.pos.z + to.z * 0.7) - e.ty;
     if (wspin > 0.18) es *= 0.35;
+    if (MAPS[mapKey].indoor && onSpill(e.pos.x, e.pos.z)) es *= 0.55;   // im też ślisko
     e.pos.addScaledVector(to, es * dt);
     e.pos.add(e.kb.clone().multiplyScalar(dt * 8));
     e.kb.multiplyScalar(Math.max(0, 1 - dt * 10));
+    solveSolids(e.pos, 0.35, e.ty);        // regały ich BLOKUJĄ (nie skaczą)
     e.bb.facing = faceAngle(to.x, to.z);
     e.orbCd -= dt;
     e.bb.update(dt, e.pos, e.ty);
     if (e.ring) e.ring.position.set(e.pos.x, e.ty + 0.06, e.pos.z);
-    if (d < 0.9 + (e.T.boss ? 0.8 : 0) && P.iframes <= 0 && P.airY <= 0.25) {
+    if (d < 0.9 + (e.T.boss ? 0.8 : 0) && P.iframes <= 0 && P.y - e.ty < 1.0) {
       const tarczaLvl = P.passives.tarcza || 0;
       if (tarczaLvl > 0 && P.shieldCd <= 0) {           // 🛡️ tarcza zjada cios
         P.shieldCd = [30, 24, 18][tarczaLvl - 1];
@@ -1248,6 +1571,29 @@ function update(dt) {
     }
   }
 
+  // ---- kury-kamikaze 🐔💥 ----
+  for (let i = G.kury.length - 1; i >= 0; i--) {
+    const K = G.kury[i]; K.t += dt;
+    let near = null, nd = 1e9;
+    for (const e of G.enemies) {
+      if (e.dying) continue;
+      const d = e.pos.distanceTo(K.pos);
+      if (d < nd) { nd = d; near = e; }
+    }
+    if (near) {
+      const dir = near.pos.clone().sub(K.pos).setY(0).normalize();
+      K.pos.addScaledVector(dir, 5.2 * dt);
+      K.bb.facing = faceAngle(dir.x, dir.z);
+    }
+    K.bb.update(dt, K.pos, terrainH(K.pos.x, K.pos.z));
+    if ((near && nd < 1.0) || K.t > 4) {                  // BUM!
+      nova(K.pos.x, K.pos.z, 2.5 + 0.3 * K.lvl, (3 + 0.7 * K.lvl) * dmgAll());
+      dmgPop(K.pos.x, terrainH(K.pos.x, K.pos.z) + 0.6, K.pos.z, '🐔💥', '#ffd75e', 1.5);
+      G.shake = Math.max(G.shake, 0.15);
+      K.bb.dispose(); G.kury.splice(i, 1);
+    }
+  }
+
   // ---- pioruny (efekt wizualny) ----
   for (let i = G.bolts.length - 1; i >= 0; i--) {
     const b = G.bolts[i]; b.t += dt;
@@ -1284,15 +1630,7 @@ function update(dt) {
   // ---- totemy ----
   for (const t of totems) {
     t.mesh.rotation.y = camYaw;
-    if (t.pos.distanceTo(P.pos) > 110) {      // przenosiny bliżej gracza
-      const s = landSpot(25, 70);
-      if (s) {
-        t.pos.set(s.x, 0, s.z);
-        t.mesh.position.set(s.x, terrainH(s.x, s.z) - 0.02, s.z);
-        t.ring.position.set(s.x, terrainH(s.x, s.z) + 0.06, s.z);
-        t.cd = 0; t.mat.opacity = 1; t.ring.visible = true;
-      }
-    }
+    if (t.pos.distanceTo(P.pos) > 110) placeTotem(t);   // przenosiny bliżej gracza
     if (t.cd > 0) {
       t.cd -= dt;
       t.mat.opacity = 0.35;
@@ -1381,7 +1719,7 @@ function update(dt) {
 
   // ---- kamera (orbituje wg camYaw; nie wbija się w teren) ----
   const cx = P.pos.x + Math.sin(camYaw) * CAM_DIST, cz = P.pos.z + Math.cos(camYaw) * CAM_DIST;
-  let cy = pTy + CAM_H;
+  let cy = P.y + CAM_H;
   cy = Math.max(cy, terrainH(cx, cz) + 2.2);
   camera.position.lerp(new THREE.Vector3(cx, cy, cz), Math.min(1, dt * 8));
   if (G.shake > 0) {
@@ -1389,7 +1727,7 @@ function update(dt) {
     camera.position.x += (Math.random() - .5) * G.shake * 0.7;
     camera.position.y += (Math.random() - .5) * G.shake * 0.7;
   }
-  camera.lookAt(P.pos.x + fx * 2.2, pTy + 1.3, P.pos.z + fz * 2.2);
+  camera.lookAt(P.pos.x + fx * 2.2, P.y + 1.3, P.pos.z + fz * 2.2);
 
   // ---- dekoracje twarzą do kamery ----
   for (const ch of chunkMap.values())
@@ -1425,8 +1763,9 @@ function clearWorld() {
   for (const b of G.bolts) scene.remove(b.mesh);
   for (const p of G.pops) { scene.remove(p.mesh); p.mesh.material.dispose(); }
   for (const h of G.hps) scene.remove(h.mesh);
+  for (const k of G.kury) k.bb.dispose();
   G.enemies = []; G.gems = []; G.coins = []; G.shots = []; G.orbs = []; G.sparks = []; G.rings = [];
-  G.lobs = []; G.boomers = []; G.bolts = []; G.pops = []; G.hps = [];
+  G.lobs = []; G.boomers = []; G.bolts = []; G.pops = []; G.hps = []; G.kury = [];
   G.streak = 0; G.streakT = -9;
   G.vacuum = 0; G.buff = { key: null, t: 0 };
   document.getElementById('buff').style.opacity = 0;
@@ -1475,8 +1814,12 @@ function loop() {
   await buildChar('wegielek', ['run']);
   await buildChar('dzik', ['run']);
   await buildChar('doctorAngry', ['run']);
+  await buildChar('kura_braz', ['walk']);
   await loadDecoMats();
   chunkMat = new THREE.MeshLambertMaterial({ map: grassTexC, vertexColors: true });
+  chunkMatIndoor = new THREE.MeshLambertMaterial({ map: floorTexC, vertexColors: true });
+  shelfMat = new THREE.MeshLambertMaterial({ map: shelfTexture() });
+  spillMat = new THREE.MeshBasicMaterial({ map: spillTexture(), transparent: true, depthWrite: false });
 
   playerBB = new Billboard('kasia');
   resetStats();          // P.pos musi istnieć PRZED chunkami i skrzyniami
@@ -1502,10 +1845,16 @@ function loop() {
   document.getElementById('btnShop').onclick = openShop;
   document.getElementById('btnShop2').onclick = openShop;
   document.getElementById('btnShopBack').onclick = () => document.getElementById('shopOv').style.display = 'none';
+  // wybór mapy (ekran startu)
+  document.querySelectorAll('.mapBtn').forEach(b => b.onclick = () => {
+    document.querySelectorAll('.mapBtn').forEach(x => x.classList.remove('sel'));
+    b.classList.add('sel');
+    setMap(b.dataset.map);
+  });
   // debug (usunąć przed wydaniem); step = ręczne krokowanie pętli,
   // bo podgląd dławi rAF bez fokusa (pułapka znana z Rudeusza)
   window.HORDA = {
-    G, P, terrainH, chests, totems, openSwap, renderWpns,
+    G, P, terrainH, chests, totems, openSwap, renderWpns, chunkMap, supportY, onSpill, setMap,
     step(n = 1, dt = 1 / 60) {
       for (let i = 0; i < n; i++) if (G.running && !G.paused) update(dt);
       renderer.render(scene, camera);
