@@ -23,12 +23,26 @@ function vnoise(x, z) {
   const a = hash2(ix, iz), b = hash2(ix + 1, iz), c = hash2(ix, iz + 1), d = hash2(ix + 1, iz + 1);
   return a + (b - a) * sx + (c - a) * sz + (a - b - c + d) * sx * sz;
 }
+// MESY — strome płaskowyże-platformy (wskakujesz, horda wspina się powoli)
+function mesaH(x, z) {
+  const C = 90;                                  // komórka siatki mes
+  const cx = Math.floor(x / C), cz = Math.floor(z / C);
+  if (hash2(cx * 3 + 11, cz * 3 + 7) < 0.5) return 0;   // nie każda komórka ma mesę
+  const mx = (cx + 0.3 + 0.4 * hash2(cx + 5, cz + 9)) * C;
+  const mz = (cz + 0.3 + 0.4 * hash2(cx + 17, cz + 3)) * C;
+  const r = 9 + 6 * hash2(cx + 2, cz + 13);
+  const d = Math.hypot(x - mx, z - mz);
+  if (d > r) return 0;
+  const t = 1 - d / r;
+  const s = Math.min(1, t / 0.32);               // strome zbocze, płaski wierzch
+  return (4 + 3 * hash2(cx + 8, cz + 21)) * s * s * (3 - 2 * s);
+}
 function terrainH(x, z) {
   const raw = 5.4 * vnoise(x / 40 + 37.7, z / 40 + 11.3)
             + 1.6 * vnoise(x / 14 + 91.1, z / 14 + 55.5) - 1.15;
   const r = Math.hypot(x, z);
   const f = Math.min(1, Math.max(0, (r - 6) / 14));
-  return raw * f + 1.55 * (1 - f);               // start płaski, NAD wodą
+  return (raw + mesaH(x, z)) * f + 1.55 * (1 - f);   // start płaski, NAD wodą
 }
 const WATER_Y = 0.75;                            // doliny poniżej = jeziora
 const biome = (x, z) => vnoise(x / 62 + 7.7, z / 62 + 3.3);  // 0=las, 1=sucha łąka
@@ -292,9 +306,10 @@ const G = {
   running: false, over: false, paused: false,
   time: 0, kills: 0, runCoins: 0,
   enemies: [], gems: [], coins: [], shots: [], orbs: [], sparks: [], rings: [],
-  lobs: [], boomers: [], bolts: [],
+  lobs: [], boomers: [], bolts: [], pops: [], hps: [],
   spawnT: 0, shake: 0, bossAt: 180,
   vacuum: 0, buff: { key: null, t: 0 },
+  streak: 0, streakT: -9,
 };
 const P = {};
 
@@ -372,9 +387,9 @@ document.getElementById('jbtn').addEventListener('pointerdown', e => { e.stopPro
 // ============================== WROGOWIE ==============================
 const ENEMY_TYPES = {
   dresiarz: { hp: 3, speed: 2.7, dmg: 1, scale: 1.0, xp: 1, walk: 'run', death: 'death' },
-  zul:      { hp: 6, speed: 2.0, dmg: 1, scale: 1.05, xp: 2, walk: 'walk', death: 'death', char: 'enemy' },
+  zul:      { hp: 6, speed: 2.0, dmg: 1, scale: 1.05, xp: 3, walk: 'walk', death: 'death', char: 'enemy', bigXp: true },
   wegielek: { hp: 1, speed: 3.9, dmg: 1, scale: 0.9, xp: 1, walk: 'run' },
-  dzik:     { hp: 5, speed: 5.2, dmg: 1, scale: 2.1, xp: 3, walk: 'run' },
+  dzik:     { hp: 5, speed: 5.2, dmg: 1, scale: 2.1, xp: 4, walk: 'run', bigXp: true },
   boss:     { hp: 90, speed: 2.4, dmg: 2, scale: 1.9, xp: 25, walk: 'run', char: 'doctorAngry', boss: true },
 };
 
@@ -403,15 +418,29 @@ function spawnEnemy(type) {
 function killEnemy(e, i) {
   G.kills++;
   document.getElementById('kills').textContent = '💀 ' + G.kills;
-  const xpTotal = e.T.xp * (e.elite ? 4 : 1);
-  const n = e.T.boss ? 10 : (e.elite ? 3 : 1);
-  for (let k = 0; k < n; k++) {
-    G.gems.push(makeGem(e.pos.x + (Math.random() - .5) * 1.5, e.pos.z + (Math.random() - .5) * 1.5, xpTotal / n));
+  // KILL + combo (kille w oknie 1.3 s nabijają serię)
+  G.streak = (G.time - G.streakT < 1.3) ? G.streak + 1 : 1;
+  G.streakT = G.time;
+  if (e.T.boss) dmgPop(e.pos.x, e.ty + 1.2, e.pos.z, 'BOSS DOWN!', '#ff5555', 2.6);
+  else if (e.elite) dmgPop(e.pos.x, e.ty + 0.8, e.pos.z, 'ELITA!', '#ffd75e', 1.9);
+  else dmgPop(e.pos.x, e.ty + 0.5, e.pos.z, G.streak > 1 ? 'KILL x' + G.streak : 'KILL',
+    '#ff6a5e', Math.min(1.1 + G.streak * 0.12, 2.2));
+  // XP: nie każdy dropi — duzi zawsze, mali 65% (za to szybciej ich kosisz)
+  const dropXp = e.T.boss || e.elite || e.T.bigXp || Math.random() < 0.65;
+  if (dropXp) {
+    const xpTotal = e.T.xp * (e.elite ? 4 : 1);
+    const n = e.T.boss ? 10 : (e.elite ? 3 : 1);
+    for (let k = 0; k < n; k++) {
+      G.gems.push(makeGem(e.pos.x + (Math.random() - .5) * 1.5, e.pos.z + (Math.random() - .5) * 1.5, xpTotal / n));
+    }
   }
   // monety: 9% szansy, elita 2 szt. gwarantowane, boss garść
   if (e.T.boss) { for (let k = 0; k < 12; k++) G.coins.push(makeCoin(e.pos.x + (Math.random() - .5) * 2.5, e.pos.z + (Math.random() - .5) * 2.5)); }
   else if (e.elite) { G.coins.push(makeCoin(e.pos.x, e.pos.z)); G.coins.push(makeCoin(e.pos.x + 0.6, e.pos.z)); }
   else if (Math.random() < 0.09) G.coins.push(makeCoin(e.pos.x, e.pos.z));
+  // serca: elity 30%, boss zawsze 2
+  if (e.T.boss) { G.hps.push(makeHeart(e.pos.x - 0.8, e.pos.z)); G.hps.push(makeHeart(e.pos.x + 0.8, e.pos.z)); }
+  else if (e.elite && Math.random() < 0.3) G.hps.push(makeHeart(e.pos.x, e.pos.z));
   if (e.ring) { scene.remove(e.ring); e.ring = null; }
   if (e.T.death && LIB[e.T.char || e.type].anims[e.T.death]) {
     e.dying = true; e.bb.play(e.T.death, false);
@@ -474,6 +503,54 @@ function spark(x, y, z) {
   G.sparks.push({ mesh: m, t: 0 });
 }
 
+// ---- wyskakujące napisy (obrażenia, KILL) — tekstury cache'owane per napis ----
+const popCache = new Map();
+function popMat(str, color) {
+  const key = color + '|' + str;
+  let m = popCache.get(key);
+  if (m) return m;
+  const c = document.createElement('canvas'); c.width = 160; c.height = 56;
+  const g = c.getContext('2d');
+  g.font = '900 30px -apple-system,sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.lineWidth = 7; g.strokeStyle = 'rgba(0,0,0,0.9)'; g.strokeText(str, 80, 28);
+  g.fillStyle = color; g.fillText(str, 80, 28);
+  const t = new THREE.CanvasTexture(c);
+  t.minFilter = THREE.LinearFilter; t.generateMipmaps = false;
+  m = new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, fog: false });
+  popCache.set(key, m);
+  return m;
+}
+function dmgPop(x, ty, z, str, color = '#ffe066', scale = 1) {
+  if (G.pops.length > 70) return;                 // bezpiecznik przy hordach
+  const mesh = new THREE.Mesh(unitGeo, popMat(str, color).clone());
+  mesh.scale.set(2.6 * scale, 0.9 * scale, 1);
+  mesh.position.set(x + (Math.random() - .5) * 0.7, ty + 1.7, z);
+  scene.add(mesh);
+  G.pops.push({ mesh, t: 0 });
+}
+// wyświetlana liczba obrażeń (dopaminowa skala ×25, zaokrąglona do 5)
+const dmgNum = d => String(Math.max(5, Math.round(d * 25 / 5) * 5));
+
+// ---- serca-dropy ❤️ ----
+let heartMat = null;
+function makeHeart(x, z) {
+  const m = new THREE.Mesh(unitGeo, heartMat);
+  m.scale.set(0.7, 0.7, 1);
+  m.position.set(x, terrainH(x, z) + 0.2, z);
+  scene.add(m);
+  return { mesh: m, pos: new THREE.Vector3(x, 0, z), t: Math.random() * 6 };
+}
+function emojiMat(emoji) {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  g.font = '48px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(emoji, 32, 36);
+  const t = new THREE.CanvasTexture(c);
+  t.minFilter = THREE.LinearFilter; t.generateMipmaps = false;
+  return new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false });
+}
+
 // ============================== BRONIE (rejestr) ==============================
 // tick(w, dt) woła się co klatkę dla każdej posiadanej broni; w = {key, lvl, t}
 const WEAPONS = {
@@ -529,6 +606,7 @@ const WEAPONS = {
             e.hp -= oDmg; e.orbCd = 0.5;
             e.kb.copy(e.pos).sub(P.pos).setY(0).normalize().multiplyScalar(2.2);
             spark(e.pos.x, e.ty + 1.0, e.pos.z);
+            dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(oDmg), '#cfe8ff', 0.9);
             if (e.hp <= 0) killEnemy(e, j);
           }
         }
@@ -558,7 +636,9 @@ const WEAPONS = {
       for (let b = 0; b < Math.ceil(w.lvl / 2); b++) {
         const e = alive[Math.floor(Math.random() * alive.length)];
         boltFx(e.pos.x, e.ty, e.pos.z);
-        e.hp -= 3 * dmgAll();
+        const bd = 3 * dmgAll();
+        e.hp -= bd;
+        dmgPop(e.pos.x, e.ty + 0.4, e.pos.z, dmgNum(bd), '#e8f4ff', 1.2);
         e.kb.set(0, 0, 0);
         const j = G.enemies.indexOf(e);
         if (e.hp <= 0 && j >= 0) killEnemy(e, j);
@@ -945,6 +1025,7 @@ function nova(x, z, r, dmg) {
       e.hp -= dmg;
       e.kb.set(dx, 0, dz).normalize().multiplyScalar(4.5);
       spark(e.pos.x, e.ty + 1.0, e.pos.z);
+      dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), '#ffb56e', 0.85);
       if (e.hp <= 0) killEnemy(e, j);
     }
   }
@@ -975,6 +1056,12 @@ function update(dt) {
   const inWater = terrainH(P.pos.x, P.pos.z) < WATER_Y - 0.04 && P.airY <= 0;
   let spd = speedF() * (inWater ? 0.6 : 1);
   if (G.buff.key === 'szyb') spd *= 1.45;
+  // strome zbocze (mesa): pieszo wolno POD GÓRĘ, ale skokiem normalnie
+  if (ml > 0.05 && P.airY <= 0) {
+    const inv = 1 / Math.max(ml, 0.001);
+    const ahead = terrainH(P.pos.x + wx * inv * 0.7, P.pos.z + wz * inv * 0.7) - terrainH(P.pos.x, P.pos.z);
+    if (ahead > 0.35) spd *= 0.5;
+  }
   P.pos.x += wx * spd * dt;
   P.pos.z += wz * spd * dt;              // mapa bez końca — zero klamry
   const pTy = terrainH(P.pos.x, P.pos.z);
@@ -1002,18 +1089,21 @@ function update(dt) {
   playerBB.mesh.visible = !(P.iframes > 0 && Math.floor(P.iframes * 12) % 2 === 0);
   playerBB.update(dt, P.pos, pTy + P.airY, pTy);
 
-  // ---- spawner ----
+  // ---- spawner (HORDY: paczki rosną z czasem) ----
   G.spawnT -= dt;
-  const interval = Math.max(0.22, 1.5 - G.time * 0.004);
-  if (G.spawnT <= 0 && G.enemies.length < 220) {
+  const interval = Math.max(0.2, 1.5 - G.time * 0.004);
+  if (G.spawnT <= 0 && G.enemies.length < 350) {
     G.spawnT = interval;
-    const roll = Math.random();
-    let type = 'dresiarz';
-    if (G.time > 45 && roll < 0.3) type = 'zul';
-    if (G.time > 90 && roll > 0.75) type = 'wegielek';
-    if (G.time > 150 && roll > 0.9) type = 'dzik';
-    spawnEnemy(type);
-    if (G.time > 90 && type === 'wegielek') { spawnEnemy('wegielek'); spawnEnemy('wegielek'); }
+    const batch = Math.min(4, 1 + Math.floor(G.time / 75));
+    for (let b = 0; b < batch && G.enemies.length < 350; b++) {
+      const roll = Math.random();
+      let type = 'dresiarz';
+      if (G.time > 45 && roll < 0.3) type = 'zul';
+      if (G.time > 90 && roll > 0.75) type = 'wegielek';
+      if (G.time > 150 && roll > 0.9) type = 'dzik';
+      spawnEnemy(type);
+      if (G.time > 90 && type === 'wegielek') { spawnEnemy('wegielek'); spawnEnemy('wegielek'); }
+    }
   }
   if (G.time > G.bossAt) { G.bossAt += 180; spawnEnemy('boss'); }
 
@@ -1056,6 +1146,9 @@ function update(dt) {
     let es = e.T.speed * (e.elite ? 0.85 : 1);
     if (e.ty < WATER_Y - 0.04) es *= 0.7;               // woda spowalnia też ich
     if (G.buff.key === 'slow') es *= 0.6;
+    // wspinaczka na mesę = powolutku (chwila oddechu dla gracza na górce)
+    const wspin = terrainH(e.pos.x + to.x * 0.7, e.pos.z + to.z * 0.7) - e.ty;
+    if (wspin > 0.18) es *= 0.35;
     e.pos.addScaledVector(to, es * dt);
     e.pos.add(e.kb.clone().multiplyScalar(dt * 8));
     e.kb.multiplyScalar(Math.max(0, 1 - dt * 10));
@@ -1105,6 +1198,7 @@ function update(dt) {
         e.hp -= dmg; s.hit.add(e);
         e.kb.copy(s.dir).multiplyScalar(crit ? 2.6 : 1.6);
         spark(e.pos.x, e.ty + 1.1, e.pos.z);
+        dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), crit ? '#ff9d3f' : '#ffe066', crit ? 1.5 : 1);
         if (P.evo.meteor) boomQ.push({ x: e.pos.x, z: e.pos.z, dmg: dmg * 0.6 });
         if (e.hp <= 0) killEnemy(e, j);
         if (s.pierce-- <= 0) { dead = true; break; }
@@ -1144,9 +1238,11 @@ function update(dt) {
       const dx = x - e.pos.x, dz = z - e.pos.z;
       if (dx * dx + dz * dz < 1.1) {
         B.hit.add(e);
-        e.hp -= (2 + 0.5 * B.lvl) * dmgAll();
+        const rd = (2 + 0.5 * B.lvl) * dmgAll();
+        e.hp -= rd;
         e.kb.set(dx, 0, dz).normalize().multiplyScalar(-2.4);
         spark(e.pos.x, e.ty + 1.0, e.pos.z);
+        dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(rd), '#d9b3ff', 1);
         if (e.hp <= 0) killEnemy(e, j);
       }
     }
@@ -1261,6 +1357,27 @@ function update(dt) {
       scene.remove(c.mesh); G.coins.splice(i, 1);
     }
   }
+  // serca ❤️ (zbierane tylko gdy brakuje HP)
+  for (let i = G.hps.length - 1; i >= 0; i--) {
+    const h = G.hps[i]; h.t += dt;
+    const d = h.pos.distanceTo(P.pos);
+    if (d < mag && P.hp < P.maxHp) h.pos.addScaledVector(P.pos.clone().sub(h.pos).normalize(), Math.max(14 - d, 8) * dt);
+    h.mesh.position.set(h.pos.x, terrainH(h.pos.x, h.pos.z) + 0.35 + Math.sin(h.t * 4) * 0.15, h.pos.z);
+    h.mesh.rotation.y = camYaw;
+    if (d < 0.8 && P.hp < P.maxHp) {
+      P.hp++; drawHearts();
+      dmgPop(P.pos.x, pTy + 0.6, P.pos.z, '+❤️', '#ff8080', 1.4);
+      scene.remove(h.mesh); G.hps.splice(i, 1);
+    }
+  }
+  // wyskakujące napisy (obrażenia / KILL)
+  for (let i = G.pops.length - 1; i >= 0; i--) {
+    const p = G.pops[i]; p.t += dt;
+    p.mesh.position.y += 1.8 * dt;
+    p.mesh.rotation.y = camYaw;
+    p.mesh.material.opacity = Math.max(0, 1 - p.t / 0.75);
+    if (p.t > 0.75) { scene.remove(p.mesh); p.mesh.material.dispose(); G.pops.splice(i, 1); }
+  }
 
   // ---- kamera (orbituje wg camYaw; nie wbija się w teren) ----
   const cx = P.pos.x + Math.sin(camYaw) * CAM_DIST, cz = P.pos.z + Math.cos(camYaw) * CAM_DIST;
@@ -1306,8 +1423,11 @@ function clearWorld() {
   for (const l of G.lobs) scene.remove(l.mesh);
   for (const b of G.boomers) scene.remove(b.mesh);
   for (const b of G.bolts) scene.remove(b.mesh);
+  for (const p of G.pops) { scene.remove(p.mesh); p.mesh.material.dispose(); }
+  for (const h of G.hps) scene.remove(h.mesh);
   G.enemies = []; G.gems = []; G.coins = []; G.shots = []; G.orbs = []; G.sparks = []; G.rings = [];
-  G.lobs = []; G.boomers = []; G.bolts = [];
+  G.lobs = []; G.boomers = []; G.bolts = []; G.pops = []; G.hps = [];
+  G.streak = 0; G.streakT = -9;
   G.vacuum = 0; G.buff = { key: null, t: 0 };
   document.getElementById('buff').style.opacity = 0;
   for (const c of chests) placeChest(c);
@@ -1348,6 +1468,7 @@ function loop() {
   const colImg = await flatMat('assets/column1.png');
   bottleMat = (await flatMat('assets/bottle.png')).mat;
   radioMat = (await flatMat('assets/radio.png')).mat;
+  heartMat = emojiMat('❤️');
   await buildChar('kasia', ['idle', 'run', 'jump']);
   await buildChar('dresiarz', ['run', 'death']);
   await buildChar('enemy', ['walk', 'death']);
