@@ -130,6 +130,27 @@
   w Megabonku) + później klify/płaskowyże w ramach jednej mapy. Czekam na
   potwierdzenie usera.
 
+## DOPAMINA + MESY v12 (9.08 — życzenia usera: efekty, hordy, serca, „wielowymiarowość")
+- **LICZBY OBRAŻEŃ**: dmgPop() — billboardy-teksty (canvas, cache per napis w popCache,
+  klonowany materiał do fade; cap 70 na ekranie). Skala pokazywana ×25 zaokrąglona
+  do 5 (dmg 1 → „25") — czysta dopamina. Kolory per broń: kule żółte/kryt pomarańcz,
+  kość błękit, nova łosoś, piorun biel, bumerang fiolet.
+- **KILL + COMBO**: kille w oknie 1.3 s nabijają serię → „KILL x6" rośnie;
+  „ELITA!" złote, „BOSS DOWN!" wielkie czerwone (G.streak/streakT).
+- **HORDY**: cap 220→350, spawn PACZKAMI 1+floor(t/75) (max 4) co interval.
+- **DROPY**: mali (dresiarz/wegielek) dropią XP tylko 65%; zul/dzik (bigXp) zawsze
+  (xp 3/4); **SERCA ❤️**: elity 30%, boss 2 szt. — zbierane TYLKO gdy brakuje HP
+  (inaczej leżą), magnes je ciągnie dopiero przy brakującym HP.
+- **MESY-PLATFORMY** (odpowiedź na „wielowymiarowość"): mesaH(x,z) w terrainH —
+  strome płaskowyże (wys. 4-7, promień 9-15) na siatce komórek 90 j. (50% szans,
+  deterministyczne z hash2). WSPINACZKA: wrogowie pod górę (slope>0.18 w przodzie)
+  zwalniają ×0.35 = chwila oddechu na szczycie; gracz pieszo pod strome ×0.5,
+  ale SKOKIEM wchodzi normalnie (airY pomija karę). Piętra/platformy wiszące
+  ODRADZONE — mesy dają tę samą frajdę bez kosztów (pathfinding/czytelność).
+- Silnik: user pytał „czy nie lepszy inny?" — DECYZJA: zostajemy przy Three.js
+  (momentum, demo-link, Capacitor/Electron); rewizja tylko przy twardej ścianie
+  (fizyka/konsole/perf. nie do obejścia instancingiem).
+
 ## Monetyzacja (decyzja usera 8.08)
 - **Steam**: wersja płatna (bez reklam). Pakowanie: Electron albo natywny webview.
 - **Telefony**: darmowa z reklamami — Capacitor + AdMob; model survivors idealnie
