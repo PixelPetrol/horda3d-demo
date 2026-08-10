@@ -394,6 +394,35 @@ function leafCardTexture(odcien) {
 }
 let leafCardMats = null;
 const leafCardGeo = new THREE.PlaneGeometry(1, 1);
+// biały atrybut koloru — przy vertexColors:true jego brak = mnożenie przez zero = CZARNE liście
+leafCardGeo.setAttribute('color', new THREE.Float32BufferAttribute(
+  new Float32Array(leafCardGeo.attributes.position.count * 3).fill(1), 3));
+// materiał kart liści: BILLBOARD w vertex shaderze (zawsze przodem do kamery)
+// + kołysanie wiatrem. Dzięki temu korona jest gęsta z KAŻDEJ strony.
+function makeLeafMaterial(paleta, amp) {
+  const m = new THREE.MeshBasicMaterial({
+    map: leafCardTexture(paleta), transparent: false, alphaTest: 0.45,
+    side: THREE.DoubleSide, vertexColors: true });
+  addCloudShadow(m);
+  const _prev = m.onBeforeCompile;
+  m.onBeforeCompile = sh => {
+    if (_prev) _prev(sh);
+    sh.uniforms.uTime = windU;
+    sh.vertexShader = 'uniform float uTime;\n' + sh.vertexShader.replace('#include <project_vertex>',
+      `vec3 iPos = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
+       float sx = length(vec3(instanceMatrix[0][0], instanceMatrix[0][1], instanceMatrix[0][2]));
+       float sy = length(vec3(instanceMatrix[1][0], instanceMatrix[1][1], instanceMatrix[1][2]));
+       float sway = sin(uTime * 1.35 + iPos.x * 0.4 + iPos.z * 0.3) * ${amp.toFixed(3)}
+                  + sin(uTime * 0.55 + iPos.z * 0.11) * ${(amp * 0.6).toFixed(3)};
+       vec4 mvPosition = modelViewMatrix * vec4(iPos + vec3(sway, 0.0, sway * 0.4), 1.0);
+       mvPosition.xy += vec2(position.x * sx, position.y * sy);
+       gl_Position = projectionMatrix * mvPosition;
+       vWPos = iPos;`);
+    sh.fragmentShader = sh.fragmentShader;
+  };
+  m.needsUpdate = true;
+  return m;
+}
 function initLeafCards() {
   const palety = [
     ['#2f6b28', '#4a9138', '#6fbc4c'],   // soczysta zieleń
@@ -401,18 +430,18 @@ function initLeafCards() {
     ['#2a5f34', '#43884a', '#63ad63'],   // chłodna
     ['#6b5220', '#9c7a2a', '#c9a23c'],   // jesienna (rzadka)
   ];
-  leafCardMats = palety.map((p, i) => addWind(new THREE.MeshBasicMaterial({
-    map: leafCardTexture(p), transparent: true, alphaTest: 0.42,
-    side: THREE.DoubleSide, depthWrite: true }), i === 3 ? 0.20 : 0.16, 1.5));
+  leafCardMats = palety.map((p, i) => makeLeafMaterial(p, i === 3 ? 0.16 : 0.13));
 }
 
 // drzewo = pień + KORONA Z KART LIŚCI (zbierane do wspólnego bufora chunka)
 function makeTree(x, z, rng, out, karty) {
   const g0 = terrainH(x, z);
-  const h = 2.6 + rng() * 2.4;
+  const h = 2.6 + rng() * 2.0;
   const iglaste = rng() < 0.28;
   const tr = new THREE.Mesh(trunkGeo, trunkMat);
-  tr.scale.set(1 + rng() * 0.3, h * (iglaste ? 0.5 : 0.6), 1 + rng() * 0.3);
+  // GRUBSZY i krótszy pień — wcześniej był jak patyk
+  const grubosc = 1.9 + rng() * 0.7;
+  tr.scale.set(grubosc, h * (iglaste ? 0.5 : 0.42), grubosc);
   tr.position.set(x, g0, z);
   scene.add(tr); out.push(tr);
 
@@ -426,22 +455,23 @@ function makeTree(x, z, rng, out, karty) {
       scene.add(c); out.push(c);
     }
   } else {
-    // korona: karty liści rozsiane po elipsoidzie — gęsta i ruchoma
+    // KORONA: gęsto upakowane klastry liści (billboardy) — zbita, obfita bryła
     const mat = rng() < 0.10 ? 3 : Math.floor(rng() * 3);
-    const ile = 12 + Math.floor(rng() * 8);
-    const rx = 1.5 + rng() * 0.7, ry = 1.0 + rng() * 0.5;
-    const cy = g0 + h * 0.72;
+    const ile = 18 + Math.floor(rng() * 10);
+    const rx = 1.25 + rng() * 0.55, ry = 0.85 + rng() * 0.35;
+    const cy = g0 + h * 0.42 + ry * 0.9;              // siedzi NA pniu, nie lata nad nim
     for (let i = 0; i < ile; i++) {
+      // rozkład ku środkowi (pierwiastek) = środek gęstszy niż brzeg
       const a = rng() * Math.PI * 2, u = rng() * 2 - 1;
-      const s = Math.sqrt(1 - u * u);
+      const pr = Math.pow(rng(), 0.55);
+      const s = Math.sqrt(1 - u * u) * pr;
       karty.push({
         mat,
         x: x + Math.cos(a) * s * rx,
-        y: cy + u * ry + ry * 0.25,
+        y: cy + u * ry * pr,
         z: z + Math.sin(a) * s * rx,
-        sc: 1.5 + rng() * 1.1,
-        rot: rng() * Math.PI * 2,
-        tilt: (rng() - 0.5) * 0.6,
+        sc: 2.0 + rng() * 1.2,                        // duże, mocno zachodzące na siebie
+        cien: 0.72 + (u * 0.5 + 0.5) * 0.42,          // spód ciemniejszy, góra jaśniejsza
       });
     }
   }
@@ -451,6 +481,62 @@ function makeTree(x, z, rng, out, karty) {
 // ============ TRAWA — DYWAN ŹDŹBEŁ (BotW/Genshin style) ============
 // Jedna InstancedMesh z tysiącami źdźbeł, zakotwiona w siatce ŚWIATA (bez migotania),
 // przebudowywana gdy gracz odejdzie od środka. Gradient w vertex colors + wiatr w shaderze.
+// ---- KĘPKA TRAWY: alfa-tekstura pęku źdźbeł (technika z forum three.js:
+// „image of a grass clump on a 2 triangle quad" — kilka razy taniej niż osobne źdźbła) ----
+function clumpTexture() {
+  const S = 128;
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  const zdzbla = 16;
+  for (let i = 0; i < zdzbla; i++) {
+    const bx = 12 + (i / (zdzbla - 1)) * (S - 24) + (Math.random() - 0.5) * 6;
+    const wys = S * (0.42 + Math.random() * 0.5);
+    const szer = 5 + Math.random() * 5;
+    const wygiecie = (Math.random() - 0.5) * 26;
+    // gradient: ciemno u nasady, jasno na czubku
+    const gr = g.createLinearGradient(0, S, 0, S - wys);
+    const j = Math.random();
+    gr.addColorStop(0, j < 0.5 ? '#3f7f2a' : '#4a8f30');
+    gr.addColorStop(0.55, j < 0.5 ? '#6fbc45' : '#7cc94f');
+    gr.addColorStop(1, j < 0.5 ? '#a8e46a' : '#bdf07d');
+    g.fillStyle = gr;
+    g.beginPath();
+    g.moveTo(bx - szer / 2, S);
+    g.quadraticCurveTo(bx - szer / 2 + wygiecie * 0.5, S - wys * 0.55, bx + wygiecie, S - wys);
+    g.quadraticCurveTo(bx + szer / 2 + wygiecie * 0.5, S - wys * 0.55, bx + szer / 2, S);
+    g.closePath(); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+// dwa skrzyżowane quady = kępka czytelna z każdej strony
+function clumpGeometry() {
+  const w = 1, h = 1;
+  const poz = [], uv = [], idx = [], nor = [], kol = [];
+  const dodajQuad = (kat) => {
+    const s = Math.sin(kat), c2 = Math.cos(kat), o = poz.length / 3;
+    poz.push(-w / 2 * c2, 0, -w / 2 * s,  w / 2 * c2, 0, w / 2 * s,
+             -w / 2 * c2, h, -w / 2 * s,  w / 2 * c2, h, w / 2 * s);
+    uv.push(0, 0, 1, 0, 0, 1, 1, 1);
+    for (let i = 0; i < 4; i++) { nor.push(0, 1, 0); kol.push(1, 1, 1); }
+    idx.push(o, o + 1, o + 2, o + 2, o + 1, o + 3);
+  };
+  dodajQuad(0); dodajQuad(Math.PI / 2);
+  const gm = new THREE.BufferGeometry();
+  gm.setAttribute('position', new THREE.Float32BufferAttribute(poz, 3));
+  gm.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  gm.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  // BIAŁY atrybut koloru jest KONIECZNY przy vertexColors:true — bez niego
+  // shader mnoży przez zero i wszystko renderuje się na czarno.
+  gm.setAttribute('color', new THREE.Float32BufferAttribute(kol, 3));
+  gm.setIndex(idx);
+  return gm;
+}
+
 function bladeGeometry() {
   const w = 0.055, h = 1;                       // wąskie źdźbło (było za szerokie = słoma)
   const P = [], C = [], I = [];
@@ -471,13 +557,14 @@ function bladeGeometry() {
   g.computeVertexNormals();
   return g;
 }
-const bladeGeo = bladeGeometry();
+const bladeGeo = clumpGeometry();   // KĘPKI (2 skrzyżowane quady) — tanio i gęsto
 let bladeMat = null, grassField = null;
 // uniformy dywanu: środek (gracz) + promień — do PŁYNNEGO WYRASTANIA (bez wyskakiwania)
 const grassCenterU = { value: new THREE.Vector2() };
 const grassRU = { value: 20 };
 function makeBladeMaterial() {
-  const m = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  const m = new THREE.MeshBasicMaterial({ map: clumpTexture(), alphaTest: 0.42,
+    side: THREE.DoubleSide, vertexColors: true });
   addCloudShadow(m);
   const _wind = m.onBeforeCompile;
   m.onBeforeCompile = sh => {
@@ -500,15 +587,15 @@ function makeBladeMaterial() {
   };
   return m;
 }
-const GRASS_STEP = 0.30;
+const GRASS_STEP = 0.62;
 let GRASS_R = 24, GRASS_MAX = 14000;
 const grassCenter = new THREE.Vector2(1e9, 1e9);
 const _gm = new THREE.Object3D(), _gc = new THREE.Color();
 
 function initGrassField() {
   const maloMocy = matchMedia('(pointer:coarse)').matches || innerWidth < 700;
-  GRASS_R = maloMocy ? 22 : 34;
-  GRASS_MAX = maloMocy ? 15000 : 46000;
+  GRASS_R = maloMocy ? 26 : 40;
+  GRASS_MAX = maloMocy ? 6000 : 14000;
   if (grassField) { scene.remove(grassField); grassField.dispose(); }
   grassField = new THREE.InstancedMesh(bladeGeo, bladeMat, GRASS_MAX);
   grassField.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(GRASS_MAX * 3), 3);
@@ -537,17 +624,17 @@ function updateGrassField() {
       const y = terrainH(x, z);
       if (y < WATER_Y + 0.12) continue;                          // nie w wodzie
       const b = biome(x, z);
-      const hgt = 0.30 + r1 * 0.18 - b * 0.06;                   // KRÓTSZE i grubsze
+      const hgt = 0.55 + r1 * 0.35 - b * 0.10;                   // wysokość kępki
       _gm.position.set(x, y - 0.02, z);
       // prawie pionowo (lekkie pochylenie) — inaczej wygląda jak rozsypana słoma
-      _gm.rotation.set((r2 - 0.5) * 0.07, r1 * Math.PI * 2, (r1 - 0.5) * 0.07);
-      _gm.scale.set(1, hgt, 1);
+      _gm.rotation.set((r2 - 0.5) * 0.22, r1 * Math.PI * 2, (r3 - 0.5) * 0.22);  // różne kierunki
+      _gm.scale.set(0.95 + r2 * 0.5, hgt, 0.95 + r2 * 0.5);
       _gm.updateMatrix();
       grassField.setMatrixAt(n, _gm.matrix);
       // kolor: las = soczysta zieleń, sucha łąka = cieplejsza; delikatna wariacja
       const plama = vnoise(x / 9 + 3.1, z / 9 + 8.4);            // miękkie łaty
-      const v = 0.88 + plama * 0.24 + r3 * 0.05;
-      _gc.setRGB((0.86 + b * 0.30) * v, (1.06 - b * 0.04) * v, (0.46 - b * 0.10) * v);
+      const v = 0.86 + plama * 0.26 + r3 * 0.06;
+      _gc.setRGB((0.98 + b * 0.22) * v, (1.02 - b * 0.03) * v, (0.86 - b * 0.16) * v);
       grassField.setColorAt(n, _gc);
       n++;
     }
@@ -795,6 +882,7 @@ function loadMeta() {
     coins: 0, up: { serce: 0, dmg: 0, szyb: 0, magnes: 0 }, unlocked: {},
     chars: { kasia: 1 }, lastChar: 'kasia', lastMap: 'laki',
     st: { kills: 0, runs: 0, time: 0, best: 0, bestKills: 0, bosses: 0, coins: 0, chests: 0, lvl: 0 },
+    bestiary: {},                                  // typ wroga -> ile razy zabity (bestiariusz)
   });
   try {
     const m = JSON.parse(localStorage.getItem(META_KEY)) || {};
@@ -806,11 +894,20 @@ function loadMeta() {
       chars: Object.assign(d.chars, m.chars),
       lastChar: m.lastChar || 'kasia', lastMap: m.lastMap || 'laki',
       st: Object.assign(d.st, m.st),
+      // stare zapisy nie mają bestiariusza — domyślnie pusty, nic nie psujemy
+      bestiary: Object.assign(d.bestiary, m.bestiary),
     };
   } catch { return def(); }
 }
 const META = loadMeta();
 const saveMeta = () => localStorage.setItem(META_KEY, JSON.stringify(META));
+// zapis „za chwilę" — liczniki bestiariusza tykają co zabicie, nie chcemy pisać
+// do localStorage kilkaset razy na minutę
+let saveT = 0;
+function saveMetaSoon() {
+  if (saveT) return;
+  saveT = setTimeout(() => { saveT = 0; saveMeta(); }, 2000);
+}
 
 const SHOP = [
   { key: 'serce',  ico: 'serce', nm: 'Twarde serce',   ds: '+1 serce na start',      base: 50, max: 3 },
@@ -887,6 +984,35 @@ function renderStats() {
   ];
   document.getElementById('statsList').innerHTML = dane.map(([i, v, k]) =>
     `<div class="stat"><div class="v">${ico(i, 20)} ${v}</div><div class="k">${k}</div></div>`).join('');
+}
+
+// ---- BESTIARIUSZ: wpis o wrogu odblokowuje się po pierwszym jego zabiciu ----
+function renderBestiary() {
+  const wrap = document.getElementById('bestGrid');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  const klucze = Object.keys(ENEMY_TYPES);
+  let odkryte = 0;
+  for (const key of klucze) {
+    const T = ENEMY_TYPES[key];
+    const n = META.bestiary[key] || 0;
+    const znany = n > 0;
+    if (znany) odkryte++;
+    const staty = znany
+      ? `HP ${T.hp} · TEMPO ${T.speed} · CIOS ${T.dmg} · XP ${T.xp}`
+      : 'HP ? · TEMPO ? · CIOS ? · XP ?';
+    const d = document.createElement('div');
+    // .dark = zablokowany wpis: sylwetka na czarno (CSS brightness(0)) i „???"
+    d.className = 'tile bst' + (znany ? '' : ' dark');
+    d.innerHTML =
+      `<div class="ico"><img class="pxi" src="${portret(T.char || key)}" style="height:70px"></div>
+       <div class="nm">${znany ? T.nm : '???'}</div>
+       <div class="ds">${znany ? T.ds : '???'}</div>
+       <div class="bs">${staty}</div>
+       <div class="pr">${ico('czaszka', 14)} ${n}</div>`;
+    wrap.appendChild(d);
+  }
+  document.getElementById('bestProg').textContent = odkryte + '/' + klucze.length;
 }
 
 function renderShop() {
@@ -1027,13 +1153,129 @@ addEventListener('pointercancel', endTouch);
   addEventListener('pointerup', puscil);            // gdy palec zjedzie poza przycisk
 }
 
+// ============================== KONTROLER (Gamepad API) ==============================
+// Handheldy (Retroid Pocket) + pady Xbox/PS. Mapowanie: lewy drążek = ruch,
+// prawy = obrót kamery, A(0) = skok (przytrzymanie = szybowanie), B(1) = wstecz,
+// Start(9) = pauza, D-pad = nawigacja po menu.
+const PAD = { on: false, mx: 0, mz: 0, jump: false, prev: [], navT: 0 };
+const PAD_DZ = 0.18;                               // martwa strefa drążków
+let gpSel = null;                                  // zaznaczony kafelek menu
+
+function padToast(txt) {
+  toastBuff(txt);
+  setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2500);
+}
+addEventListener('gamepadconnected', e => {
+  PAD.on = true;
+  padToast('KONTROLER: ' + String(e.gamepad && e.gamepad.id || 'pad').slice(0, 22));
+});
+addEventListener('gamepaddisconnected', () => {
+  PAD.on = false; PAD.mx = PAD.mz = 0; PAD.jump = false; PAD.prev = [];
+  padToast('Kontroler odłączony');
+});
+
+// martwa strefa + ruch proporcjonalny (po odjęciu strefy skala rośnie do 1)
+function padStick(x, y) {
+  const d = Math.hypot(x, y);
+  if (d < PAD_DZ) return [0, 0];
+  const k = Math.min(1, (d - PAD_DZ) / (1 - PAD_DZ)) / d;
+  return [x * k, y * k];
+}
+// najwyższy widoczny overlay (startOv jest pierwszy w DOM, więc reszta go przebija)
+function topOverlay() {
+  let ov = null;
+  for (const o of document.querySelectorAll('.ov')) if (o.offsetWidth) ov = o;
+  return ov;
+}
+const navItems = ov => [...ov.querySelectorAll('.tab,.tile,.card,.bigbtn,.btn2')].filter(el => el.offsetWidth);
+function gpMark(el) {
+  if (gpSel === el) return;
+  if (gpSel) gpSel.classList.remove('gp-sel');
+  gpSel = el || null;
+  if (gpSel) { gpSel.classList.add('gp-sel'); gpSel.scrollIntoView({ block: 'nearest' }); }
+}
+// sąsiad w zadanym kierunku: najbliższy środek, z karą za zboczenie w bok
+function gpMove(items, dx, dy) {
+  if (!gpSel) { gpMark(items[0]); return; }
+  const a = gpSel.getBoundingClientRect(), ax = a.left + a.width / 2, ay = a.top + a.height / 2;
+  let best = null, bd = 1e9;
+  for (const el of items) {
+    if (el === gpSel) continue;
+    const r = el.getBoundingClientRect();
+    const x = r.left + r.width / 2 - ax, y = r.top + r.height / 2 - ay;
+    const along = x * dx + y * dy, side = Math.abs(x * dy - y * dx);
+    if (along < 6) continue;                       // tylko w tę stronę
+    const d = along + side * 2.2;
+    if (d < bd) { bd = d; best = el; }
+  }
+  if (best) gpMark(best);
+}
+function gpBack(ov) {                              // B = wstecz / zamknij
+  if (ov.id === 'pauseOv') togglePause(false);
+  else if (ov.id === 'overOv') document.getElementById('btnMenu').click();
+  else if (ov.id === 'startOv') {
+    const t = document.querySelector('.tab[data-tab="graj"]');
+    if (t && !t.classList.contains('sel')) t.click();
+  }                                                // karty/wymiennik: trzeba wybrać
+}
+
+// odpytywanie padów MUSI iść co klatkę (stan nie przychodzi zdarzeniami)
+function pollPads(dt) {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  let gp = null;
+  for (const p of pads) if (p && p.connected !== false) { gp = p; break; }
+  if (!gp) { PAD.mx = PAD.mz = 0; return; }
+  const B = gp.buttons || [], ax = gp.axes || [];
+  const btn = i => !!(B[i] && (B[i].pressed || B[i].value > 0.5));
+  const hit = i => btn(i) && !PAD.prev[i];         // zbocze narastające
+  const [lx, ly] = padStick(ax[0] || 0, ax[1] || 0);
+  const [rx] = padStick(ax[2] || 0, ax[3] || 0);
+  const ov = topOverlay();
+
+  if (ov) {                                        // ---- nawigacja po menu/overlayu ----
+    PAD.mx = PAD.mz = 0;
+    if (PAD.jump) { PAD.jump = false; jumpHeld = false; }
+    const items = navItems(ov);
+    if (!gpSel || !items.includes(gpSel)) gpMark(items[0]);
+    let dx = (btn(15) ? 1 : 0) - (btn(14) ? 1 : 0);
+    let dy = (btn(13) ? 1 : 0) - (btn(12) ? 1 : 0);
+    if (!dx && !dy && (Math.abs(lx) > 0.5 || Math.abs(ly) > 0.5)) {
+      if (Math.abs(lx) > Math.abs(ly)) dx = Math.sign(lx); else dy = Math.sign(ly);
+    }
+    if (!dx && !dy) PAD.navT = 0;
+    else if ((PAD.navT -= dt) <= 0) { gpMove(items, dx, dy); PAD.navT = 0.22; }
+    if (hit(0) && gpSel) gpSel.click();
+    if (hit(1)) gpBack(ov);
+    if (hit(9) && ov.id === 'pauseOv') togglePause(false);
+  } else {                                         // ---- sterowanie w grze ----
+    if (gpSel) gpMark(null);
+    PAD.mx = lx; PAD.mz = ly;
+    camYaw -= rx * 2.6 * dt;
+    if (hit(0)) { PAD.jump = true; jumpHeld = true; tryJump(); }
+    if (PAD.jump && !btn(0)) { PAD.jump = false; jumpHeld = false; }
+    if (hit(9)) togglePause(true);
+  }
+  for (let i = 0; i < B.length; i++) PAD.prev[i] = btn(i);
+}
+
 // ============================== WROGOWIE ==============================
+// nm/ds = wpis do BESTIARIUSZA (odblokowywany po pierwszym zabiciu danego typu)
 const ENEMY_TYPES = {
-  dresiarz: { hp: 3, speed: 2.7, dmg: 1, scale: 1.0, xp: 1, walk: 'run', death: 'death' },
-  zul:      { hp: 6, speed: 2.0, dmg: 1, scale: 1.05, xp: 3, walk: 'walk', death: 'death', char: 'enemy', bigXp: true },
-  wegielek: { hp: 1, speed: 3.9, dmg: 1, scale: 0.9, xp: 1, walk: 'run' },
-  dzik:     { hp: 5, speed: 5.2, dmg: 1, scale: 2.1, xp: 4, walk: 'run', bigXp: true },
-  boss:     { hp: 90, speed: 2.4, dmg: 2, scale: 1.9, xp: 25, walk: 'run', char: 'doctorAngry', boss: true },
+  dresiarz: { hp: 3, speed: 2.7, dmg: 1, scale: 1.0, xp: 1, walk: 'run', death: 'death',
+    nm: 'Dresiarz Adidasini',
+    ds: 'Trzy paski, jeden neuron. Kuca od urodzenia, biegnie za Tobą, bo „masz zegarek". Kiedyś wygrał zakład o kebaba i od tamtej pory nie potrafi przestać biec.' },
+  zul:      { hp: 6, speed: 2.0, dmg: 1, scale: 1.05, xp: 3, walk: 'walk', death: 'death', char: 'enemy', bigXp: true,
+    nm: 'Żul Monopolowy',
+    ds: 'Filozof spod sklepu, myśliciel bez kaucji. Idzie wolno, bo dźwiga ciężar egzystencji i dwie reklamówki. Twardszy, niż wygląda — jest zakonserwowany od środka.' },
+  wegielek: { hp: 1, speed: 3.9, dmg: 1, scale: 0.9, xp: 1, walk: 'run',
+    nm: 'Węgielek Brunatnini',
+    ds: 'Grudka czystego zła i niskiej kaloryczności. Jeden punkt życia, zero instynktu samozachowawczego. Podpala się z samej ekscytacji, że Cię widzi.' },
+  dzik:     { hp: 5, speed: 5.2, dmg: 1, scale: 2.1, xp: 4, walk: 'run', bigXp: true,
+    nm: 'Dzik Osiedlowy',
+    ds: 'Sto kilo szynki rozpędzonej do prędkości hulajnogi. Nie zna hamulców, zna tylko ryj. Żywi się kebabem, zawartością śmietnika i cudzym spokojem.' },
+  boss:     { hp: 90, speed: 2.4, dmg: 2, scale: 1.9, xp: 25, walk: 'run', char: 'doctorAngry', boss: true,
+    nm: 'Doktor Wściekliniusz',
+    ds: 'Przyjmuje bez kolejki, bije bez znieczulenia. Twierdzi, że to „tylko badanie kontrolne", ale ma dziewięćdziesiąt punktów życia i bardzo ciężką rękę.' },
 };
 
 let eliteRingMat = null;
@@ -1070,6 +1312,14 @@ function spawnEnemy(type, angle = null) {
 function killEnemy(e, i) {
   G.kills++;
   document.getElementById('kills').innerHTML = ico('czaszka', 15) + ' ' + G.kills;
+  // ---- BESTIARIUSZ: licznik zabitych per typ (zostaje na stałe w META) ----
+  const pierwszyRaz = !META.bestiary[e.type];
+  META.bestiary[e.type] = (META.bestiary[e.type] || 0) + 1;
+  if (pierwszyRaz) {
+    saveMeta();                                    // odblokowanie zapisujemy od razu
+    toastBuff('NOWY WPIS W ENCYKLOPEDII: ' + (e.T.nm || e.type));
+    setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2600);
+  } else saveMetaSoon();
   // KILL + combo (kille w oknie 1.3 s nabijają serię)
   G.streak = (G.time - G.streakT < 1.3) ? G.streak + 1 : 1;
   G.streakT = G.time;
@@ -1772,14 +2022,18 @@ function buildChunk(cx, cz) {
         const grupa = karty.filter(k => k.mat === mi);
         if (!grupa.length) continue;
         const inst = new THREE.InstancedMesh(leafCardGeo, leafCardMats[mi], grupa.length);
+        const _kol = new THREE.Color();
         grupa.forEach((k, i) => {
           _o.position.set(k.x, k.y, k.z);
-          _o.rotation.set(k.tilt, k.rot, 0);
-          _o.scale.set(k.sc, k.sc * 0.8, 1);
+          _o.rotation.set(0, 0, 0);                 // obrót załatwia billboard w shaderze
+          _o.scale.set(k.sc, k.sc * 0.82, 1);
           _o.updateMatrix();
           inst.setMatrixAt(i, _o.matrix);
+          _kol.setScalar(k.cien);                   // spód korony ciemniejszy = głębia
+          inst.setColorAt(i, _kol);
         });
         inst.instanceMatrix.needsUpdate = true;
+        if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
         inst.frustumCulled = false;
         scene.add(inst);
         leaves.push(inst);
@@ -2113,6 +2367,7 @@ function update(dt) {
   let mx = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
   let mz = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0);
   if (touch.on) { mx = touch.vx; mz = touch.vy; }
+  else if (PAD.mx || PAD.mz) { mx = PAD.mx; mz = PAD.mz; }   // lewy drążek pada
   const ml = Math.hypot(mx, mz);
   if (ml > 1) { mx /= ml; mz /= ml; }
   // przód = od kamery; prawo = prostopadle
@@ -2596,7 +2851,7 @@ function gameOver() {
   s.kills += G.kills; s.runs++; s.time += G.time; s.coins += G.runCoins; s.lvl += P.lvl - 1;
   if (G.time > s.best) s.best = G.time;
   if (G.kills > s.bestKills) s.bestKills = G.kills;
-  saveMeta(); renderShop(); renderStats();
+  saveMeta(); renderShop(); renderStats(); renderBestiary();
   document.getElementById('overStats').innerHTML =
     `Przetrwano: <b>${fmtTime(G.time)}</b> · Pokonano: <b>${G.kills}</b> · Poziom: <b>${P.lvl}</b><br>` +
     `Zebrano: <b>${ico('moneta',15)} ${G.runCoins}</b> (łącznie ${ico('moneta',15)} ${META.coins})` +
@@ -2667,6 +2922,7 @@ function newGame() {
 function loop() {
   requestAnimationFrame(loop);
   const dt = Math.min(clock.getDelta(), 0.05);
+  pollPads(dt);                                   // pady odpytujemy co klatkę
   if (G.running && !G.paused) {
     try { update(dt); } catch (err) { console.error(err); }
   }
@@ -2735,7 +2991,7 @@ function loop() {
   spawnChests(9);
   spawnTotems(3, colImg);
   drawHearts();
-  renderShop(); renderMaps(); renderChars(); renderStats(); renderPick();
+  renderShop(); renderMaps(); renderChars(); renderStats(); renderBestiary(); renderPick();
   fitCamera();
   camera.position.set(0, terrainH(0, 0) + CAM_H, CAM_DIST);
   camera.lookAt(0, 1.3, -2.2);
@@ -2763,6 +3019,7 @@ function loop() {
     t.classList.add('sel');
     document.getElementById('p-' + t.dataset.tab).classList.add('on');
     if (t.dataset.tab === 'staty') renderStats();
+    if (t.dataset.tab === 'bestia') renderBestiary();
     if (t.dataset.tab === 'sklep') renderShop();
   });
   // pauza
@@ -2773,7 +3030,8 @@ function loop() {
     G.running = false; clearWorld();
     document.getElementById('wArrow').style.display = 'none';
     menu.style.display = 'flex';
-    renderStats(); renderShop();
+    saveMeta();                                   // zapisz liczniki bestiariusza z przerwanego biegu
+    renderStats(); renderShop(); renderBestiary();
   };
   addEventListener('keydown', e => {
     if (e.code === 'Escape' && G.running &&
@@ -2784,10 +3042,12 @@ function loop() {
   // bo podgląd dławi rAF bez fokusa (pułapka znana z Rudeusza)
   window.HORDA = {
     G, P, terrainH, chests, totems, openSwap, renderWpns, chunkMap, supportY, onSpill, setMap,
-    wchest, META, CHARS, MAPS, setPlayerChar, togglePause, get charKey() { return charKey; },
+    wchest, META, CHARS, MAPS, ENEMY_TYPES, spawnEnemy, killEnemy, renderBestiary, saveMeta,
+    setPlayerChar, togglePause, get charKey() { return charKey; },
     get grass() { return grassField; },
+    PAD, pollPads, get camYaw() { return camYaw; }, get gpSel() { return gpSel; },
     step(n = 1, dt = 1 / 60) {
-      for (let i = 0; i < n; i++) if (G.running && !G.paused) update(dt);
+      for (let i = 0; i < n; i++) { pollPads(dt); if (G.running && !G.paused) update(dt); }
       renderer.render(scene, camera);
     },
   };
