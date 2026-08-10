@@ -11,10 +11,27 @@ let camYaw = 0;                                    // obrót kamery wokół grac
 
 // ============================== MAPY ==============================
 const MAPS = {
-  laki:   { nm: '🌄 Łąki',  sky: 0x9cc8ec, fog: [55, 135], water: true,  indoor: false },
-  market: { nm: '🛒 Market', sky: 0xb8bfc7, fog: [34, 95],  water: false, indoor: true },
+  laki:   { nm: 'Łąki', ico: '🌄', ds: 'Otwarty teren, jeziora, mesy do wskakiwania',
+            sky: 0x9cc8ec, fog: [55, 135], water: true, indoor: false, price: 0 },
+  market: { nm: 'Market', ico: '🛒', ds: 'Ciasne alejki, regały, śliska rozlana woda',
+            sky: 0xb8bfc7, fog: [34, 95], water: false, indoor: true, price: 0 },
 };
 let mapKey = 'laki';
+
+// ============================== POSTACIE ==============================
+const CHARS = {
+  kasia:      { nm: 'Kasia', ico: '👧', ds: 'Zbalansowana. Nic Cię nie zaskoczy.',
+                char: 'kasia', price: 0, spd: 1, hp: 0, dmg: 1, mag: 1, scale: 1 },
+  piotr:      { nm: 'Piotr', ico: '🧔', ds: '+1 serce, +25% obrażeń, ale wolniejszy',
+                char: 'piotr', price: 200, spd: 0.88, hp: 1, dmg: 1.25, mag: 1, scale: 1 },
+  rudeusz:    { nm: 'Rudeusz', ico: '🐕', ds: 'Bardzo szybki i mały, ale kruchy (-1 serce)',
+                char: 'rudeusz', price: 300, spd: 1.35, hp: -1, dmg: 0.9, mag: 1.4, scale: 1.05 },
+  przyjaciel: { nm: 'Kapturek', ico: '🧙', ds: 'Ogromny magnes i +2 serca, słabsze ciosy',
+                char: 'przyjaciel', price: 400, spd: 0.95, hp: 2, dmg: 0.8, mag: 2.0, scale: 1 },
+  wegielek:   { nm: 'Węgielek', ico: '🔥', ds: 'Mały demon: +45% obrażeń, tylko 3 serca',
+                char: 'wegielek', price: 500, spd: 1.1, hp: -2, dmg: 1.45, mag: 1.2, scale: 1.1 },
+};
+let charKey = 'kasia';
 
 // ============================== TEREN (value noise) ==============================
 function hash2(ix, iz) {
@@ -175,6 +192,20 @@ function spillTexture() {
 }
 let spillMat = null;
 
+// proste materiały struktur (skrzynie, deski, kamień)
+function stripeTexture(base, dark, n) {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  g.fillStyle = base; g.fillRect(0, 0, 64, 64);
+  g.fillStyle = dark;
+  for (let i = 0; i < 64; i += 64 / n) g.fillRect(0, i, 64, 2);
+  g.strokeStyle = dark; g.lineWidth = 3; g.strokeRect(1.5, 1.5, 61, 61);
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+let crateMat = null, plankMat = null, stoneMat = null;
+
 // -------- chmury --------
 function cloudTexture() {
   const c = document.createElement('canvas'); c.width = 128; c.height = 64;
@@ -313,11 +344,22 @@ const faceAngle = (x, z) => { const a = Math.atan2(x, z); return a < 0 ? a + Mat
 // ============================== META (localStorage) ==============================
 const META_KEY = 'horda3d_meta_v1';
 function loadMeta() {
-  const def = () => ({ coins: 0, up: { serce: 0, dmg: 0, szyb: 0, magnes: 0 }, unlocked: {} });
+  const def = () => ({
+    coins: 0, up: { serce: 0, dmg: 0, szyb: 0, magnes: 0 }, unlocked: {},
+    chars: { kasia: 1 }, lastChar: 'kasia', lastMap: 'laki',
+    st: { kills: 0, runs: 0, time: 0, best: 0, bestKills: 0, bosses: 0, coins: 0, chests: 0, lvl: 0 },
+  });
   try {
     const m = JSON.parse(localStorage.getItem(META_KEY)) || {};
     const d = def();
-    return { coins: m.coins || 0, up: Object.assign(d.up, m.up), unlocked: Object.assign(d.unlocked, m.unlocked) };
+    return {
+      coins: m.coins || 0,
+      up: Object.assign(d.up, m.up),
+      unlocked: Object.assign(d.unlocked, m.unlocked),
+      chars: Object.assign(d.chars, m.chars),
+      lastChar: m.lastChar || 'kasia', lastMap: m.lastMap || 'laki',
+      st: Object.assign(d.st, m.st),
+    };
   } catch { return def(); }
 }
 const META = loadMeta();
@@ -342,15 +384,69 @@ const SHOP_UNLOCKS = [
 ];
 const shopPrice = it => it.base * Math.pow(2, META.up[it.key]);
 
+// ---- MENU: mapy / postacie / statystyki ----
+function renderMaps() {
+  const wrap = document.getElementById('mapGrid'); wrap.innerHTML = '';
+  for (const key of Object.keys(MAPS)) {
+    const M = MAPS[key];
+    const d = document.createElement('div');
+    d.className = 'tile' + (key === mapKey ? ' sel' : '');
+    d.innerHTML = `<div class="ico">${M.ico}</div><div class="nm">${M.nm}</div><div class="ds">${M.ds}</div>`;
+    d.onclick = () => { setMap(key); META.lastMap = key; saveMeta(); renderMaps(); renderPick(); };
+    wrap.appendChild(d);
+  }
+}
+function renderChars() {
+  const wrap = document.getElementById('charGrid'); wrap.innerHTML = '';
+  for (const key of Object.keys(CHARS)) {
+    const C = CHARS[key];
+    const owned = !!META.chars[key];
+    const d = document.createElement('div');
+    d.className = 'tile' + (key === charKey ? ' sel' : '') + (owned ? '' : ' lock');
+    d.innerHTML = `<div class="ico">${C.ico}</div><div class="nm">${owned ? '' : '🔒 '}${C.nm}</div>
+      <div class="ds">${C.ds}</div>${owned ? '' : `<div class="pr">🪙 ${C.price}</div>`}`;
+    d.onclick = () => {
+      if (!owned) {
+        if (META.coins < C.price) { d.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' },
+          { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }], { duration: 200 }); return; }
+        META.coins -= C.price; META.chars[key] = 1;
+      }
+      charKey = key; META.lastChar = key; saveMeta();
+      setPlayerChar(key);
+      renderChars(); renderShop(); renderPick();
+    };
+    wrap.appendChild(d);
+  }
+}
+function renderPick() {
+  document.getElementById('selMapNm').textContent = MAPS[mapKey].ico + ' ' + MAPS[mapKey].nm;
+  document.getElementById('selCharNm').textContent = CHARS[charKey].ico + ' ' + CHARS[charKey].nm;
+}
+function renderStats() {
+  const s = META.st;
+  const dane = [
+    ['💀', s.kills, 'Zabitych łącznie'],
+    ['🎮', s.runs, 'Rozegranych biegów'],
+    ['⏱️', fmtTime(s.best), 'Najdłuższy bieg'],
+    ['🏆', s.bestKills, 'Rekord zabitych'],
+    ['👑', s.bosses, 'Pokonanych bossów'],
+    ['🎁', s.chests, 'Skrzyń z bronią'],
+    ['⬆️', s.lvl, 'Zdobytych poziomów'],
+    ['🪙', s.coins, 'Monet zebranych'],
+    ['🕐', fmtTime(s.time), 'Łączny czas gry'],
+  ];
+  document.getElementById('statsList').innerHTML = dane.map(([i, v, k]) =>
+    `<div class="stat"><div class="v">${i} ${v}</div><div class="k">${k}</div></div>`).join('');
+}
+
 function renderShop() {
-  document.getElementById('shopCoins').textContent = `(🪙 ${META.coins})`;
-  document.getElementById('shopCoins2').textContent = `(🪙 ${META.coins})`;
+  document.getElementById('shopCoins').textContent = '🪙 ' + META.coins;
   const wrap = document.getElementById('shopItems'); wrap.innerHTML = '';
   const deny = d => d.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }], { duration: 200 });
   for (const it of SHOP) {
     const lvl = META.up[it.key], maxed = lvl >= it.max;
     const d = document.createElement('div');
-    d.className = 'shopIt' + (maxed ? ' max' : '');
+    d.className = 'tile' + (maxed ? ' lock' : '');
     d.innerHTML = `<div class="ico">${it.ico}</div><div class="nm">${it.nm} ${lvl}/${it.max}</div>
       <div class="ds">${it.ds}</div><div class="pr">${maxed ? 'MAX' : '🪙 ' + shopPrice(it)}</div>`;
     if (!maxed) d.onclick = () => {
@@ -363,7 +459,7 @@ function renderShop() {
   for (const it of SHOP_UNLOCKS) {
     const owned = !!META.unlocked[it.key];
     const d = document.createElement('div');
-    d.className = 'shopIt' + (owned ? ' max' : '');
+    d.className = 'tile' + (owned ? ' lock' : '');
     d.innerHTML = `<div class="ico">${it.ico}</div><div class="nm">${owned ? '✅ ' : '🔒 '}${it.nm}</div>
       <div class="ds">${it.ds}</div><div class="pr">${owned ? 'ODBLOKOWANE' : '🪙 ' + it.price}</div>`;
     if (!owned) d.onclick = () => {
@@ -380,16 +476,18 @@ const G = {
   time: 0, kills: 0, runCoins: 0,
   enemies: [], gems: [], coins: [], shots: [], orbs: [], sparks: [], rings: [],
   lobs: [], boomers: [], bolts: [], pops: [], hps: [], kury: [],
-  spawnT: 0, shake: 0, bossAt: 180,
+  spawnT: 0, shake: 0, bossAt: 120, ringAt: 60, tier: 0,
   vacuum: 0, buff: { key: null, t: 0 },
   streak: 0, streakT: -9,
 };
 const P = {};
 
 function resetStats() {
+  const C = CHARS[charKey];
+  const maxHp = Math.max(2, 5 + META.up.serce + C.hp);
   Object.assign(P, {
     pos: new THREE.Vector3(0, 0, 0),
-    hp: 5 + META.up.serce, maxHp: 5 + META.up.serce,
+    hp: maxHp, maxHp,
     iframes: 0, y: 1.55, vy: 0, airborne: false, usedDouble: false, runDjump: false, shieldCd: 0,
     vx: 0, vz: 0,
     weapons: [{ key: 'kule', lvl: 1, t: 0 }],   // max 3 sloty
@@ -399,12 +497,12 @@ function resetStats() {
   });
 }
 // ---- statystyki pochodne (meta + pasywy + buffy) ----
-const dmgAll  = () => (1 + 0.10 * META.up.dmg) * Math.pow(1.15, P.passives.moc || 0) * (G.buff.key === 'dmg' ? 2 : 1);
+const dmgAll  = () => CHARS[charKey].dmg * (1 + 0.10 * META.up.dmg) * Math.pow(1.15, P.passives.moc || 0) * (G.buff.key === 'dmg' ? 2 : 1);
 const fireMul = () => Math.pow(1.12, P.passives.tempo || 0);
 const critC   = () => 0.10 * (P.passives.krytyk || 0);
 const rangeF  = () => 14 * Math.pow(1.2, P.passives.zasieg || 0);
-const magnetF = () => 2.6 * (1 + 0.20 * META.up.magnes) * Math.pow(1.35, P.passives.magnes || 0);
-const speedF  = () => 6.2 * (1 + 0.08 * META.up.szyb) * Math.pow(1.10, P.passives.buty || 0);
+const magnetF = () => CHARS[charKey].mag * 2.6 * (1 + 0.20 * META.up.magnes) * Math.pow(1.35, P.passives.magnes || 0);
+const speedF  = () => CHARS[charKey].spd * 6.2 * (1 + 0.08 * META.up.szyb) * Math.pow(1.10, P.passives.buty || 0);
 const hasWeapon = k => P.weapons.find(w => w.key === k);
 
 // ============================== WEJŚCIE ==============================
@@ -474,18 +572,27 @@ const ENEMY_TYPES = {
 };
 
 let eliteRingMat = null;
-function spawnEnemy(type) {
+// ---- PROGRESJA: poziom zagrożenia rośnie co minutę ----
+const tier = () => 1 + Math.floor(G.time / 60);
+const hpScale = () => 1 + G.time / 60 * 0.55 + Math.pow(G.time / 300, 2) * 1.5;  // późno rośnie ostro
+const spdScale = () => Math.min(1.5, 1 + G.time / 60 * 0.035);
+const dmgScale = () => G.time > 600 ? 3 : (G.time > 330 ? 2 : 1);               // 5.5 min → 2, 10 min → 3
+
+function spawnEnemy(type, angle = null) {
   const T = ENEMY_TYPES[type];
-  const a = Math.random() * Math.PI * 2, r = 36 + Math.random() * 8;
-  const hpMul = 1 + G.time / 60 * 0.35;
-  const elite = !T.boss && G.time > 60 && Math.random() < 0.06;
+  const a = angle === null ? Math.random() * Math.PI * 2 : angle;
+  const r = 34 + Math.random() * 10;
+  const hpMul = hpScale();
+  const elite = !T.boss && G.time > 60 && Math.random() < 0.06 + G.time / 60 * 0.015;
   const e = {
     type, T, elite,
     pos: new THREE.Vector3(P.pos.x + Math.sin(a) * r, 0, P.pos.z + Math.cos(a) * r),
     hp: T.hp * (T.boss ? 1 : hpMul) * (elite ? 6 : 1),
-    dying: false, hitCd: 0, kb: new THREE.Vector3(), orbCd: 0, ty: 0,
+    dying: false, hitCd: 0, kb: new THREE.Vector3(), orbCd: 0, climbing: false,
+    ty: 0,
     bb: new Billboard(T.char || type, T.scale * (elite ? 1.45 : 1)),
   };
+  e.ty = terrainH(e.pos.x, e.pos.z);
   if (elite) {                              // złota obwódka pod elitą
     e.ring = new THREE.Mesh(blobGeo, eliteRingMat);
     e.ring.scale.set(1.8, 1, 1.8);
@@ -502,7 +609,7 @@ function killEnemy(e, i) {
   G.streak = (G.time - G.streakT < 1.3) ? G.streak + 1 : 1;
   G.streakT = G.time;
   G.shake = Math.max(G.shake, Math.min(0.5, 0.06 + G.streak * 0.03));
-  if (e.T.boss) dmgPop(e.pos.x, e.ty + 1.2, e.pos.z, 'BOSS DOWN!', '#ff5555', 2.6);
+  if (e.T.boss) { dmgPop(e.pos.x, e.ty + 1.2, e.pos.z, 'BOSS DOWN!', '#ff5555', 2.6); META.st.bosses++; saveMeta(); }
   else if (e.elite) dmgPop(e.pos.x, e.ty + 0.8, e.pos.z, 'ELITA!', '#ffd75e', 1.9);
   else dmgPop(e.pos.x, e.ty + 0.5, e.pos.z, G.streak > 1 ? 'KILL x' + G.streak : 'KILL',
     '#ff6a5e', Math.min(1.1 + G.streak * 0.12, 2.2));
@@ -859,17 +966,7 @@ function cardPool() {
       do: () => { P.evo[W.evoKey] = true; renderWpns(); },
     });
   }
-  if (P.weapons.length < 3) {
-    for (const key of Object.keys(WEAPONS)) {
-      const W = WEAPONS[key];
-      if (hasWeapon(key)) continue;
-      if (W.locked && !META.unlocked[key]) continue;
-      pool.push({
-        ico: W.ico, nm: 'NOWA BROŃ: ' + W.nm, ds: W.ds,
-        do: () => { P.weapons.push({ key, lvl: 1, t: 0 }); renderWpns(); },
-      });
-    }
-  }
+  // NOWE BRONIE NIE MA W KARTACH — znajduje się je w złotych skrzyniach 🎁
   for (const key of Object.keys(PASSIVES)) {
     const S = PASSIVES[key];
     if (S.locked && !META.unlocked[key]) continue;
@@ -983,7 +1080,10 @@ function closeSwap() {
 
 // ============================== HUD ==============================
 function drawHearts() {
-  document.getElementById('hearts').textContent = '❤️'.repeat(Math.max(0, P.hp)) + '🖤'.repeat(P.maxHp - Math.max(0, P.hp));
+  const hp = Math.max(0, P.hp);
+  document.getElementById('hearts').textContent = P.maxHp > 12
+    ? `❤️ ${hp} / ${P.maxHp}`                      // dużo serc = licznik zamiast rzędu
+    : '❤️'.repeat(hp) + '🖤'.repeat(P.maxHp - hp);
 }
 const fmtTime = t => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
 const drawCoins = () => document.getElementById('coins').textContent = '🪙 ' + G.runCoins;
@@ -1102,6 +1202,61 @@ function buildChunk(cx, cz) {
       }
     }
   } else {
+    // ======== ŁĄKI: struktury do wskakiwania (proste bryły) ========
+    const rr = rng();
+    if (rr < 0.30) {
+      // STOSY SKRZYŃ — schodki 0.9 / 1.7 (wskakujesz bez podwójnego skoku)
+      const x = wx0 + (rng() - 0.5) * CHUNK * 0.7, z = wz0 + (rng() - 0.5) * CHUNK * 0.7;
+      if (terrainH(x, z) > WATER_Y + 0.4) {
+        const g0 = terrainH(x, z);
+        const uklad = [[0, 0, 0.9], [1.5, 0.3, 1.7], [0.7, 1.6, 1.3]];
+        for (const [ox, oz, h] of uklad) {
+          const m = new THREE.Mesh(shelfGeo, crateMat);
+          m.scale.set(1.4, h, 1.4);
+          m.position.set(x + ox, g0 + h / 2, z + oz);
+          m.rotation.y = rng() * 0.5;
+          scene.add(m); rocks.push(m);
+          solids.push({ x: x + ox, z: z + oz, hw: 0.7, hl: 0.7, top: g0 + h });
+        }
+      }
+    } else if (rr < 0.48) {
+      // DREWNIANY PODEST NA PALACH — wysoki taras (2.1), wejście po skrzyni obok
+      const x = wx0 + (rng() - 0.5) * CHUNK * 0.7, z = wz0 + (rng() - 0.5) * CHUNK * 0.7;
+      if (terrainH(x, z) > WATER_Y + 0.4) {
+        const g0 = terrainH(x, z), H = 2.1;
+        const deck = new THREE.Mesh(shelfGeo, plankMat);
+        deck.scale.set(5.4, 0.35, 5.4);
+        deck.position.set(x, g0 + H, z);
+        scene.add(deck); rocks.push(deck);
+        solids.push({ x, z, hw: 2.7, hl: 2.7, top: g0 + H + 0.18 });
+        for (const [px, pz] of [[-2.3, -2.3], [2.3, -2.3], [-2.3, 2.3], [2.3, 2.3]]) {
+          const p2 = new THREE.Mesh(shelfGeo, plankMat);
+          p2.scale.set(0.4, H, 0.4);
+          p2.position.set(x + px, g0 + H / 2, z + pz);
+          scene.add(p2); rocks.push(p2);
+        }
+        // stopień wejściowy
+        const st = new THREE.Mesh(shelfGeo, crateMat);
+        st.scale.set(1.6, 1.1, 1.6);
+        st.position.set(x + 3.6, g0 + 0.55, z);
+        scene.add(st); rocks.push(st);
+        solids.push({ x: x + 3.6, z, hw: 0.8, hl: 0.8, top: g0 + 1.1 });
+      }
+    } else if (rr < 0.60) {
+      // KAMIENNE SCHODY na wzniesienie (3 stopnie)
+      const x = wx0 + (rng() - 0.5) * CHUNK * 0.7, z = wz0 + (rng() - 0.5) * CHUNK * 0.7;
+      if (terrainH(x, z) > WATER_Y + 0.4) {
+        const g0 = terrainH(x, z);
+        for (let s2 = 0; s2 < 3; s2++) {
+          const h = 0.6 + s2 * 0.6;
+          const m = new THREE.Mesh(shelfGeo, stoneMat);
+          m.scale.set(3, h, 1.5);
+          m.position.set(x, g0 + h / 2, z + s2 * 1.5);
+          scene.add(m); rocks.push(m);
+          solids.push({ x, z: z + s2 * 1.5, hw: 1.5, hl: 0.75, top: g0 + h });
+        }
+      }
+    }
     // ======== ŁĄKI: dekoracje + głazy ========
     const nDeco = 5 + Math.floor(rng() * 5);
     for (let i = 0; i < nDeco; i++) {
@@ -1153,7 +1308,9 @@ function onSpill(x, z) {
 }
 
 // ---- kolizje ze SOLIDAMI (regały-AABB, pnie/głazy-okręgi) ----
+// zwraca wysokość NAJWYŻSZEJ przeszkody, która zablokowała (0 = nic) — do wspinaczki
 function solveSolids(pos, r, feetY) {
+  let blockTop = 0;
   const cx = Math.floor(pos.x / CHUNK), cz = Math.floor(pos.z / CHUNK);
   for (let gx = cx - 1; gx <= cx + 1; gx++) for (let gz = cz - 1; gz <= cz + 1; gz++) {
     const ch = chunkMap.get(gx + ',' + gz);
@@ -1166,6 +1323,7 @@ function solveSolids(pos, r, feetY) {
         if (d2 < rr * rr && d2 > 1e-6) {
           const d = Math.sqrt(d2), p = (rr - d) / d;
           pos.x += dx * p; pos.z += dz * p;
+          if (s.top < 90) blockTop = Math.max(blockTop, s.top);
         }
       } else {
         const dx = pos.x - s.x, dz = pos.z - s.z;
@@ -1173,10 +1331,12 @@ function solveSolids(pos, r, feetY) {
         if (ox > 0 && oz > 0) {
           if (ox < oz) pos.x += (dx > 0 ? ox : -ox);
           else pos.z += (dz > 0 ? oz : -oz);
+          blockTop = Math.max(blockTop, s.top);
         }
       }
     }
   }
+  return blockTop;
 }
 // wysokość podparcia: teren LUB szczyt regału, na którym stoisz
 function supportY(x, z, feetY) {
@@ -1259,10 +1419,7 @@ function spawnChests(n) {
 }
 function chestReward(c) {
   const roll = Math.random();
-  if (roll < 0.12) {                 // broń: nowa (wolny slot) albo WYMIENNIK (pełne 3)
-    if (P.weapons.length < 3) openNewWeapon();
-    else openSwap();
-  } else if (roll < 0.20 && !hasDjump()) {   // 🦘🦘 PODWÓJNY SKOK (na ten bieg)
+  if (roll < 0.14 && !hasDjump()) {   // 🦘🦘 PODWÓJNY SKOK (na ten bieg)
     P.runDjump = true;
     toastBuff('🦘🦘 PODWÓJNY SKOK do końca biegu!');
     setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2500);
@@ -1277,6 +1434,52 @@ function chestReward(c) {
     toastBuff('🧲 MAGNES! Wszystko leci do Ciebie');
     setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2000);
   }
+}
+
+// ============================== ZŁOTA SKRZYNIA Z BRONIĄ 🎁 ==============================
+// Jedna naraz; po zabraniu następna pojawia się po chwili. Strzałka w HUD prowadzi do niej.
+const wchest = { mesh: null, ring: null, pos: new THREE.Vector3(), active: false, t: 0, wait: 0 };
+function spawnWeaponChest() {
+  const s = landSpot(22, 60);
+  if (!s) { wchest.wait = 2; return; }
+  wchest.pos.set(s.x, 0, s.z);
+  wchest.mesh.position.set(s.x, terrainH(s.x, s.z) - 0.02, s.z);
+  wchest.mesh.material = chestMats[0];
+  wchest.ring.position.set(s.x, terrainH(s.x, s.z) + 0.07, s.z);
+  wchest.mesh.visible = wchest.ring.visible = true;
+  wchest.active = true;
+  toastBuff('🎁 Nowa broń czeka w złotej skrzyni!');
+  setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2200);
+}
+function updateWeaponChest(dt) {
+  const arrow = document.getElementById('wArrow');
+  if (!wchest.active) {
+    arrow.style.display = 'none';
+    wchest.wait -= dt;
+    if (wchest.wait <= 0) spawnWeaponChest();
+    return;
+  }
+  wchest.t += dt;
+  wchest.mesh.rotation.y = camYaw;
+  wchest.mesh.position.y = terrainH(wchest.pos.x, wchest.pos.z) + 0.1 + Math.sin(wchest.t * 2.2) * 0.12;
+  wchest.ring.scale.setScalar(3.4 + Math.sin(wchest.t * 3) * 0.5);
+  const d = wchest.pos.distanceTo(P.pos);
+  if (d < 1.6) {                                   // ZEBRANA
+    wchest.active = false;
+    wchest.mesh.visible = wchest.ring.visible = false;
+    wchest.wait = 25 + Math.random() * 20;
+    G.shake = Math.max(G.shake, 0.2);
+    novaRing(wchest.pos.x, wchest.pos.z, 3);
+    META.st.chests++; saveMeta();
+    if (P.weapons.length < 3) openNewWeapon(); else openSwap();
+    arrow.style.display = 'none';
+    return;
+  }
+  // strzałka: kierunek do skrzyni względem obrotu kamery
+  const ang = Math.atan2(wchest.pos.x - P.pos.x, wchest.pos.z - P.pos.z) - camYaw;
+  arrow.style.display = 'flex';
+  arrow.querySelector('.ar').style.transform = `rotate(${-ang}rad)`;
+  arrow.querySelector('.dist').textContent = Math.round(d) + ' m';
 }
 
 // ============================== TOTEMY BUFFÓW ==============================
@@ -1351,6 +1554,17 @@ const clock = new THREE.Clock();
 function update(dt) {
   G.time += dt;
   document.getElementById('timer').textContent = fmtTime(G.time);
+  // komunikat o wzroście poziomu zagrożenia
+  const tr = tier();
+  if (tr !== G.tier) {
+    G.tier = tr;
+    document.getElementById('tier').textContent = '⚠️ ZAGROŻENIE ' + tr;
+    if (tr > 1) {
+      toastBuff('⚠️ POZIOM ZAGROŻENIA ' + tr + (dmgScale() > 1 ? ' — wrogowie biją mocniej!' : ''));
+      setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2200);
+      G.shake = Math.max(G.shake, 0.25);
+    }
+  }
 
   // ---- obrót kamery klawiszami ----
   if (keys.KeyQ) camYaw += 2.2 * dt;
@@ -1410,23 +1624,39 @@ function update(dt) {
   playerBB.mesh.visible = !(P.iframes > 0 && Math.floor(P.iframes * 12) % 2 === 0);
   playerBB.update(dt, P.pos, P.y, ground);
 
-  // ---- spawner (HORDY: paczki rosną z czasem) ----
+  // ---- spawner: krzywa trudności (1 min ~lekko, 4 min = ~4× więcej naraz) ----
+  const min = G.time / 60;
   G.spawnT -= dt;
-  const interval = Math.max(0.2, 1.5 - G.time * 0.004);
-  if (G.spawnT <= 0 && G.enemies.length < 350) {
+  const interval = Math.max(0.13, 1.3 / (1 + min * 0.55));      // 1.3 s → 0.28 s w 4. min
+  const CAP = 500;
+  if (G.spawnT <= 0 && G.enemies.length < CAP) {
     G.spawnT = interval;
-    const batch = Math.min(4, 1 + Math.floor(G.time / 75));
-    for (let b = 0; b < batch && G.enemies.length < 350; b++) {
+    const batch = Math.round(1 + min * 1.6);                     // 4. min: ~7 na raz
+    for (let b = 0; b < batch && G.enemies.length < CAP; b++) {
       const roll = Math.random();
       let type = 'dresiarz';
-      if (G.time > 45 && roll < 0.3) type = 'zul';
-      if (G.time > 90 && roll > 0.75) type = 'wegielek';
-      if (G.time > 150 && roll > 0.9) type = 'dzik';
+      if (G.time > 40 && roll < 0.32) type = 'zul';
+      if (G.time > 75 && roll > 0.72) type = 'wegielek';
+      if (G.time > 130 && roll > 0.88) type = 'dzik';
       spawnEnemy(type);
-      if (G.time > 90 && type === 'wegielek') { spawnEnemy('wegielek'); spawnEnemy('wegielek'); }
     }
   }
-  if (G.time > G.bossAt) { G.bossAt += 180; spawnEnemy('boss'); }
+  // FALA OKRĄŻAJĄCA co 30 s od 1. minuty: pierścień wrogów ZE WSZYSTKICH STRON
+  if (G.time > 60 && G.time > G.ringAt) {
+    G.ringAt = G.time + 30;
+    const n = Math.round(10 + min * 5);
+    const typy = G.time > 130 ? ['dresiarz', 'zul', 'wegielek', 'dzik'] : ['dresiarz', 'zul', 'wegielek'];
+    for (let k = 0; k < n && G.enemies.length < CAP; k++) {
+      spawnEnemy(typy[Math.floor(Math.random() * typy.length)], (k / n) * Math.PI * 2);
+    }
+    toastBuff('🌀 FALA OKRĄŻAJĄCA!');
+    setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 1600);
+  }
+  if (G.time > G.bossAt) {                                       // bossy co 2 min, coraz więcej
+    G.bossAt += 120;
+    const ile = 1 + Math.floor(G.time / 300);
+    for (let b = 0; b < ile; b++) spawnEnemy('boss');
+  }
 
   // ---- separacja wrogów ----
   const grid = new Map(), CELL = 1.4;
@@ -1456,15 +1686,14 @@ function update(dt) {
   // ---- wrogowie ----
   for (let i = G.enemies.length - 1; i >= 0; i--) {
     const e = G.enemies[i];
-    e.ty = terrainH(e.pos.x, e.pos.z);
     if (e.dying) {
       e.bb.update(dt, e.pos, e.ty);
-      if (e.bb.done) { e.bb.dispose(); G.enemies.splice(i, 1); }
+      if (e.bb.done) { e.bb.dispose(); if (e.ring) scene.remove(e.ring); G.enemies.splice(i, 1); }
       continue;
     }
     const to = P.pos.clone().sub(e.pos).setY(0);
     const d = to.length(); to.normalize();
-    let es = e.T.speed * (e.elite ? 0.85 : 1);
+    let es = e.T.speed * (e.elite ? 0.85 : 1) * spdScale();
     if (e.ty < WATER_Y - 0.04) es *= 0.7;               // woda spowalnia też ich
     if (G.buff.key === 'slow') es *= 0.6;
     // wspinaczka na mesę = powolutku (chwila oddechu dla gracza na górce)
@@ -1474,7 +1703,18 @@ function update(dt) {
     e.pos.addScaledVector(to, es * dt);
     e.pos.add(e.kb.clone().multiplyScalar(dt * 8));
     e.kb.multiplyScalar(Math.max(0, 1 - dt * 10));
-    solveSolids(e.pos, 0.35, e.ty);        // regały ich BLOKUJĄ (nie skaczą)
+
+    // ---- kolizja + WSPINACZKA na półki (gracz uciekł wyżej → wchodzą powolutku) ----
+    const blockTop = solveSolids(e.pos, 0.35, e.ty);
+    const eGround = supportY(e.pos.x, e.pos.z, e.ty);
+    if (blockTop > e.ty + 0.1 && P.y > e.ty + 0.6) {
+      e.ty = Math.min(blockTop + 0.06, e.ty + 0.95 * dt);   // mozolna wspinaczka
+      e.climbing = true;
+    } else {
+      e.climbing = false;
+      if (eGround < e.ty - 0.05) e.ty = Math.max(eGround, e.ty - 9 * dt);  // schodzenie/spadanie
+      else e.ty = eGround;
+    }
     e.bb.facing = faceAngle(to.x, to.z);
     e.orbCd -= dt;
     e.bb.update(dt, e.pos, e.ty);
@@ -1488,7 +1728,7 @@ function update(dt) {
         setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 1500);
         novaRing(P.pos.x, P.pos.z, 2);
       } else {
-        P.hp -= e.T.dmg; P.iframes = 0.9;
+        P.hp -= e.T.dmg * (e.T.boss ? 1 : dmgScale()); P.iframes = 0.9;
         drawHearts();
         G.shake = 0.35;
         const v = document.getElementById('vign');
@@ -1627,6 +1867,8 @@ function update(dt) {
     }
   }
 
+  updateWeaponChest(dt);
+
   // ---- totemy ----
   for (const t of totems) {
     t.mesh.rotation.y = camYaw;
@@ -1743,11 +1985,37 @@ function update(dt) {
 
 function gameOver() {
   G.over = true; G.running = false;
-  META.coins += G.runCoins; saveMeta(); renderShop();
+  META.coins += G.runCoins;
+  const s = META.st;
+  s.kills += G.kills; s.runs++; s.time += G.time; s.coins += G.runCoins; s.lvl += P.lvl - 1;
+  if (G.time > s.best) s.best = G.time;
+  if (G.kills > s.bestKills) s.bestKills = G.kills;
+  saveMeta(); renderShop(); renderStats();
   document.getElementById('overStats').innerHTML =
     `Przetrwano: <b>${fmtTime(G.time)}</b> · Pokonano: <b>${G.kills}</b> · Poziom: <b>${P.lvl}</b><br>` +
-    `Zebrano: <b>🪙 ${G.runCoins}</b> (masz łącznie 🪙 ${META.coins})`;
+    `Zebrano: <b>🪙 ${G.runCoins}</b> (masz łącznie 🪙 ${META.coins})` +
+    (G.time >= s.best ? '<br><b style="color:#ffd75e">🏆 NOWY REKORD CZASU!</b>' : '');
   document.getElementById('overOv').style.display = 'flex';
+  document.getElementById('wArrow').style.display = 'none';
+}
+// ---- PAUZA ----
+function togglePause(on) {
+  if (!G.running) return;
+  G.paused = on;
+  document.getElementById('pauseOv').style.display = on ? 'flex' : 'none';
+  if (on) {
+    document.getElementById('pauseStats').innerHTML =
+      `<p>Czas: <b>${fmtTime(G.time)}</b> · Zabici: <b>${G.kills}</b> · Poziom: <b>${P.lvl}</b> · 🪙 <b>${G.runCoins}</b></p>` +
+      `<p>Postać: <b>${CHARS[charKey].ico} ${CHARS[charKey].nm}</b> · Mapa: <b>${MAPS[mapKey].ico} ${MAPS[mapKey].nm}</b></p>` +
+      `<p>Bronie: ${P.weapons.map(w => WEAPONS[w.key].ico + ' ' + WEAPONS[w.key].nm + ' ' + w.lvl).join(' · ')}</p>`;
+  }
+}
+function setPlayerChar(key) {
+  charKey = key;
+  const C = CHARS[key];
+  if (playerBB) playerBB.dispose();
+  playerBB = new Billboard(C.char, C.scale);
+  playerBB.update(0, P.pos, P.y || terrainH(0, 0), P.y || terrainH(0, 0));
 }
 
 function clearWorld() {
@@ -1776,8 +2044,11 @@ function clearWorld() {
 function newGame() {
   clearWorld();
   resetStats();
-  Object.assign(G, { running: true, over: false, paused: false, time: 0, kills: 0, runCoins: 0, spawnT: 0.5, bossAt: 180, shake: 0 });
+  Object.assign(G, { running: true, over: false, paused: false, time: 0, kills: 0, runCoins: 0, spawnT: 0.5, bossAt: 120, ringAt: 60, tier: 0, shake: 0 });
   P.pos.set(0, 0, 0);
+  P.y = terrainH(0, 0);
+  wchest.active = false; wchest.wait = 8;
+  if (wchest.mesh) wchest.mesh.visible = wchest.ring.visible = false;
   document.getElementById('lvl').textContent = 'POZIOM 1';
   document.getElementById('kills').textContent = '💀 0';
   document.getElementById('xpbar').style.width = '0%';
@@ -1804,6 +2075,16 @@ function loop() {
   eliteRingMat = new THREE.MeshBasicMaterial({ map: ringTexture('rgba(255,200,40,0.9)'), transparent: true, depthWrite: false });
   chestMats = [];
   for (let i = 0; i < 4; i++) chestMats.push((await flatMat('assets/chest' + i + '.png')).mat);
+  // złota skrzynia z bronią (ta sama grafika, złota poświata + pierścień)
+  wchest.mesh = new THREE.Mesh(unitGeo, chestMats[0]);
+  wchest.mesh.scale.set(1.5, 1.5, 1);
+  wchest.mesh.visible = false;
+  scene.add(wchest.mesh);
+  wchest.ring = new THREE.Mesh(blobGeo, new THREE.MeshBasicMaterial({
+    map: ringTexture('rgba(255,215,94,0.95)'), transparent: true, depthWrite: false }));
+  wchest.ring.scale.setScalar(3.4);
+  wchest.ring.visible = false;
+  scene.add(wchest.ring);
   const colImg = await flatMat('assets/column1.png');
   bottleMat = (await flatMat('assets/bottle.png')).mat;
   radioMat = (await flatMat('assets/radio.png')).mat;
@@ -1820,41 +2101,65 @@ function loop() {
   chunkMatIndoor = new THREE.MeshLambertMaterial({ map: floorTexC, vertexColors: true });
   shelfMat = new THREE.MeshLambertMaterial({ map: shelfTexture() });
   spillMat = new THREE.MeshBasicMaterial({ map: spillTexture(), transparent: true, depthWrite: false });
+  crateMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#b98a4e', '#7d5a2e', 4) });
+  plankMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#a9793f', '#6d4a22', 6) });
+  stoneMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#9a9c96', '#6f7169', 3) });
 
-  playerBB = new Billboard('kasia');
+  charKey = META.chars[META.lastChar] ? META.lastChar : 'kasia';
+  mapKey = MAPS[META.lastMap] ? META.lastMap : 'laki';
+  P.pos = new THREE.Vector3(0, 0, 0);
+  P.y = terrainH(0, 0);
+  playerBB = new Billboard(CHARS[charKey].char, CHARS[charKey].scale);
   resetStats();          // P.pos musi istnieć PRZED chunkami i skrzyniami
-  ensureChunks();
+  setMap(mapKey);        // buduje świat + rozstawia skrzynie/totemy
   spawnChests(9);
   spawnTotems(3, colImg);
   drawHearts();
-  renderShop();
+  renderShop(); renderMaps(); renderChars(); renderStats(); renderPick();
   camera.position.set(0, terrainH(0, 0) + CAM_H, CAM_DIST);
   camera.lookAt(0, 1.3, -2.2);
-  playerBB.update(0, P.pos, terrainH(0, 0));
+  playerBB.update(0, P.pos, P.y, P.y);
   loop();
 
-  document.getElementById('btnStart').onclick = () => {
-    document.getElementById('startOv').style.display = 'none';
-    newGame();
-  };
+  const menu = document.getElementById('startOv');
+  document.getElementById('btnStart').onclick = () => { menu.style.display = 'none'; newGame(); };
   document.getElementById('btnRetry').onclick = () => {
     document.getElementById('overOv').style.display = 'none';
     newGame();
   };
-  const openShop = () => { renderShop(); document.getElementById('shopOv').style.display = 'flex'; };
-  document.getElementById('btnShop').onclick = openShop;
-  document.getElementById('btnShop2').onclick = openShop;
-  document.getElementById('btnShopBack').onclick = () => document.getElementById('shopOv').style.display = 'none';
-  // wybór mapy (ekran startu)
-  document.querySelectorAll('.mapBtn').forEach(b => b.onclick = () => {
-    document.querySelectorAll('.mapBtn').forEach(x => x.classList.remove('sel'));
-    b.classList.add('sel');
-    setMap(b.dataset.map);
+  document.getElementById('btnMenu').onclick = () => {
+    document.getElementById('overOv').style.display = 'none';
+    menu.style.display = 'flex';
+  };
+  // zakładki menu
+  document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('sel'));
+    document.querySelectorAll('.panel').forEach(x => x.classList.remove('on'));
+    t.classList.add('sel');
+    document.getElementById('p-' + t.dataset.tab).classList.add('on');
+    if (t.dataset.tab === 'staty') renderStats();
+    if (t.dataset.tab === 'sklep') renderShop();
+  });
+  // pauza
+  document.getElementById('pauseBtn').onclick = () => togglePause(!G.paused);
+  document.getElementById('btnResume').onclick = () => togglePause(false);
+  document.getElementById('btnQuit').onclick = () => {
+    togglePause(false);
+    G.running = false; clearWorld();
+    document.getElementById('wArrow').style.display = 'none';
+    menu.style.display = 'flex';
+    renderStats(); renderShop();
+  };
+  addEventListener('keydown', e => {
+    if (e.code === 'Escape' && G.running &&
+        document.getElementById('cardsOv').style.display !== 'flex' &&
+        document.getElementById('swapOv').style.display !== 'flex') togglePause(!G.paused);
   });
   // debug (usunąć przed wydaniem); step = ręczne krokowanie pętli,
   // bo podgląd dławi rAF bez fokusa (pułapka znana z Rudeusza)
   window.HORDA = {
     G, P, terrainH, chests, totems, openSwap, renderWpns, chunkMap, supportY, onSpill, setMap,
+    wchest, META, CHARS, MAPS, setPlayerChar, togglePause, get charKey() { return charKey; },
     step(n = 1, dt = 1 / 60) {
       for (let i = 0; i < n; i++) if (G.running && !G.paused) update(dt);
       renderer.render(scene, camera);

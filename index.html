@@ -6,75 +6,127 @@
 <title>HORDA 3D — prototyp</title>
 <style>
   html,body{margin:0;padding:0;overflow:hidden;background:#0e1420;height:100%;touch-action:none;
-    font-family:-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-user-select:none;user-select:none}
+    font-family:-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-user-select:none;user-select:none;
+    color:#fff}
   #c{display:block;width:100vw;height:100vh}
-  /* ---------- HUD ---------- */
-  #hud{position:fixed;inset:0;pointer-events:none;color:#fff;z-index:5}
-  #xpwrap{position:absolute;top:0;left:0;right:0;height:18px;background:rgba(0,0,0,.55)}
+
+  /* ================= HUD ================= */
+  #hud{position:fixed;inset:0;pointer-events:none;z-index:5}
+  #xpwrap{position:absolute;top:0;left:0;right:0;height:14px;background:rgba(0,0,0,.55)}
   #xpbar{height:100%;width:0%;background:linear-gradient(90deg,#7ee787,#3fb950);transition:width .15s}
-  #lvl{position:absolute;top:22px;left:10px;font-weight:800;font-size:15px;text-shadow:0 2px 4px #000}
-  #timer{position:absolute;top:26px;left:50%;transform:translateX(-50%);font-weight:800;font-size:22px;text-shadow:0 2px 4px #000}
-  #kills{position:absolute;top:22px;right:12px;font-weight:800;font-size:15px;text-shadow:0 2px 4px #000}
-  #coins{position:absolute;top:44px;right:12px;font-weight:800;font-size:15px;color:#ffd75e;text-shadow:0 2px 4px #000}
-  #hearts{position:absolute;top:48px;left:50%;transform:translateX(-50%);font-size:18px;letter-spacing:2px;text-shadow:0 2px 4px #000}
-  #buff{position:absolute;top:76px;left:50%;transform:translateX(-50%);font-weight:800;font-size:15px;color:#7ee7ff;
+  #lvl{position:absolute;top:18px;left:10px;font-weight:800;font-size:14px;text-shadow:0 2px 4px #000}
+  #timer{position:absolute;top:20px;left:50%;transform:translateX(-50%);font-weight:800;font-size:21px;text-shadow:0 2px 4px #000}
+  #kills{position:absolute;top:18px;right:12px;font-weight:800;font-size:14px;text-shadow:0 2px 4px #000}
+  #coins{position:absolute;top:38px;right:12px;font-weight:800;font-size:14px;color:#ffd75e;text-shadow:0 2px 4px #000}
+  #tier{position:absolute;top:58px;right:12px;font-weight:800;font-size:12px;color:#ff9d7a;text-shadow:0 2px 4px #000}
+  #hearts{position:absolute;top:42px;left:50%;transform:translateX(-50%);font-size:17px;letter-spacing:1px;text-shadow:0 2px 4px #000}
+  #buff{position:absolute;top:68px;left:50%;transform:translateX(-50%);font-weight:800;font-size:14px;color:#7ee7ff;
       text-shadow:0 2px 6px #000;opacity:0;transition:opacity .3s;white-space:nowrap}
-  #wpns{position:absolute;left:10px;bottom:12px;display:flex;gap:6px;font-size:22px}
-  #wpns .wp{background:rgba(0,0,0,.45);border:1px solid #ffffff30;border-radius:10px;padding:4px 8px}
-  #wpns .wp b{font-size:12px;vertical-align:sub;color:#ffd75e}
+  #wpns{position:absolute;left:10px;bottom:12px;display:flex;gap:5px;font-size:20px}
+  #wpns .wp{background:rgba(0,0,0,.45);border:1px solid #ffffff30;border-radius:9px;padding:3px 7px}
+  #wpns .wp b{font-size:11px;vertical-align:sub;color:#ffd75e}
   #wpns .wp.evo{border-color:#ffd75e;box-shadow:0 0 10px rgba(255,215,94,.5)}
-  #wpns .wp.empty{opacity:.4;letter-spacing:4px}
-  #vign{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;background:radial-gradient(ellipse at center,transparent 55%,rgba(255,0,0,.55) 100%);transition:opacity .1s}
-  /* ---------- overlaye ---------- */
+  #wpns .wp.empty{opacity:.4;letter-spacing:3px}
+  #wArrow{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:none;
+      flex-direction:column;align-items:center;pointer-events:none}
+  #wArrow .ar{font-size:34px;color:#ffd75e;text-shadow:0 0 12px rgba(255,215,94,.9),0 2px 4px #000;
+      animation:pulseA 1.1s ease-in-out infinite;margin-top:-160px}
+  #wArrow .dist{font-size:12px;font-weight:800;color:#ffd75e;text-shadow:0 2px 4px #000;margin-top:-4px}
+  @keyframes pulseA{0%,100%{opacity:.75;transform:scale(1)}50%{opacity:1;transform:scale(1.18)}}
+  #vign{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;
+      background:radial-gradient(ellipse at center,transparent 55%,rgba(255,0,0,.55) 100%);transition:opacity .1s}
+  #pauseBtn{position:fixed;top:16px;left:50%;transform:translateX(-140px);z-index:7;width:34px;height:34px;
+      border-radius:9px;background:rgba(0,0,0,.4);border:1px solid #ffffff30;color:#fff;font-size:15px;
+      display:none;align-items:center;justify-content:center;pointer-events:auto;cursor:pointer}
+
+  /* ================= EKRANY ================= */
   .ov{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-      background:rgba(8,12,20,.82);backdrop-filter:blur(4px);z-index:10;color:#fff;text-align:center;padding:16px}
-  .ov h1{font-size:min(9vw,46px);margin:0 0 6px;letter-spacing:1px}
+      background:rgba(8,12,20,.88);backdrop-filter:blur(5px);z-index:10;text-align:center;
+      padding:12px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .ov h1{font-size:clamp(28px,8vw,52px);margin:0 0 4px;letter-spacing:1px;line-height:1}
   .ov h1 .g{background:linear-gradient(90deg,#ffd75e,#ff9d3f);-webkit-background-clip:text;background-clip:text;color:transparent}
-  .ov p{opacity:.85;max-width:520px;line-height:1.45;margin:6px 0}
-  .bigbtn{pointer-events:auto;cursor:pointer;margin-top:18px;padding:14px 42px;font-size:20px;font-weight:800;color:#1a1205;
-      background:linear-gradient(180deg,#ffd75e,#f5a623);border:0;border-radius:14px;box-shadow:0 6px 0 #9a6a12,0 10px 24px rgba(0,0,0,.5)}
+  .ov h2{margin:0 0 10px;font-size:clamp(17px,4.5vw,25px);text-shadow:0 2px 6px #000}
+  .ov p{opacity:.85;max-width:540px;line-height:1.45;margin:5px 0;font-size:clamp(12px,3.2vw,15px)}
+  .bigbtn{pointer-events:auto;cursor:pointer;padding:13px 40px;font-size:clamp(17px,4.5vw,21px);font-weight:800;color:#1a1205;
+      background:linear-gradient(180deg,#ffd75e,#f5a623);border:0;border-radius:14px;
+      box-shadow:0 6px 0 #9a6a12,0 10px 24px rgba(0,0,0,.5)}
   .bigbtn:active{transform:translateY(4px);box-shadow:0 2px 0 #9a6a12}
-  #cardsOv{display:none}
-  #cardsOv h2{margin:0 0 14px;font-size:26px;text-shadow:0 2px 6px #000}
-  #cards{display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
-  .card{pointer-events:auto;cursor:pointer;width:170px;padding:18px 14px;border-radius:16px;border:2px solid #ffffff22;
-      background:linear-gradient(180deg,#232c40,#171d2c);box-shadow:0 8px 24px rgba(0,0,0,.5);transition:transform .12s,border-color .12s}
-  .card:hover{transform:translateY(-6px) scale(1.04);border-color:#ffd75e}
+  .btn2{pointer-events:auto;cursor:pointer;padding:9px 22px;font-size:15px;font-weight:700;color:#fff;
+      background:#2b3550;border:2px solid #ffffff33;border-radius:12px}
+  .btn2:hover{border-color:#ffd75e}
+
+  /* zakładki menu */
+  #tabs{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin:10px 0 14px}
+  .tab{pointer-events:auto;cursor:pointer;padding:8px 16px;font-size:clamp(12px,3.4vw,15px);font-weight:700;
+      background:#1a2butt;background:#1a2233;border:2px solid #ffffff1f;border-radius:11px;white-space:nowrap}
+  .tab.sel{border-color:#ffd75e;background:#3a3620;color:#ffd75e}
+  .panel{display:none;width:100%;max-width:760px}
+  .panel.on{display:block}
+
+  /* siatki kafelków (mapy, postacie, sklep) */
+  .grid{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+  .tile{pointer-events:auto;cursor:pointer;width:min(46vw,168px);padding:12px 10px;border-radius:14px;
+      border:2px solid #ffffff22;background:linear-gradient(180deg,#232c40,#171d2c);
+      box-shadow:0 6px 18px rgba(0,0,0,.45);transition:transform .12s,border-color .12s}
+  .tile:hover{transform:translateY(-4px);border-color:#ffd75e}
+  .tile.sel{border-color:#ffd75e;box-shadow:0 0 18px rgba(255,215,94,.4)}
+  .tile.lock{opacity:.55}
+  .tile .ico{font-size:clamp(28px,8vw,40px);line-height:1.1}
+  .tile .nm{font-weight:800;font-size:clamp(12px,3.4vw,15px);margin:7px 0 4px;color:#ffd75e}
+  .tile .ds{font-size:clamp(10px,2.9vw,12.5px);opacity:.82;line-height:1.35}
+  .tile .pr{margin-top:7px;font-weight:800;font-size:13px}
+
+  /* statystyki */
+  #statsList{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+  .stat{min-width:min(43vw,150px);padding:11px 8px;border-radius:12px;background:#171d2c;border:1px solid #ffffff18}
+  .stat .v{font-size:clamp(18px,5.5vw,26px);font-weight:900;color:#ffd75e}
+  .stat .k{font-size:clamp(10px,2.8vw,12px);opacity:.75;margin-top:2px}
+
+  /* karty ulepszeń */
+  #cardsOv,#swapOv,#overOv,#pauseOv{display:none}
+  #cards,#swapList{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+  .card{pointer-events:auto;cursor:pointer;width:min(45vw,168px);padding:15px 11px;border-radius:15px;
+      border:2px solid #ffffff22;background:linear-gradient(180deg,#232c40,#171d2c);
+      box-shadow:0 8px 24px rgba(0,0,0,.5);transition:transform .12s,border-color .12s}
+  .card:hover{transform:translateY(-5px) scale(1.03);border-color:#ffd75e}
   .card.gold{border-color:#ffd75e;background:linear-gradient(180deg,#4a3a14,#2a2008);
       box-shadow:0 0 24px rgba(255,215,94,.45),0 8px 24px rgba(0,0,0,.5)}
   .card.gold .nm{color:#ffe9a0}
-  .card .ico{font-size:44px;line-height:1}
-  .card .nm{font-weight:800;font-size:16px;margin:10px 0 6px;color:#ffd75e}
-  .card .ds{font-size:13px;opacity:.8;line-height:1.35}
-  #overOv{display:none}
-  #shopOv{display:none}
-  #ctrl{font-size:13px;opacity:.6;margin-top:14px}
-  .btn2{pointer-events:auto;cursor:pointer;margin-top:12px;padding:10px 26px;font-size:16px;font-weight:700;color:#fff;
-      background:#2b3550;border:2px solid #ffffff33;border-radius:12px}
-  .btn2:hover{border-color:#ffd75e}
-  #mapPick{display:flex;gap:10px;margin-top:14px}
-  .mapBtn{pointer-events:auto;cursor:pointer;padding:10px 20px;font-size:16px;font-weight:700;color:#fff;
-      background:#232c40;border:2px solid #ffffff22;border-radius:12px}
-  .mapBtn.sel{border-color:#ffd75e;background:#3a3620;box-shadow:0 0 14px rgba(255,215,94,.35)}
-  #shopItems{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;max-width:760px}
-  .shopIt{pointer-events:auto;cursor:pointer;width:160px;padding:14px 12px;border-radius:14px;border:2px solid #ffffff22;
-      background:linear-gradient(180deg,#232c40,#171d2c)}
-  .shopIt:hover{border-color:#ffd75e}
-  .shopIt.max{opacity:.45;cursor:default}
-  .shopIt .ico{font-size:36px}
-  .shopIt .nm{font-weight:800;font-size:14px;margin:8px 0 4px;color:#ffd75e}
-  .shopIt .ds{font-size:12px;opacity:.8;line-height:1.3}
-  .shopIt .pr{margin-top:8px;font-weight:800;font-size:14px}
-  /* joystick mobilny */
+  .card .ico{font-size:clamp(28px,8vw,42px);line-height:1}
+  .card .nm{font-weight:800;font-size:clamp(12px,3.4vw,15px);margin:8px 0 5px;color:#ffd75e}
+  .card .ds{font-size:clamp(10px,2.9vw,12.5px);opacity:.8;line-height:1.32}
+
+  /* ====== telefon: POZIOM (niski ekran) — wszystko ciaśniej ====== */
+  @media (max-height:520px){
+    .ov{padding:6px;justify-content:flex-start;padding-top:8px}
+    .ov h1{font-size:26px;margin-bottom:2px}
+    .ov h2{font-size:16px;margin-bottom:6px}
+    .ov p{margin:2px 0;font-size:11.5px}
+    #tabs{margin:6px 0 8px}
+    .tab{padding:6px 12px}
+    .bigbtn{padding:9px 28px;font-size:16px}
+    .btn2{padding:6px 16px;font-size:13px;margin-top:6px}
+    .tile,.card{width:min(30vw,150px);padding:8px 7px}
+    .tile .ico,.card .ico{font-size:24px}
+    .grid,#cards,#swapList{gap:7px}
+    .stat{min-width:min(29vw,130px);padding:7px 6px}
+  }
+  /* ====== telefon: PION — pasek broni wyżej, przyciski większe ====== */
+  @media (max-width:520px){
+    #wpns{bottom:96px}
+  }
+
+  /* sterowanie dotykowe */
   #stick{position:fixed;z-index:7;width:110px;height:110px;border-radius:50%;background:rgba(255,255,255,.08);
       border:2px solid rgba(255,255,255,.25);display:none;pointer-events:none}
   #knob{position:absolute;left:50%;top:50%;width:48px;height:48px;border-radius:50%;
       background:rgba(255,255,255,.35);transform:translate(-50%,-50%)}
-  #jbtn{position:fixed;right:18px;bottom:24px;z-index:7;width:74px;height:74px;border-radius:50%;
+  #jbtn{position:fixed;right:18px;bottom:24px;z-index:7;width:76px;height:76px;border-radius:50%;
       background:rgba(255,255,255,.14);border:2px solid rgba(255,255,255,.35);color:#fff;
       font-size:34px;display:none;align-items:center;justify-content:center;pointer-events:auto;
       -webkit-tap-highlight-color:transparent}
-  @media (pointer:coarse){ #jbtn{display:flex} }
+  @media (pointer:coarse){ #jbtn{display:flex} #pauseBtn{display:flex} }
+  @media (pointer:coarse) and (max-height:520px){ #jbtn{width:62px;height:62px;font-size:27px;bottom:14px} }
 </style>
 </head>
 <body>
@@ -86,50 +138,67 @@
   <div id="timer">0:00</div>
   <div id="kills">💀 0</div>
   <div id="coins">🪙 0</div>
+  <div id="tier">⚠️ ZAGROŻENIE 1</div>
   <div id="hearts">❤️❤️❤️❤️❤️</div>
   <div id="buff"></div>
   <div id="wpns"></div>
+  <div id="wArrow"><div class="ar">➤</div><div class="dist">0 m</div></div>
 </div>
 <div id="vign"></div>
 <div id="stick"><div id="knob"></div></div>
 <div id="jbtn">🦘</div>
+<div id="pauseBtn">⏸</div>
 
+<!-- ================= MENU GŁÓWNE ================= -->
 <div id="startOv" class="ov">
   <h1>HORDA <span class="g">3D</span></h1>
-  <p>Prototyp survivors-like. Przetrwaj jak najdłużej — postać strzela <b>sama</b>,
-     Ty tylko biegasz, zbierasz 🦴 i wybierasz ulepszenia.</p>
-  <div id="mapPick">
-    <div class="mapBtn sel" data-map="laki">🌄 Łąki</div>
-    <div class="mapBtn" data-map="market">🛒 Market</div>
+  <div id="tabs">
+    <div class="tab sel" data-tab="graj">▶ Graj</div>
+    <div class="tab" data-tab="mapy">🗺️ Mapy</div>
+    <div class="tab" data-tab="postacie">🧍 Postacie</div>
+    <div class="tab" data-tab="sklep">🛒 Sklep</div>
+    <div class="tab" data-tab="staty">📊 Statystyki</div>
   </div>
-  <button class="bigbtn" id="btnStart">▶ GRAJ</button>
-  <button class="btn2" id="btnShop">🛒 SKLEP <span id="shopCoins"></span></button>
-  <p id="ctrl">Sterowanie: <b>WASD</b> ruch · <b>SPACJA</b> skok · <b>Q/E lub mysz</b> obrót kamery<br>
-     telefon: lewa połowa = joystick, prawa = obrót kamery, 🦘 = skok</p>
+
+  <div class="panel on" id="p-graj">
+    <p id="wybor">Mapa: <b id="selMapNm">🌄 Łąki</b> · Postać: <b id="selCharNm">👧 Kasia</b></p>
+    <button class="bigbtn" id="btnStart">▶ GRAJ</button>
+    <p style="margin-top:12px">Klawiatura: <b>WASD</b> ruch · <b>SPACJA</b> skok · <b>Q/E</b> obrót · <b>ESC</b> pauza<br>
+       Telefon: lewa połowa = joystick · prawa = obrót kamery · <b>🦘</b> skok</p>
+  </div>
+
+  <div class="panel" id="p-mapy"><div class="grid" id="mapGrid"></div></div>
+  <div class="panel" id="p-postacie"><div class="grid" id="charGrid"></div></div>
+  <div class="panel" id="p-sklep">
+    <p>Monety 🪙 zbierasz w biegach — zostają po śmierci. Masz: <b id="shopCoins">0</b></p>
+    <div class="grid" id="shopItems"></div>
+  </div>
+  <div class="panel" id="p-staty"><div id="statsList"></div></div>
 </div>
 
-<div id="shopOv" class="ov">
-  <h2>🛒 SKLEP — ulepszenia na stałe</h2>
-  <p>Monety 🪙 zbierasz w biegach — zostają po śmierci.</p>
-  <div id="shopItems"></div>
-  <button class="btn2" id="btnShopBack">← Wróć</button>
-</div>
-
+<!-- ================= EKRANY W GRZE ================= -->
 <div id="cardsOv" class="ov">
   <h2>⬆️ AWANS! Wybierz ulepszenie</h2>
   <div id="cards"></div>
 </div>
 
-<div id="swapOv" class="ov" style="display:none">
+<div id="swapOv" class="ov">
   <h2 id="swapTitle">🔄 WYMIENNIK!</h2>
-  <div id="swapList" style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center"></div>
+  <div id="swapList"></div>
+</div>
+
+<div id="pauseOv" class="ov">
+  <h2>⏸ PAUZA</h2>
+  <div id="pauseStats" style="margin-bottom:10px"></div>
+  <button class="bigbtn" id="btnResume">▶ WRACAM</button>
+  <button class="btn2" id="btnQuit">🏠 Do menu (kończy bieg)</button>
 </div>
 
 <div id="overOv" class="ov">
   <h1>💀 KONIEC</h1>
   <p id="overStats"></p>
   <button class="bigbtn" id="btnRetry">↻ JESZCZE RAZ</button>
-  <button class="btn2" id="btnShop2">🛒 SKLEP <span id="shopCoins2"></span></button>
+  <button class="btn2" id="btnMenu">🏠 Menu</button>
 </div>
 
 <script>
@@ -137,6 +206,6 @@
   addEventListener('error', e => window.__err.push(String(e.message) + ' @ ' + (e.filename || '') + ':' + e.lineno));
   addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
 </script>
-<script type="module" src="main.js?v=15"></script>
+<script type="module" src="main.js?v=18"></script>
 </body>
 </html>

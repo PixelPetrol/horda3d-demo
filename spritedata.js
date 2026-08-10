@@ -98,6 +98,333 @@ export const SPRITEDATA={
    }
   }
  },
+ "piotr": {
+  "img": "assets/piotr.png",
+  "size": 124,
+  "footOff": 33,
+  "anims": {
+   "idle": {
+    "fps": 6,
+    "frames": {
+     "south": 4,
+     "south-east": 4,
+     "east": 4,
+     "north-east": 4,
+     "north": 4,
+     "north-west": 4,
+     "west": 4,
+     "south-west": 4
+    },
+    "rows": {
+     "south": 0,
+     "south-east": 1,
+     "east": 2,
+     "north-east": 3,
+     "north": 4,
+     "north-west": 5,
+     "west": 6,
+     "south-west": 7
+    }
+   },
+   "run": {
+    "fps": 12,
+    "frames": {
+     "south": 6,
+     "south-east": 6,
+     "east": 6,
+     "north-east": 6,
+     "north": 6,
+     "north-west": 6,
+     "west": 6,
+     "south-west": 6
+    },
+    "rows": {
+     "south": 8,
+     "south-east": 9,
+     "east": 10,
+     "north-east": 11,
+     "north": 12,
+     "north-west": 13,
+     "west": 14,
+     "south-west": 15
+    }
+   },
+   "punch": {
+    "fps": 14,
+    "frames": {
+     "south": 3,
+     "south-east": 3,
+     "east": 3,
+     "north-east": 3,
+     "north": 3,
+     "north-west": 3,
+     "west": 3,
+     "south-west": 3
+    },
+    "rows": {
+     "south": 16,
+     "south-east": 17,
+     "east": 18,
+     "north-east": 19,
+     "north": 20,
+     "north-west": 21,
+     "west": 22,
+     "south-west": 23
+    }
+   },
+   "jump": {
+    "fps": 16,
+    "frames": {
+     "south": 8,
+     "south-east": 8,
+     "east": 8,
+     "north-east": 8,
+     "north": 8,
+     "north-west": 8,
+     "west": 8,
+     "south-west": 8
+    },
+    "rows": {
+     "south": 24,
+     "south-east": 25,
+     "east": 26,
+     "north-east": 27,
+     "north": 28,
+     "north-west": 29,
+     "west": 30,
+     "south-west": 31
+    }
+   }
+  }
+ },
+ "przyjaciel": {
+  "img": "assets/przyjaciel.png",
+  "size": 124,
+  "footOff": 31,
+  "anims": {
+   "idle": {
+    "fps": 6,
+    "rows": {
+     "south": 0,
+     "south-east": 1,
+     "east": 2,
+     "north-east": 3,
+     "north": 4,
+     "north-west": 5,
+     "west": 6,
+     "south-west": 7
+    },
+    "frames": {
+     "south": 4,
+     "south-east": 4,
+     "east": 4,
+     "north-east": 4,
+     "north": 4,
+     "north-west": 4,
+     "west": 4,
+     "south-west": 4
+    }
+   },
+   "wave": {
+    "fps": 8,
+    "rows": {
+     "south": 8,
+     "south-east": 9,
+     "east": 9,
+     "north-east": 9,
+     "north": 8,
+     "north-west": 10,
+     "west": 10,
+     "south-west": 10
+    },
+    "frames": {
+     "south": 9,
+     "south-east": 9,
+     "east": 9,
+     "north-east": 9,
+     "north": 9,
+     "north-west": 9,
+     "west": 9,
+     "south-west": 9
+    }
+   },
+   "run": {
+    "fps": 10,
+    "rows": {
+     "south": 11,
+     "south-east": 12,
+     "east": 13,
+     "north-east": 14,
+     "north": 15,
+     "north-west": 16,
+     "west": 17,
+     "south-west": 18
+    },
+    "frames": {
+     "south": 6,
+     "south-east": 6,
+     "east": 6,
+     "north-east": 6,
+     "north": 6,
+     "north-west": 6,
+     "west": 6,
+     "south-west": 6
+    }
+   }
+  }
+ },
+ "rudeusz": {
+  "img": "assets/rudeusz.png",
+  "size": 80,
+  "footOff": 22,
+  "anims": {
+   "idle": {
+    "fps": 8,
+    "frames": {
+     "south": 8,
+     "south-east": 8,
+     "east": 8,
+     "north-east": 8,
+     "north": 8,
+     "north-west": 8,
+     "west": 8,
+     "south-west": 8
+    },
+    "rows": {
+     "south": 0,
+     "south-east": 1,
+     "east": 2,
+     "north-east": 3,
+     "north": 4,
+     "north-west": 5,
+     "west": 6,
+     "south-west": 7
+    }
+   },
+   "run": {
+    "fps": 12,
+    "frames": {
+     "south": 6,
+     "south-east": 6,
+     "east": 6,
+     "north-east": 6,
+     "north": 6,
+     "north-west": 6,
+     "west": 6,
+     "south-west": 6
+    },
+    "rows": {
+     "south": 8,
+     "south-east": 9,
+     "east": 10,
+     "north-east": 11,
+     "north": 12,
+     "north-west": 13,
+     "west": 14,
+     "south-west": 15
+    }
+   },
+   "bark": {
+    "fps": 10,
+    "frames": {
+     "south": 6,
+     "south-east": 6,
+     "east": 6,
+     "north-east": 6,
+     "north": 6,
+     "north-west": 6,
+     "west": 6,
+     "south-west": 6
+    },
+    "rows": {
+     "south": 16,
+     "south-east": 17,
+     "east": 18,
+     "north-east": 19,
+     "north": 20,
+     "north-west": 21,
+     "west": 22,
+     "south-west": 23
+    }
+   },
+   "dig": {
+    "fps": 10,
+    "frames": {
+     "south": 9,
+     "south-east": 9,
+     "east": 9,
+     "north-east": 9,
+     "north": 9,
+     "north-west": 9,
+     "west": 9,
+     "south-west": 9
+    },
+    "rows": {
+     "south": 24,
+     "south-east": 25,
+     "east": 26,
+     "north-east": 27,
+     "north": 28,
+     "north-west": 29,
+     "west": 30,
+     "south-west": 31
+    }
+   }
+  }
+ },
+ "wegielek": {
+  "img": "assets/wegielek.png",
+  "size": 92,
+  "footOff": 32,
+  "anims": {
+   "idle": {
+    "fps": 6,
+    "rows": {
+     "south": 0,
+     "south-east": 1,
+     "east": 2,
+     "north-east": 3,
+     "north": 4,
+     "north-west": 5,
+     "west": 6,
+     "south-west": 7
+    },
+    "frames": {
+     "south": 10,
+     "south-east": 10,
+     "east": 10,
+     "north-east": 10,
+     "north": 10,
+     "north-west": 10,
+     "west": 10,
+     "south-west": 10
+    }
+   },
+   "run": {
+    "fps": 10,
+    "rows": {
+     "south": 8,
+     "south-east": 9,
+     "east": 10,
+     "north-east": 11,
+     "north": 12,
+     "north-west": 13,
+     "west": 14,
+     "south-west": 15
+    },
+    "frames": {
+     "south": 6,
+     "south-east": 6,
+     "east": 6,
+     "north-east": 6,
+     "north": 6,
+     "north-west": 6,
+     "west": 6,
+     "south-west": 6
+    }
+   }
+  }
+ },
  "dresiarz": {
   "img": "assets/dresiarz.png",
   "size": 120,
@@ -490,158 +817,6 @@ export const SPRITEDATA={
      "north-west": 9,
      "west": 9,
      "south-west": 9
-    }
-   }
-  }
- },
- "wegielek": {
-  "img": "assets/wegielek.png",
-  "size": 92,
-  "footOff": 32,
-  "anims": {
-   "idle": {
-    "fps": 6,
-    "rows": {
-     "south": 0,
-     "south-east": 1,
-     "east": 2,
-     "north-east": 3,
-     "north": 4,
-     "north-west": 5,
-     "west": 6,
-     "south-west": 7
-    },
-    "frames": {
-     "south": 10,
-     "south-east": 10,
-     "east": 10,
-     "north-east": 10,
-     "north": 10,
-     "north-west": 10,
-     "west": 10,
-     "south-west": 10
-    }
-   },
-   "run": {
-    "fps": 10,
-    "rows": {
-     "south": 8,
-     "south-east": 9,
-     "east": 10,
-     "north-east": 11,
-     "north": 12,
-     "north-west": 13,
-     "west": 14,
-     "south-west": 15
-    },
-    "frames": {
-     "south": 6,
-     "south-east": 6,
-     "east": 6,
-     "north-east": 6,
-     "north": 6,
-     "north-west": 6,
-     "west": 6,
-     "south-west": 6
-    }
-   }
-  }
- },
- "rudeusz": {
-  "img": "assets/rudeusz.png",
-  "size": 80,
-  "footOff": 22,
-  "anims": {
-   "idle": {
-    "fps": 8,
-    "frames": {
-     "south": 8,
-     "south-east": 8,
-     "east": 8,
-     "north-east": 8,
-     "north": 8,
-     "north-west": 8,
-     "west": 8,
-     "south-west": 8
-    },
-    "rows": {
-     "south": 0,
-     "south-east": 1,
-     "east": 2,
-     "north-east": 3,
-     "north": 4,
-     "north-west": 5,
-     "west": 6,
-     "south-west": 7
-    }
-   },
-   "run": {
-    "fps": 12,
-    "frames": {
-     "south": 6,
-     "south-east": 6,
-     "east": 6,
-     "north-east": 6,
-     "north": 6,
-     "north-west": 6,
-     "west": 6,
-     "south-west": 6
-    },
-    "rows": {
-     "south": 8,
-     "south-east": 9,
-     "east": 10,
-     "north-east": 11,
-     "north": 12,
-     "north-west": 13,
-     "west": 14,
-     "south-west": 15
-    }
-   },
-   "bark": {
-    "fps": 10,
-    "frames": {
-     "south": 6,
-     "south-east": 6,
-     "east": 6,
-     "north-east": 6,
-     "north": 6,
-     "north-west": 6,
-     "west": 6,
-     "south-west": 6
-    },
-    "rows": {
-     "south": 16,
-     "south-east": 17,
-     "east": 18,
-     "north-east": 19,
-     "north": 20,
-     "north-west": 21,
-     "west": 22,
-     "south-west": 23
-    }
-   },
-   "dig": {
-    "fps": 10,
-    "frames": {
-     "south": 9,
-     "south-east": 9,
-     "east": 9,
-     "north-east": 9,
-     "north": 9,
-     "north-west": 9,
-     "west": 9,
-     "south-west": 9
-    },
-    "rows": {
-     "south": 24,
-     "south-east": 25,
-     "east": 26,
-     "north-east": 27,
-     "north": 28,
-     "north-west": 29,
-     "west": 30,
-     "south-west": 31
     }
    }
   }
