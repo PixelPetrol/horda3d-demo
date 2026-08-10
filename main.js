@@ -10,10 +10,10 @@ const WORLD_R = 130;
 let CAM_DIST = 9.2, CAM_H = 6.4;
 function fitCamera() {
   const wys = innerHeight, poziomo = innerWidth > innerHeight;
-  if (poziomo && wys <= 560) { CAM_DIST = 4.2; CAM_H = 4.4; camera.fov = 60; }   // telefon poziomo: BLISKO
-  else if (wys <= 560) { CAM_DIST = 6.2; CAM_H = 5.4; camera.fov = 58; }
-  else if (innerWidth <= 520) { CAM_DIST = 6.8; CAM_H = 5.8; camera.fov = 58; }  // telefon pionowo
-  else { CAM_DIST = 8.4; CAM_H = 7.2; camera.fov = 58; }                          // desktop: wyżej
+  if (poziomo && wys <= 560) { CAM_DIST = 3.5; CAM_H = 3.9; camera.fov = 60; }   // telefon poziomo: BARDZO blisko
+  else if (wys <= 560) { CAM_DIST = 5.2; CAM_H = 4.9; camera.fov = 58; }
+  else if (innerWidth <= 520) { CAM_DIST = 5.7; CAM_H = 5.2; camera.fov = 58; }  // telefon pionowo
+  else { CAM_DIST = 7.0; CAM_H = 6.4; camera.fov = 58; }                          // desktop
   camera.updateProjectionMatrix();
 }
 const DIR_ROWS = ['south','south-east','east','north-east','north','north-west','west','south-west'];
