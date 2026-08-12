@@ -767,6 +767,87 @@ function clumpGeometry() {
   return gm;
 }
 
+// KWIATKI: kępka 3-4 łodyg z kwiatem na czubku. Płatki są BIAŁE, bo barwę
+// nadaje instanceColor — dzięki temu jedna tekstura daje białe, żółte, różowe
+// i liliowe łany (kolor losowany per PLAMA terenu, nie per kwiatek, więc
+// tworzą się pola jednego koloru jak w Genshinie).
+function flowerTexture() {
+  const S = 128;
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  // TYLKO 3 kwiaty na kępkę, za to z DUŻĄ główką — przy 128 px tekstury i kamerze
+  // z góry mniejsze płatki gubiły się w dywanie trawy (sprawdzone: były kropkami).
+  const ile = 3;
+  for (let i = 0; i < ile; i++) {
+    const bx = 26 + (i / (ile - 1)) * (S - 52) + (Math.random() - 0.5) * 8;
+    const wys = S * (0.55 + Math.random() * 0.3);
+    const gy = S - wys;                                    // czubek = główka kwiatu
+    const wygiecie = (Math.random() - 0.5) * 14;
+    // łodyga
+    g.strokeStyle = '#3c7a2b'; g.lineWidth = 4;
+    g.beginPath(); g.moveTo(bx, S);
+    g.quadraticCurveTo(bx + wygiecie * 0.6, S - wys * 0.5, bx + wygiecie, gy + 6);
+    g.stroke();
+    // dwa listki
+    g.fillStyle = '#4b9134';
+    for (const s of [-1, 1]) {
+      g.beginPath();
+      g.ellipse(bx + wygiecie * 0.4 + s * 6, S - wys * 0.45, 7, 3.2, s * 0.5, 0, Math.PI * 2);
+      g.fill();
+    }
+    // płatki (6) + środek
+    const px = bx + wygiecie, r = 11 + Math.random() * 3;
+    g.fillStyle = '#ffffff';
+    for (let p = 0; p < 6; p++) {
+      const a = p / 6 * Math.PI * 2 + Math.random() * 0.2;
+      g.beginPath();
+      g.ellipse(px + Math.cos(a) * r * 0.85, gy + Math.sin(a) * r * 0.85, r * 0.6, r * 0.6, 0, 0, Math.PI * 2);
+      g.fill();
+    }
+    g.fillStyle = '#ffd23f';
+    g.beginPath(); g.arc(px, gy, r * 0.5, 0, Math.PI * 2); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+// WYSOKIE TRAWY (drugi wariant źdźbeł): suche łodygi z kłosem — na płowych łąkach
+function stalkTexture() {
+  const S = 128;
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  const ile = 7;
+  for (let i = 0; i < ile; i++) {
+    const bx = 16 + (i / (ile - 1)) * (S - 32) + (Math.random() - 0.5) * 8;
+    const wys = S * (0.62 + Math.random() * 0.36);
+    const gy = S - wys;
+    const wygiecie = (Math.random() - 0.5) * 30;           // suche łodygi mocniej się kładą
+    const gr = g.createLinearGradient(0, S, 0, gy);
+    gr.addColorStop(0, '#7d8f45'); gr.addColorStop(1, '#cfc274');
+    g.strokeStyle = gr; g.lineWidth = 2.5;
+    g.beginPath(); g.moveTo(bx, S);
+    g.quadraticCurveTo(bx + wygiecie * 0.5, S - wys * 0.55, bx + wygiecie, gy);
+    g.stroke();
+    // kłos: kilka ziarenek wzdłuż czubka
+    g.fillStyle = '#e2d489';
+    for (let k = 0; k < 5; k++) {
+      const t2 = k / 5;
+      g.beginPath();
+      g.ellipse(bx + wygiecie * (1 - t2 * 0.25), gy + t2 * wys * 0.22, 2.6, 4.2, wygiecie * 0.01, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 function bladeGeometry() {
   const w = 0.055, h = 1;                       // wąskie źdźbło (było za szerokie = słoma)
   const P = [], C = [], I = [];
@@ -789,11 +870,13 @@ function bladeGeometry() {
 }
 const bladeGeo = clumpGeometry();   // KĘPKI (2 skrzyżowane quady) — tanio i gęsto
 let bladeMat = null, grassField = null;
+let flowerMat = null, flowerField = null;      // kwiatki (kolor z instanceColor)
+let stalkMat = null, stalkField = null;        // wysokie suche trawy z kłosem
 // uniformy dywanu: środek (gracz) + promień — do PŁYNNEGO WYRASTANIA (bez wyskakiwania)
 const grassCenterU = { value: new THREE.Vector2() };
 const grassRU = { value: 20 };
-function makeBladeMaterial() {
-  const m = new THREE.MeshBasicMaterial({ map: clumpTexture(), alphaTest: 0.42,
+function makeBladeMaterial(mapa = null) {
+  const m = new THREE.MeshBasicMaterial({ map: mapa || clumpTexture(), alphaTest: 0.42,
     side: THREE.DoubleSide, vertexColors: true });
   addCloudShadow(m);
   const _wind = m.onBeforeCompile;
@@ -823,27 +906,40 @@ const grassCenter = new THREE.Vector2(1e9, 1e9);
 const waterKol = new THREE.Vector2(1e9, 1e9);
 const _gm = new THREE.Object3D(), _gc = new THREE.Color();
 
+// pomocnik: jedno pole instancji na tej samej geometrii kępki (wiatr + wtapianie w shaderze)
+function makeField(mat, max) {
+  const f = new THREE.InstancedMesh(bladeGeo, mat, max);
+  f.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(max * 3), 3);
+  f.frustumCulled = false;
+  f.count = 0;
+  scene.add(f);
+  return f;
+}
 function initGrassField() {
   const maloMocy = matchMedia('(pointer:coarse)').matches || innerWidth < 700;
   GRASS_R = maloMocy ? 34 : 56;
   GRASS_MAX = maloMocy ? 9000 : 26000;
-  if (grassField) { scene.remove(grassField); grassField.dispose(); }
-  grassField = new THREE.InstancedMesh(bladeGeo, bladeMat, GRASS_MAX);
-  grassField.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(GRASS_MAX * 3), 3);
-  grassField.frustumCulled = false;
-  grassField.count = 0;
-  scene.add(grassField);
+  for (const f of [grassField, flowerField, stalkField]) if (f) { scene.remove(f); f.dispose(); }
+  grassField  = makeField(bladeMat, GRASS_MAX);
+  flowerField = makeField(flowerMat, Math.round(GRASS_MAX * 0.14));
+  stalkField  = makeField(stalkMat, Math.round(GRASS_MAX * 0.12));
   grassCenter.set(1e9, 1e9);
 }
+// palety kwiatów — losowane per PLAMA terenu, więc powstają łany jednego koloru
+const KWIAT_KOL = [[1.00, 1.00, 1.00], [1.00, 0.90, 0.42], [1.00, 0.70, 0.80], [0.80, 0.76, 1.00]];
 function updateGrassField() {
-  if (!grassField || MAPS[mapKey].indoor) { if (grassField) grassField.count = 0; return; }
+  if (!grassField || MAPS[mapKey].indoor) {
+    for (const f of [grassField, flowerField, stalkField]) if (f) f.count = 0;
+    return;
+  }
   grassCenterU.value.set(P.pos.x, P.pos.z);        // shader ściemnia/skraca źdźbła przy brzegu
   grassRU.value = GRASS_R;
   if (Math.hypot(P.pos.x - grassCenter.x, P.pos.z - grassCenter.y) < 1.2) return;  // częściej = płynniej
   grassCenter.set(P.pos.x, P.pos.z);
   const cx = Math.round(P.pos.x / GRASS_STEP), cz = Math.round(P.pos.z / GRASS_STEP);
   const cells = Math.ceil(GRASS_R / GRASS_STEP);
-  let n = 0;
+  const maxK = flowerField.instanceMatrix.count, maxS = stalkField.instanceMatrix.count;
+  let n = 0, nk = 0, ns = 0;
   for (let ix = -cells; ix <= cells && n < GRASS_MAX; ix++) {
     for (let iz = -cells; iz <= cells && n < GRASS_MAX; iz++) {
       if (ix * ix + iz * iz > cells * cells) continue;
@@ -855,8 +951,40 @@ function updateGrassField() {
       const y = terrainH(x, z);
       if (y < WATER_Y + 0.12) continue;                          // nie w wodzie
       const b = biome(x, z);
-      const hgt = 0.55 + r1 * 0.35 - b * 0.10;                   // wysokość kępki
+      const r4 = hash2(gx + 555, gz + 999);
+      // ---- co rośnie w tej komórce: kwiatek / wysoka trawa / zwykła kępka ----
+      // Kwiatki tylko w ŁANACH (plama szumu), inaczej wyglądają jak posypka.
+      // KOLEJNOŚĆ WARUNKÓW MA ZNACZENIE: vnoise jest najdroższy, więc odpala się
+      // dopiero po tanich testach — inaczej liczylibyśmy go ~28 tys. razy na przebudowę.
+      const kwiat = nk < maxK && r4 > 0.72 && b < 0.66 && vnoise(x / 15 - 5.5, z / 15 + 2.2) > 0.52;
+      const klos  = !kwiat && ns < maxS && b > 0.34 && r4 < 0.05;
       _gm.position.set(x, y - 0.02, z);
+      if (kwiat) {
+        _gm.rotation.set((r2 - 0.5) * 0.16, r1 * Math.PI * 2, (r3 - 0.5) * 0.16);
+        const h = 0.62 + r1 * 0.26;                            // czubek ponad dywan trawy
+        _gm.scale.set(0.85 + r2 * 0.3, h, 0.85 + r2 * 0.3);
+        _gm.updateMatrix();
+        flowerField.setMatrixAt(nk, _gm.matrix);
+        const pal = KWIAT_KOL[Math.floor(vnoise(x / 33 + 11.7, z / 33 - 4.2) * 3.999)];
+        const v = 0.92 + r3 * 0.14;
+        _gc.setRGB(pal[0] * v, pal[1] * v, pal[2] * v);
+        flowerField.setColorAt(nk, _gc);
+        nk++;
+        continue;
+      }
+      if (klos) {
+        _gm.rotation.set((r2 - 0.5) * 0.3, r1 * Math.PI * 2, (r3 - 0.5) * 0.3);  // mocniej się kładą
+        const h = 0.95 + r1 * 0.55;                              // wyraźnie wyższe od dywanu
+        _gm.scale.set(0.8 + r2 * 0.3, h, 0.8 + r2 * 0.3);
+        _gm.updateMatrix();
+        stalkField.setMatrixAt(ns, _gm.matrix);
+        const v = 0.9 + r3 * 0.2;
+        _gc.setRGB(v, v * (0.98 - b * 0.05), v * 0.9);
+        stalkField.setColorAt(ns, _gc);
+        ns++;
+        continue;
+      }
+      const hgt = 0.55 + r1 * 0.35 - b * 0.10;                   // wysokość kępki
       // prawie pionowo (lekkie pochylenie) — inaczej wygląda jak rozsypana słoma
       _gm.rotation.set((r2 - 0.5) * 0.22, r1 * Math.PI * 2, (r3 - 0.5) * 0.22);  // różne kierunki
       _gm.scale.set(0.95 + r2 * 0.5, hgt, 0.95 + r2 * 0.5);
@@ -870,9 +998,11 @@ function updateGrassField() {
       n++;
     }
   }
-  grassField.count = n;
-  grassField.instanceMatrix.needsUpdate = true;
-  if (grassField.instanceColor) grassField.instanceColor.needsUpdate = true;
+  for (const [f, ile] of [[grassField, n], [flowerField, nk], [stalkField, ns]]) {
+    f.count = ile;
+    f.instanceMatrix.needsUpdate = true;
+    if (f.instanceColor) f.instanceColor.needsUpdate = true;
+  }
 }
 
 // -------- stare kępki (zostawione dla marketu/dekoracji) --------
@@ -3442,6 +3572,8 @@ if (loadTip) {
     side: THREE.DoubleSide, transparent: false }), 0.22, 2.1);
   cloudShadowU.value = cloudShadowTexture();
   bladeMat = makeBladeMaterial();
+  flowerMat = makeBladeMaterial(flowerTexture());
+  stalkMat = makeBladeMaterial(stalkTexture());
   initLeafCards();
   initLeafSolids();
   initGrassField();
