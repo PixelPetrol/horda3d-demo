@@ -2,7 +2,7 @@
 import * as THREE from './lib/three.module.js';
 import { SPRITEDATA } from './spritedata.js?v=5';
 import { icon, ico } from './icons.js?v=1';
-import { AUDIO } from './audio.js?v=2';            // muzyka wg fazy gry + kwestie głosowe + efekty
+import { AUDIO } from './audio.js?v=3';            // muzyka wg fazy gry + kwestie głosowe + efekty
 
 // ============================== USTAWIENIA ==============================
 const PX2U = 1 / 55;
@@ -1322,7 +1322,7 @@ function loadMeta() {
     // wyreżyserowana sekwencja pierwszych sześciu nagród)
     st: { kills: 0, runs: 0, time: 0, best: 0, bestKills: 0, bosses: 0, coins: 0, chests: 0, skrzynki: 0, lvl: 0 },
     bestiary: {},                                  // typ wroga -> ile razy zabity (bestiariusz)
-    audio: { muz: 0.55, glos: 0.9, efe: 0.7, mute: 0 },   // głośności i wyciszenie (zakładka Dźwięk)
+    audio: { muz: 0.15, glos: 0.9, efe: 0.7, mute: 0 },   // głośności i wyciszenie (zakładka Dźwięk)
   });
   try {
     const m = JSON.parse(localStorage.getItem(META_KEY)) || {};
@@ -1376,6 +1376,7 @@ const SHOP_UNLOCKS = [
   { key: 'skarpeta', ico: 'skarpeta', nm: 'Skarpeta', ds: 'Śmierdząca aura truje wokół', price: 180 },
   { key: 'wiatrowka', ico: 'wiatr', nm: 'Wiatrówka',      ds: 'Promień przeszywa całą linię', price: 220 },
   { key: 'kura',     ico: 'kura', nm: 'Kura-kamikaze',   ds: 'Biegnie i wybucha. Kura.', price: 350 },
+  { key: 'sokowirowka', ico: 'wiatr', nm: 'Sokowirówka', ds: 'STAWIASZ ją i sama miele wrogów — ustaw ją w alejce', price: 280 },
 ];
 // Cena rośnie nie tylko z poziomem POZYCJI, ale i z liczbą WSZYSTKICH zakupów
 // (+10% każdy). U Vampire Survivors 91% pełnego kosztu maksowania meta-sklepu to
@@ -1538,6 +1539,7 @@ const G = {
   enemies: [], gems: [], coins: [], shots: [], orbs: [], sparks: [], rings: [],
   lobs: [], boomers: [], bolts: [], pops: [], hps: [], kury: [], okruchy: [], puffs: [],
   padajace: [],                                    // regały w trakcie przewracania (market)
+  turrets: [],                                     // postawione sokowirówki (TD-lite)
   hitstop: 0,                                      // krótkie zatrzymanie czasu przy grubym zabójstwie
   spawnT: 0, shake: 0, bossAt: 120, ringAt: 60, tier: 0,
   vacuum: 0, buff: { key: null, t: 0 },
@@ -2389,7 +2391,103 @@ const WEAPONS = {
       G.kury.push({ bb, pos: P.pos.clone(), t: 0, lvl: w.lvl });
     },
   },
+  // ===== WIEŻYCZKA: jedyny element „tower defense", jaki pasuje do survivorsa =====
+  // Pełny TD bije się z rdzeniem gatunku (ciągły ruch), ale POSTAWIENIE czegoś,
+  // co strzela samo przez chwilę, dodaje decyzję „gdzie", nie odbierając ruchu.
+  // W markecie zaczyna grać z alejkami i przewróconymi regałami jako lejem.
+  sokowirowka: {
+    ico: 'wiatr', nm: 'Sokowirówka', ds: 'Stawiasz ją i sama miele wrogów w miejscu', max: 5, locked: true,
+    lvlDs: l => `${SOKO_ILE(l)} naraz, ${SOKO_ZYCIE(l).toFixed(0)} s, co ${(6.5 - 0.5 * l).toFixed(1)} s`,
+    tick(w, dt) {
+      w.t -= dt;
+      if (w.t > 0) return;
+      if (G.turrets.length >= SOKO_ILE(w.lvl)) return;       // limit stojących naraz
+      w.t = 6.5 - 0.5 * w.lvl;
+      stawSokowirowke(w.lvl);
+    },
+  },
 };
+const SOKO_ILE = l => 1 + Math.floor(l / 2);      // 1 / 1 / 2 / 2 / 3
+const SOKO_ZYCIE = l => 14 + l * 2;               // 16 → 24 s
+const SOKO_CD = l => 0.55 - 0.05 * l;             // strzał co 0.5 → 0.3 s
+const SOKO_DMG = l => 0.8 + 0.25 * l;             // mnożnik obrażeń pocisku
+
+// pixelowa sokowirówka rysowana w kodzie — do podmiany na sprite'a z PixelLaba
+function sokowirowkaTexture() {
+  const W = 32, H = 40;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  const p = (x, y, w, h, kol) => { g.fillStyle = kol; g.fillRect(x, y, w, h); };
+  p(6, 30, 20, 8, '#7d8794');                     // podstawa
+  p(6, 30, 20, 2, '#a9b3c0');
+  p(9, 14, 14, 17, '#d7dde6');                    // korpus
+  p(9, 14, 3, 17, '#f2f5f9');                     // światło z lewej
+  p(20, 14, 3, 17, '#aab3bf');                    // cień z prawej
+  p(11, 20, 10, 6, '#8ad14f');                    // okienko z sokiem
+  p(11, 20, 10, 2, '#b6ea7d');
+  p(7, 8, 18, 6, '#c2ccd8');                      // lej wsypowy
+  p(7, 8, 18, 2, '#e8eef5');
+  p(13, 3, 6, 5, '#f2c14a');                      // marchewka wsypana do leja
+  p(14, 0, 4, 3, '#5aa83c');
+  p(12, 34, 3, 4, '#5a6472'); p(17, 34, 3, 4, '#5a6472');   // nóżki
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+let sokoMat = null;
+function stawSokowirowke(lvl) {
+  if (!sokoMat) sokoMat = new THREE.MeshBasicMaterial({ map: sokowirowkaTexture(),
+    transparent: true, alphaTest: 0.4, side: THREE.DoubleSide });
+  const y = supportY(P.pos.x, P.pos.z, P.y);      // staje tam, gdzie stoisz — też na regale
+  const h = 1.15;
+  const m = new THREE.Mesh(unitGeo, sokoMat);
+  m.scale.set(h * 0.8, h, 1);
+  m.position.set(P.pos.x, y, P.pos.z);
+  scene.add(m);
+  G.turrets.push({ mesh: m, pos: new THREE.Vector3(P.pos.x, y, P.pos.z),
+                   t: 0, zycie: SOKO_ZYCIE(lvl), cd: 0, lvl });
+  AUDIO.sfx('totem');
+  puff(P.pos.x, y + 0.6, P.pos.z, 0xa8e05f, 1.4);
+  dmgPop(P.pos.x, y + 1.6, P.pos.z, 'MIELE!', '#a8e05f', 1.2);
+}
+function updateTurrets(dt) {
+  for (let i = G.turrets.length - 1; i >= 0; i--) {
+    const t = G.turrets[i];
+    t.t += dt;
+    // drga jak pracująca sokowirówka; przechył doklejamy do obrotu billboardu
+    billboardQuat(t.mesh.quaternion, Math.sin(t.t * 26) * 0.045);
+    if (t.zycie - t.t < 3) t.mesh.visible = Math.sin(t.t * 16) > -0.45;   // miga przed końcem
+    t.cd -= dt;
+    if (t.cd <= 0) {
+      let cel = null, najl = 13 * rangeF();
+      for (const e of G.enemies) {
+        if (e.dying) continue;
+        const d = e.pos.distanceTo(t.pos);
+        if (d < najl) { najl = d; cel = e; }
+      }
+      if (cel) {
+        t.cd = SOKO_CD(t.lvl);
+        // Pocisk wpada do TEJ SAMEJ tablicy co kule gracza (`G.shots`), więc
+        // kolizje, przebicie i krytyki obsługuje jedna ścieżka — zero duplikatu.
+        const dir = cel.pos.clone().sub(t.pos).setY(0).normalize();
+        const mm = new THREE.Mesh(shotGeo, shotMat);
+        mm.position.set(t.pos.x, t.pos.y + 0.7, t.pos.z);
+        scene.add(mm);
+        G.shots.push({ mesh: mm, dir, life: 1.1, pierce: 0, hit: new Set(),
+                       y: t.pos.y + 0.7, dmg: SOKO_DMG(t.lvl) });
+        AUDIO.sfx('strzal');
+      }
+    }
+    if (t.t >= t.zycie) {
+      scene.remove(t.mesh);
+      okruchy(t.pos.x, t.pos.y + 0.5, t.pos.z, 0xd7dde6, 5);
+      G.turrets.splice(i, 1);
+    }
+  }
+}
 const stompLvl = () => { const w = hasWeapon('tupniecie'); return w ? w.lvl : 0; };
 const stompRad = l => 3 + l * 0.7 + (P.evo.sejsm ? 2 : 0);
 const stompDmg = l => l * 1.5 * (P.evo.sejsm ? 2 : 1) * dmgAll();
@@ -3571,7 +3669,7 @@ function update(dt) {
       const rr = e.T.boss ? 1.4 : 0.75;
       const dx = s.mesh.position.x - e.pos.x, dz = s.mesh.position.z - e.pos.z;
       if (dx * dx + dz * dz < rr * rr) {
-        let dmg = 1 * dmgAll();
+        let dmg = (s.dmg || 1) * dmgAll();
         const crit = Math.random() < critC();
         if (crit) { dmg *= 3; spark(e.pos.x, e.ty + 1.5, e.pos.z); }
         e.hp -= dmg; s.hit.add(e);
@@ -3715,6 +3813,7 @@ function update(dt) {
   updateWeaponChest(dt);
   if (G.padajace.length) updatePadajace(dt);
   if (MAPS[mapKey].indoor) updateRestock(dt);
+  if (G.turrets.length) updateTurrets(dt);
 
   // ---- totemy ----
   for (const t of totems) {
@@ -4027,9 +4126,10 @@ function clearWorld() {
   for (const k of G.kury) k.bb.dispose();
   for (const o of G.okruchy) scene.remove(o.mesh);
   for (const p of G.puffs) { scene.remove(p.mesh); p.mesh.material.dispose(); }
+  for (const t of G.turrets) scene.remove(t.mesh);
   G.enemies = []; G.gems = []; G.coins = []; G.shots = []; G.orbs = []; G.sparks = []; G.rings = [];
   G.lobs = []; G.boomers = []; G.bolts = []; G.pops = []; G.hps = []; G.kury = []; G.okruchy = [];
-  G.puffs = []; G.hitstop = 0; G.padajace = [];
+  G.puffs = []; G.hitstop = 0; G.padajace = []; G.turrets = [];
   G.streak = 0; G.streakT = -9;
   G.vacuum = 0; G.buff = { key: null, t: 0 };
   document.getElementById('buff').style.opacity = 0;

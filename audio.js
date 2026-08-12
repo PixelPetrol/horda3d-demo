@@ -46,7 +46,9 @@ const SERIA_PRZERWA = 25;  // ...i nie częściej niż co tyle sekund
 
 const zegar = () => performance.now() / 1000;
 const clamp01 = v => Math.max(0, Math.min(1, v));
-const domyslne = () => ({ muz: 0.55, glos: 0.9, efe: 0.7, mute: 0 });
+// Muzyka domyslnie CICHO (15%): utwory sa gesta scianka dzwieku i przy 55%
+// zabijaly efekty i kwestie postaci. Zyczenie wlasciciela 12.08.
+const domyslne = () => ({ muz: 0.15, glos: 0.9, efe: 0.7, mute: 0 });
 
 const S = {
   meta: null, zapisz: () => {},
@@ -325,6 +327,8 @@ export const AUDIO = {
     S.meta = meta;
     S.zapisz = zapisz || (() => {});
     S.ust = Object.assign(domyslne(), meta && meta.audio);
+    // stare zapisy siedza na dawnej domyslnej 0.55 — sciagamy je raz do 0.15
+    if (S.ust.muz === 0.55) S.ust.muz = 0.15;
     meta.audio = S.ust;
   },
   initUI,
