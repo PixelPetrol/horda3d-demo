@@ -1125,6 +1125,33 @@ async function flatMat(src) {
 const unitGeo = new THREE.PlaneGeometry(1, 1);
 unitGeo.translate(0, 0.5, 0);
 
+// ============================== POCHYLENIE SPRITE'ÓW ==============================
+// Arkusze z PixelLaba są malowane W PERSPEKTYWIE (widok 3/4 z góry), a pionowy
+// billboard przy kamerze patrzącej z góry tę perspektywę SKRACA — postać wygląda
+// jak przyklejona do szyby i niższa niż na arkuszu. Dlatego płaszczyznę
+// pochylamy tak, żeby stała PROSTOPADLE do osi patrzenia: rysunek pokazuje się
+// dokładnie tak, jak go narysowano.
+// Pivot geometrii siedzi w stopach (`unitGeo.translate(0, 0.5, 0)`), więc
+// pochylenie obraca sprite'a WOKÓŁ STÓP — nie odkleja się od ziemi.
+// 0 = stara wersja (pionowo), 1 = pełne obrócenie do kamery.
+let SPRITE_TILT = 1;
+let tiltKat = 0;
+const _cdir = new THREE.Vector3();
+const AX_Y = new THREE.Vector3(0, 1, 0), AX_X = new THREE.Vector3(1, 0, 0), AX_Z = new THREE.Vector3(0, 0, 1);
+const _qx = new THREE.Quaternion(), _qz = new THREE.Quaternion();
+function refreshSpriteTilt() {                    // raz na klatkę, nie raz na sprite'a
+  camera.getWorldDirection(_cdir);
+  tiltKat = Math.asin(Math.max(-1, Math.min(1, -_cdir.y))) * SPRITE_TILT;
+}
+// obrót billboardu: yaw kamery × pochylenie w stronę kamery × opcjonalny przewrót
+function billboardQuat(q, roll = 0) {
+  q.setFromAxisAngle(AX_Y, camYaw);
+  _qx.setFromAxisAngle(AX_X, -tiltKat);
+  q.multiply(_qx);
+  if (roll) { _qz.setFromAxisAngle(AX_Z, roll); q.multiply(_qz); }
+  return q;
+}
+
 // ============================== BILLBOARD ==============================
 class Billboard {
   constructor(char, scaleMul = 1) {
@@ -1166,7 +1193,7 @@ class Billboard {
     else if (f >= mats.length) { f = mats.length - 1; this.done = true; }
     this.mesh.material = mats[f];
     this.mesh.position.set(pos.x, ty + this.footY, pos.z);
-    this.mesh.rotation.y = camYaw;                 // billboard twarzą do kamery
+    billboardQuat(this.mesh.quaternion);           // twarzą do kamery + pochylenie do jej osi
     this.shadow.position.set(pos.x, groundY + 0.04, pos.z);
   }
   dispose() { scene.remove(this.mesh); scene.remove(this.shadow); }
@@ -1240,7 +1267,7 @@ function updateHitFlash() {
   hitFlashMat.needsUpdate = true;
   hitFlash.scale.copy(playerBB.mesh.scale);
   hitFlash.position.copy(playerBB.mesh.position);
-  hitFlash.rotation.copy(playerBB.mesh.rotation);
+  hitFlash.quaternion.copy(playerBB.mesh.quaternion);   // billboardy chodzą na kwaternionach
 }
 
 // ============================== META (localStorage) ==============================
@@ -1915,8 +1942,8 @@ function updateRozpad(e, dt) {
   const pop = e.rozpad < FLASH_T ? 1 + 0.28 * (1 - e.rozpad / FLASH_T) : 1;
   const sy = (1 - 0.72 * k) * pop, sx = (1 + 0.4 * k) * pop;
   e.bb.mesh.scale.set(b.x * sx, b.y * sy, b.z);
-  e.bb.mesh.rotation.z = e.rozpadObrot * k * k;    // przewraca się z przyspieszeniem
-  e.bb.mesh.rotation.y = camYaw;                   // dalej twarzą do kamery, gdy ta się obraca
+  // przewraca się z przyspieszeniem, ale dalej trzyma obrót i pochylenie kamery
+  billboardQuat(e.bb.mesh.quaternion, e.rozpadObrot * k * k);
   e.bb.mesh.position.y = e.rozpadY - b.y * (1 - sy) * 0.5;   // osiada na ziemi, nie wisi
   if (e.rozpadMat) {
     e.rozpadMat.userData.uFlash.value = Math.max(0, 1 - e.rozpad / FLASH_T);
@@ -2948,6 +2975,7 @@ function update(dt) {
   // jedną linijkę, a robi połowę „ciężaru" ciosu — czas realny odejmujemy
   // PRZED spowolnieniem, żeby hitstop nie przedłużał się sam.
   if (G.hitstop > 0) { G.hitstop -= dt; dt *= 0.14; }
+  refreshSpriteTilt();                             // pochylenie billboardów liczymy raz na klatkę
   G.time += dt;
   document.getElementById('timer').textContent = fmtTime(G.time);
   // komunikat o wzroście poziomu zagrożenia
@@ -3522,8 +3550,9 @@ function startDeath() {
 function updateDeath(dt) {
   G.deathT += dt;
   const t = G.deathT;
-  // postać przewraca się na bok i zapada w ziemię
-  playerBB.mesh.rotation.z = Math.min(Math.PI / 2, t * 3.2);
+  // postać przewraca się na bok i zapada w ziemię (przewrót doklejony do obrotu billboardu)
+  refreshSpriteTilt();
+  billboardQuat(playerBB.mesh.quaternion, Math.min(Math.PI / 2, t * 3.2));
   playerBB.mesh.position.y = P.y - Math.min(0.55, t * 0.5);
   // kamera zjeżdża blisko i niżej
   const k = Math.min(1, t / 1.4);
@@ -3774,6 +3803,7 @@ if (loadTip) {
   fitCamera();
   camera.position.set(0, terrainH(0, 0) + CAM_H, CAM_DIST);
   camera.lookAt(0, 1.3, -2.2);
+  refreshSpriteTilt();                   // pierwsza klatka też ma mieć poprawne pochylenie
   playerBB.update(0, P.pos, P.y, P.y);
   await ladowanie('Sól i cukier na pozycjach…');
   loop();
@@ -3854,6 +3884,8 @@ if (loadTip) {
     G, P, terrainH, chests, totems, openSwap, renderWpns, chunkMap, supportY, onSpill, setMap,
     wchest, META, CHARS, MAPS, ENEMY_TYPES, spawnEnemy, killEnemy, renderBestiary, saveMeta,
     setPlayerChar, togglePause, get charKey() { return charKey; }, AUDIO,
+    setTilt(v) { SPRITE_TILT = v; refreshSpriteTilt(); },   // 0 = pionowe billboardy, 1 = do kamery
+    get tilt() { return { SPRITE_TILT, kat: +(tiltKat * 180 / Math.PI).toFixed(1) }; },
     get grass() { return grassField; },
     PAD, pollPads, get camYaw() { return camYaw; }, get gpSel() { return gpSel; },
     step(n = 1, dt = 1 / 60) {

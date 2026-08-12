@@ -1,4 +1,44 @@
-# POSTACIE — co dogenerować w PixelLabie (stan 12.08.2026)
+# CO DOGENEROWAĆ W PIXELLABIE (stan 12.08.2026)
+
+## ⬛ ZAMÓWIENIE — kolejność od najważniejszego
+
+### A. Postacie animowane (8 kierunków, zip → packer)
+1. **Don Chipso** — 120 px, `Running` + `Death` (`Idle` jeśli łatwo). Wielka wymięta
+   torba chipsów w prążkowanym garniturze: złoty łańcuch, fedora, cygaro, ciemne
+   okulary, tłusty połysk. Ma być czytelny jako WIĘKSZY i groźniejszy od Chipsettiego.
+   Plik: `Don Chipso.zip`.
+2. **`Death` dla Snackoni** — tylko ta jedna animacja: **Lollini Spinnini** (120 px),
+   **Marshmallini Fluffini** (116 px, rozpada się — dzieli się na dwa!),
+   **Friesetti Spearetti** (120 px). Chipsetti opcjonalnie (jest ich 200 na ekranie).
+3. **Broccolino Rastafarino** — 124 px, `Idle` + `Running` + `Two-Footed_Jump`
+   (+ `Death`). Brokuł z dredami z własnej korony, luźna koszula, klapki.
+4. **`Idle` dla Beetina** — 124 px, tylko `Idle` (widać go w menu i w spoczynku).
+
+### B. Rekwizyty — statyczne 2D, po jednym obrazku (PNG, przezroczyste tło)
+Rozmiary orientacyjne (obecne w grze: bone.png 56×28, bottle.png 25×50, radio.png 52×53):
+
+| plik | rozmiar | co to |
+|---|---|---|
+| `witaminka.png` | ~28×28 | kapsułka witaminy = XP. **Najważniejszy** — leży setkami na ekranie, musi być czytelny jako mała kropka |
+| `czosnek.png` | ~34×34 | ząbek czosnku — broń orbitalna |
+| `pizza.png` | ~48×48 | koło pizzy z góry — bumerang |
+| `oliwa.png` | ~26×52 | butelka oliwy z oliwek — leci łukiem i wybucha |
+| `klopsik.png` | ~40×40 | klopsik z oczami — kamikaze (zamiast kury) |
+| `gorgonzola.png` | ~40×36 | kawałek pleśniowego sera — śmierdząca aura |
+| `mlynek.png` | ~28×48 | młynek do pieprzu — promień |
+| `mozzarella.png` | ~24×24 | kulka mozzarelli — pocisk podstawowy (opcjonalnie) |
+
+Wymagania techniczne rekwizytów: **przezroczyste tło** (nie białe), **bez cienia
+pod obiektem** (silnik rysuje własny), grube piksele i wyraźny kontur jak
+u postaci, nasycona paleta. Widok z boku/lekko z góry — kamera patrzy z góry
+pod kątem ok. 40°.
+
+Do czasu dostawy w grze siedzą **proceduralne zamienniki rysowane w kodzie**,
+więc nic nie jest zablokowane — podmiana to jedna linijka na plik.
+
+---
+
+# POSTACIE — szczegóły (stan 12.08.2026)
 
 Kod jest gotowy na nowe arkusze; brakuje samej grafiki. Poniżej: czego brakuje,
 w jakiej kolejności to boli, jakie ustawienia eksportu i jak wgrać gotowy zip.
