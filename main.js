@@ -1316,9 +1316,11 @@ function updateHitFlash() {
 const META_KEY = 'horda3d_meta_v1';
 function loadMeta() {
   const def = () => ({
-    coins: 0, up: { serce: 0, dmg: 0, szyb: 0, magnes: 0 }, unlocked: {},
+    coins: 0, up: { serce: 0, dmg: 0, szyb: 0, magnes: 0, klatwa: 0 }, unlocked: {},
     chars: { carrotello: 1 }, lastChar: 'carrotello', lastMap: 'laki',
-    st: { kills: 0, runs: 0, time: 0, best: 0, bestKills: 0, bosses: 0, coins: 0, chests: 0, lvl: 0 },
+    // `chests` = złote skrzynie z bronią, `skrzynki` = zwykłe (od nich zależy
+    // wyreżyserowana sekwencja pierwszych sześciu nagród)
+    st: { kills: 0, runs: 0, time: 0, best: 0, bestKills: 0, bosses: 0, coins: 0, chests: 0, skrzynki: 0, lvl: 0 },
     bestiary: {},                                  // typ wroga -> ile razy zabity (bestiariusz)
     audio: { muz: 0.55, glos: 0.9, efe: 0.7, mute: 0 },   // głośności i wyciszenie (zakładka Dźwięk)
   });
@@ -1357,6 +1359,11 @@ const SHOP = [
   { key: 'dmg',    ico: 'fala', nm: 'Siła', ds: '+10% obrażeń na stałe',  base: 60, max: 5 },
   { key: 'szyb',   ico: 'but', nm: 'Kondycja',       ds: '+8% szybkości na stałe', base: 60, max: 5 },
   { key: 'magnes', ico: 'magnes', nm: 'Przyciąganie',   ds: '+20% magnesu na stałe',  base: 50, max: 5 },
+  // KLĄTWA: gracz KUPUJE SOBIE WIĘCEJ WROGÓW. Chwyt z Vampire Survivors (Curse
+  // i Charm) — to wentyl na „wykupiłem cały sklep i nie mam po co grać": zamiast
+  // końca progresji dostajesz dźwignię. Więcej wrogów = więcej XP i monet.
+  { key: 'klatwa', ico: 'ostrzezenie', nm: 'Klątwa Nonny',
+    ds: 'Wrogowie twardsi i liczniejsi, ale monety sypią się gęściej', base: 120, max: 5 },
 ];
 // odblokowania broni i pasywów (jednorazowe — wchodzą do puli kart w biegu)
 const SHOP_UNLOCKS = [
@@ -1370,7 +1377,11 @@ const SHOP_UNLOCKS = [
   { key: 'wiatrowka', ico: 'wiatr', nm: 'Wiatrówka',      ds: 'Promień przeszywa całą linię', price: 220 },
   { key: 'kura',     ico: 'kura', nm: 'Kura-kamikaze',   ds: 'Biegnie i wybucha. Kura.', price: 350 },
 ];
-const shopPrice = it => it.base * Math.pow(2, META.up[it.key]);
+// Cena rośnie nie tylko z poziomem POZYCJI, ale i z liczbą WSZYSTKICH zakupów
+// (+10% każdy). U Vampire Survivors 91% pełnego kosztu maksowania meta-sklepu to
+// sam narzut skalowania — to on robi całą długość gry, nie liczba pozycji.
+const zakupyRazem = () => Object.values(META.up).reduce((a, b) => a + b, 0);
+const shopPrice = it => Math.round(it.base * Math.pow(2, META.up[it.key]) * (1 + 0.10 * zakupyRazem()));
 
 // ---- MENU: mapy / postacie / statystyki ----
 function renderMaps() {
@@ -1778,7 +1789,11 @@ const ENEMY_TYPES = {
 let eliteRingMat = null;
 // ---- PROGRESJA: poziom zagrożenia rośnie co minutę ----
 const tier = () => 1 + Math.floor(G.time / 60);
-const hpScale = () => 1 + G.time / 60 * 0.55 + Math.pow(G.time / 300, 2) * 1.5;  // późno rośnie ostro
+// KLĄTWA: kupione poziomy podnoszą HP wrogów i zagęszczają spawn, a w zamian
+// mnożą monety (patrz `monetyMul`). Świadomie kupowana trudność.
+const klatwa = () => META.up.klatwa || 0;
+const monetyMul = () => 1 + 0.20 * klatwa();
+const hpScale = () => (1 + G.time / 60 * 0.55 + Math.pow(G.time / 300, 2) * 1.5) * (1 + 0.10 * klatwa());  // późno rośnie ostro
 const spdScale = () => Math.min(1.5, 1 + G.time / 60 * 0.035);
 const dmgScale = () => G.time > 600 ? 3 : (G.time > 330 ? 2 : 1);               // 5.5 min → 2, 10 min → 3
 
@@ -2951,9 +2966,22 @@ function spawnChests(n) {
     chests.push(c);
   }
 }
+// PIERWSZE SZEŚĆ SKRZYŃ W ZAPISIE JEST WYREŻYSEROWANE — mała, mała, WIELKA,
+// mała, mała, JACKPOT. Chwyt podpatrzony u Vampire Survivors (sekwencja 1-1-3-1-1-5
+// z nieprzeskakiwalną animacją): przy czystej losowości pierwsza skrzynia
+// w 48% przypadków daje monety, czyli nic zapamiętywalnego, a pierwsze wrażenie
+// z gry jest zbyt cenne, żeby zostawiać je kostce.
+const SKRZYNIE_SCENARIUSZ = ['monety', 'kosci', 'magnes', 'monety', 'kosci', 'djump'];
 function chestReward(c) {
   AUDIO.sfx('skrzynia');
-  const roll = Math.random();
+  const nr = META.st.skrzynki || 0;
+  META.st.skrzynki = nr + 1;
+  saveMetaSoon();
+  const scenariusz = nr < SKRZYNIE_SCENARIUSZ.length ? SKRZYNIE_SCENARIUSZ[nr] : null;
+  // ze scenariusza wypada tylko to, czego gracz jeszcze nie ma (podwójny skok)
+  const wybor = (scenariusz === 'djump' && hasDjump()) ? 'magnes' : scenariusz;
+  const roll = wybor === 'djump' ? 0.0 : wybor === 'monety' ? 0.3
+             : wybor === 'kosci' ? 0.7 : wybor === 'magnes' ? 0.99 : Math.random();
   if (roll < 0.14 && !hasDjump()) {   // 🦘🦘 PODWÓJNY SKOK (na ten bieg)
     P.runDjump = true;
     toastBuff('PODWÓJNY SKOK do końca biegu!');
@@ -3349,7 +3377,7 @@ function update(dt) {
   // ---- spawner: krzywa trudności (1 min ~lekko, 4 min = ~4× więcej naraz) ----
   const min = G.time / 60;
   G.spawnT -= dt;
-  const interval = Math.max(0.13, 1.3 / (1 + min * 0.55));      // 1.3 s → 0.28 s w 4. min
+  const interval = Math.max(0.11, 1.3 / (1 + min * 0.55) / (1 + 0.08 * klatwa()));   // 1.3 s → 0.28 s w 4. min
   const CAP = 500;
   if (G.spawnT <= 0 && G.enemies.length < CAP) {
     G.spawnT = interval;
@@ -3756,7 +3784,7 @@ function update(dt) {
     c.mesh.position.set(c.pos.x, terrainH(c.pos.x, c.pos.z) + 0.3 + Math.sin(c.t * 5) * 0.1, c.pos.z);
     c.mesh.rotation.y = camYaw;
     if (d < 0.7) {
-      G.runCoins += c.val || 1; drawCoins();
+      G.runCoins += Math.round((c.val || 1) * monetyMul()); drawCoins();   // Klątwa płaci
       AUDIO.sfx('moneta');
       scene.remove(c.mesh); G.coins.splice(i, 1);
     }
@@ -3878,6 +3906,55 @@ function rozliczBieg() {
   G.runCoins = 0;
   drawCoins();
 }
+// ============================== CEREMONIA KOŃCA BIEGU ==============================
+// Ekran końca to moment, w którym gracz decyduje „jeszcze raz" albo zamyka grę.
+// Sucha lista liczb tego nie sprzedaje — liczby muszą LECIEĆ W GÓRĘ z dźwiękiem.
+function tickerLiczb(root) {
+  const pola = [...root.querySelectorAll('i[data-licz]')];
+  if (!pola.length) return;
+  const T = 900;                                   // cała ceremonia poniżej sekundy
+  const start = performance.now();
+  let ostatniTik = 0, gotowe = false;
+  // Ticker chodzi na rAF, a ten jest DŁAWIONY bez fokusa: bez tego domknięcia
+  // gracz, który przełączy kartę w trakcie ceremonii, wróciłby do ekranu końca
+  // z samymi zerami. Ustawiamy wartości docelowe na twardo po czasie animacji.
+  const domknij = () => {
+    if (gotowe) return;
+    gotowe = true;
+    for (const p of pola) {
+      const czas = p.dataset.czas;
+      p.textContent = czas ? fmtTime(+czas) : +p.dataset.licz;
+    }
+  };
+  setTimeout(domknij, T + 400);
+  const krok = (teraz) => {
+    if (gotowe) return;
+    const k = Math.min(1, (teraz - start) / T);
+    const e = 1 - Math.pow(1 - k, 3);              // szybko rośnie, miękko wyhamowuje
+    for (const p of pola) {
+      const cel = +p.dataset.licz, czas = p.dataset.czas;
+      p.textContent = czas ? fmtTime(+czas * e) : Math.round(cel * e);
+    }
+    if (teraz - ostatniTik > 55) { ostatniTik = teraz; AUDIO.sfx('xp'); }
+    if (k < 1) requestAnimationFrame(krok);
+    else { AUDIO.sfx('zlota'); domknij(); }
+  };
+  requestAnimationFrame(krok);
+}
+// deszcz pixelowych monet po rekordzie — czysta ozdoba, ale to ona sprzedaje rekord
+function deszczMonet(ile) {
+  const ov = document.getElementById('overOv');
+  for (let i = 0; i < ile; i++) {
+    const d = document.createElement('div');
+    d.className = 'moneta-spada';
+    d.innerHTML = ico('moneta', 18 + Math.round(Math.random() * 10));
+    d.style.left = (Math.random() * 96) + 'vw';
+    d.style.animationDelay = (Math.random() * 0.9).toFixed(2) + 's';
+    d.style.animationDuration = (1.5 + Math.random() * 1.2).toFixed(2) + 's';
+    ov.appendChild(d);
+    setTimeout(() => d.remove(), 3200);
+  }
+}
 function gameOver() {
   G.over = true; G.running = false;
   AUDIO.endRun();                                  // koniec biegu = powrót do motywu głównego
@@ -3885,15 +3962,29 @@ function gameOver() {
   playerBB.mesh.rotation.z = 0;
   rozliczBieg();
   const s = META.st;
+  // PIERWSZA PRZEGRANA MA COŚ DAWAĆ. Brotato odblokowuje za nią postać („Chunky"),
+  // u nas nie ma jeszcze wolnego arkusza, więc idzie broń: pierwsza śmierć =
+  // Piorun za darmo. Puste „KONIEC" po pierwszym biegu to najgorszy moment,
+  // żeby gracz nie miał po co kliknąć „JESZCZE RAZ".
+  let prezent = '';
+  if (!s.runs && !META.unlocked.piorun) {
+    META.unlocked.piorun = 1;
+    prezent = `<br><b style="color:#7ee7ff">${ico('pioruny', 18)} PIERWSZA PORAŻKA — PIORUN ODBLOKOWANY NA STAŁE!</b>`;
+  }
   s.runs++; s.time += G.time; s.lvl += P.lvl - 1;
   if (G.time > s.best) s.best = G.time;
   if (G.kills > s.bestKills) s.bestKills = G.kills;
   saveMeta(); renderShop(); renderStats(); renderBestiary();
+  const rekord = G.time >= s.best;
   document.getElementById('overStats').innerHTML =
-    `Przetrwano: <b>${fmtTime(G.time)}</b> · Pokonano: <b>${G.kills}</b> · Poziom: <b>${P.lvl}</b><br>` +
-    `Zebrano: <b>${ico('moneta',15)} ${G.zebrane}</b> (łącznie ${ico('moneta',15)} ${META.coins})` +
-    (G.time >= s.best ? '<br><b style="color:#ffd75e">' + ico('puchar',18) + ' NOWY REKORD CZASU!</b>' : '');
+    `Przetrwano: <b><i data-licz="0" data-czas="${G.time.toFixed(1)}">0:00</i></b> · ` +
+    `Pokonano: <b><i data-licz="${G.kills}">0</i></b> · Poziom: <b><i data-licz="${P.lvl}">0</i></b><br>` +
+    `Zebrano: <b>${ico('moneta',15)} <i data-licz="${G.zebrane}">0</i></b> (łącznie ${ico('moneta',15)} ${META.coins})` +
+    prezent +
+    (rekord ? '<br><b class="pieczatka" style="color:#ffd75e">' + ico('puchar',18) + ' NOWY REKORD CZASU!</b>' : '');
   document.getElementById('overOv').style.display = 'flex';
+  tickerLiczb(document.getElementById('overStats'));
+  if (rekord) deszczMonet(28);
   document.getElementById('wArrow').style.display = 'none';
 }
 // ---- PAUZA ----
