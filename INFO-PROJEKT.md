@@ -1,4 +1,10 @@
-# HORDA 3D — nowy projekt „na poważnie" (survivors-like à la Megabonk)
+# VEGGIE FAMIGLIA — Brainrot Survivors (dawniej „HORDA 3D")
+
+> ⚠️ Nazwa robocza „HORDA 3D" została zamieniona na **VEGGIE FAMIGLIA** (10.08).
+> Katalog, repo i `window.HORDA` zostały po staremu — to tylko nazwy techniczne.
+> Sekcje niżej opisujące Kasię, Rudeusza, dresiarza i żula to **historia**:
+> ta obsada została usunięta z gry 10.08 (commity 7788b45 i bdace77).
+> Aktualny stan obsady i dźwięku: patrz sekcje „VEGGIE FAMIGLIA" na końcu pliku.
 
 > Stan: 10.08.2026 — **prototyp v28 działa** (testowany w przeglądarce).
 > v11 = PEŁNY SYSTEM BRONI: 3 sloty, 6 broni, pasywy, wymiennik ze skrzyń,
@@ -405,9 +411,70 @@ piana malowana z pozycji w świecie), forum three.js „Unlit water shader with 
 ## DO ZROBIENIA (kolejność ustalona z userem 10.08: drzewa → woda → kwiatki → trawa)
 1. ~~Drzewa (karty liści)~~ ✅ v33.
 2. ~~**WODA**~~ ✅ 10.08 (pasy głębi, piana z mapy głębi, fale, iskierki — sekcja wyżej).
-3. **KWIATKI w trawie** + warianty źdźbeł (druga geometria losowana per instancja).
+3. ~~**KWIATKI w trawie** + warianty źdźbeł~~ ✅ 12.08 (sekcja „KWIATKI I WYSOKIE TRAWY").
 4. ~~Encyklopedia/bestiariusz~~ ✅ 10.08 (zakładka Bestiariusz, wpis po 1. zabiciu).
 5. Dalej: gradient nieba, miękkie cienie pod obiektami, toon-shading terenu.
+
+## ═══════════ VEGGIE FAMIGLIA: OBSADA I REBRAND (10.08) ═══════════
+- **Bohaterowie (2)**: 👦 Carrotello Squattello (starter, szybki, magnes ×1.3) ·
+  Beetino Bouncerino (250🪙, czołg: +3 serca, wolniejszy, własny motyw muzyczny).
+- **Wrogowie = LA FAMIGLIA SNACKONI (6)** ze statystykami i zachowaniami z biblii
+  postaci v1.1: Chipsetti Soldatetti (roje) · Marshmallini Fluffini (`dzieli: true`
+  — po śmierci DWA mniejsze) · Gummini Bouncini (`skacze`, `bezKb` — nie da się
+  odepchnąć) · Friesetti Spearetti (szarże) · Sodino Explodino (`kamikaze`, lont
+  1 s) · Lollini Spinnini (`wiruje`, tank). Boss: **Don Chipso** co 2 min.
+- **Arkusze**: `assets/veggie/*.png` + `narzedzia/pakuj_veggie.py` (eksport
+  PixelLab: `animations/<Anim>/<kierunek>/*.png` → arkusz + wpis SPRITEDATA).
+  Nazwa zipa = klucz w SPRITEDATA. `ANIM_MAP` decyduje, co zostanie wzięte.
+- **BRAKI W GRAFICE** (pełna lista i briefy: `POSTACIE-DO-ZROBIENIA.md`):
+  Don Chipso nie ma własnego arkusza (silnik bierze powiększonego Chipsettiego,
+  `scale: 2.7`), Snackoni nie mają animacji `death`, Beetino nie ma `idle`.
+- Ekran ładowania: pixel-artowy pasek postępu + porady (`ladowanie(opis)`).
+
+## ═══════════ DŹWIĘK (`audio.js`) — muzyka, głosy, SFX ═══════════
+- **MUZYKA**: 5 utworów (menu/koniec, boss, dwa „biegowe" losowane, motyw Beetina).
+  `<audio>` powstaje **leniwie** — dopiero gdy utwór jest naprawdę potrzebny
+  (waży 3-5 MB). Przejścia przez własny fade na tickerze co 50 ms.
+- **GŁOSY POSTACI** (ElevenLabs, `assets/audio/glosy/<postać>/`): zdarzenia
+  `start / seria / awans / boss / smierc`, globalny cooldown 8 s (ważne 2 s),
+  seria od 8 killi i nie częściej niż co 25 s. Postać bez wpisu w `GLOSY` milczy.
+- **SFX = SYNTEZA WEBAUDIO, ZERO PLIKÓW** (12.08). Powód: paczka audio waży już
+  ~14 MB, a efektów leci kilkaset na minutę — próbki byłyby cięższe i sztywne.
+  22 dźwięki z oscylatorów + jednego bufora szumu (`ton()`, `szum()`, `akord()`).
+  Ton `kill` **rośnie razem z serią zabójstw** — to ta sama dopamina co liczby ×250.
+  Ochrona przed kakofonią przy 300 wrogach: **throttle per dźwięk** (`gap`)
+  + **limit 20 jednoczesnych głosów**, przy czym dźwięki z `wazny: 1` (hurt,
+  tarcza, awans, boss, koniec) limit przekraczają. Zmierzone: w walce przy
+  40 wrogach 4-13 głosów naraz, po biegu 0 (nic nie wisi).
+- Podpięte: traf/kryt, kill, bossdown, wybuch (każda nova), piorun, strzal, xp,
+  moneta, serce, awans, skrzynia, zlota, totem, skok, ladowanie (tylko przy
+  vy < -4), hurt, tarcza, koniec, zagrozenie, boss, klik. **Klik w UI to jeden
+  delegat na `document`** (`.tab,.tile,.card,.bigbtn,.btn2,#jumpBtn`) — menu jest
+  generowane w kilku miejscach, dopisywanie dźwięku per przycisk by się rozjechało.
+- Zakładka Dźwięk: trzy suwaki (Muzyka / Głosy postaci / Efekty) + wycisz.
+  Stare zapisy bez pola `efe` dostają 0.7 (merge przez `Object.assign(domyslne(), …)`).
+- **AudioContext startuje dopiero po pierwszym geście** (razem z odblokowaniem
+  muzyki) i jest resume'owany w `sfx()`, bo przeglądarki go usypiają.
+- Debug: `HORDA.AUDIO._stanSfx()` (stan kontekstu, liczba głosów, ostatnie czasy),
+  `HORDA.AUDIO._stan()` (muzyka).
+
+## ═══════════ KWIATKI I WYSOKIE TRAWY (12.08) ═══════════
+- Dwa nowe pola instancji **na tej samej geometrii kępki** (2 skrzyżowane quady),
+  więc dostają gratis wiatr, wtapianie na skraju dywanu i cienie chmur
+  (`makeBladeMaterial(mapa)` przyjmuje teraz teksturę).
+- **KWIATKI**: płatki w teksturze są BIAŁE, barwę daje `instanceColor` — jedna
+  tekstura robi białe, żółte, różowe i liliowe łany. Kolor losowany **per PLAMA
+  szumu** (`vnoise(x/33)`), nie per kwiatek → powstają pola jednego koloru jak
+  w Genshinie. Występowanie też z plamy (`vnoise(x/15) > 0.52`) — przy równym
+  rozsypaniu wyglądały jak posypka. Pierwsza wersja (4 małe kwiaty na kępkę)
+  była na ekranie **niewidoczna** — trzeba było 3 kwiatów z dużą główką
+  i kępki wyższej od dywanu trawy.
+- **WYSOKIE TRAWY**: suche łodygi z kłosem, tylko na płowych łąkach (`biome > 0.34`).
+- Wszystko rozsiewane w **JEDNYM przebiegu siatki** — komórka dostaje kwiatek
+  ALBO kłos ALBO zwykłą kępkę. Trzy osobne przebiegi po ~28 tys. komórek to
+  trzykrotny koszt tego samego. `vnoise` odpala się **po** tanich testach
+  (`r4 > 0.72 && b < 0.66`): 9.03 → 8.64 ms na przebudowę dywanu.
+- Zmierzone: 15-19 tys. trawy, 1.5-3.1 tys. kwiatów (zależnie od łanu), 160-780 kłosów.
 
 ## Monetyzacja (decyzja usera 8.08)
 - **Steam**: wersja płatna (bez reklam). Pakowanie: Electron albo natywny webview.
