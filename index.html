@@ -326,12 +326,15 @@
   </div>
   <div class="panel" id="p-dzwiek">
     <p>Muzyka rusza po pierwszym kliknięciu — tak wymagają przeglądarki.
-       W menu gra motyw główny, w biegu utwór losowany, przy bossie osobny kawałek.</p>
+       W menu gra motyw główny, w biegu utwór losowany, przy bossie osobny kawałek.
+       Efekty są generowane na żywo (nie ważą nic), więc bez obaw o pakiet.</p>
     <div id="sndBox">
       <div class="snd"><label id="etyMuz" for="volMuz">Muzyka</label>
         <input id="volMuz" type="range" min="0" max="100" step="1" value="55"><b id="volMuzV">55%</b></div>
-      <div class="snd"><label id="etyGlos" for="volGlos">Głosy i efekty</label>
+      <div class="snd"><label id="etyGlos" for="volGlos">Głosy postaci</label>
         <input id="volGlos" type="range" min="0" max="100" step="1" value="90"><b id="volGlosV">90%</b></div>
+      <div class="snd"><label id="etyEfe" for="volEfe">Efekty</label>
+        <input id="volEfe" type="range" min="0" max="100" step="1" value="70"><b id="volEfeV">70%</b></div>
       <button class="btn2" id="btnMute">WYCISZ WSZYSTKO</button>
     </div>
   </div>
@@ -368,6 +371,6 @@
   addEventListener('error', e => window.__err.push(String(e.message) + ' @ ' + (e.filename || '') + ':' + e.lineno));
   addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
 </script>
-<script type="module" src="main.js?v=52"></script>
+<script type="module" src="main.js?v=53"></script>
 </body>
 </html>

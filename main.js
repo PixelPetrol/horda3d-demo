@@ -2,7 +2,7 @@
 import * as THREE from './lib/three.module.js';
 import { SPRITEDATA } from './spritedata.js?v=5';
 import { icon, ico } from './icons.js?v=1';
-import { AUDIO } from './audio.js?v=1';            // muzyka wg fazy gry + kwestie głosowe
+import { AUDIO } from './audio.js?v=2';            // muzyka wg fazy gry + kwestie głosowe + efekty
 
 // ============================== USTAWIENIA ==============================
 const PX2U = 1 / 55;
@@ -1121,7 +1121,7 @@ function loadMeta() {
     chars: { carrotello: 1 }, lastChar: 'carrotello', lastMap: 'laki',
     st: { kills: 0, runs: 0, time: 0, best: 0, bestKills: 0, bosses: 0, coins: 0, chests: 0, lvl: 0 },
     bestiary: {},                                  // typ wroga -> ile razy zabity (bestiariusz)
-    audio: { muz: 0.55, glos: 0.9, mute: 0 },      // głośności i wyciszenie (zakładka Dźwięk)
+    audio: { muz: 0.55, glos: 0.9, efe: 0.7, mute: 0 },   // głośności i wyciszenie (zakładka Dźwięk)
   });
   try {
     const m = JSON.parse(localStorage.getItem(META_KEY)) || {};
@@ -1332,10 +1332,11 @@ const hasGlide = () => META.unlocked.glide || P.runGlide;
 let jumpHeld = false;                              // przytrzymanie = SZYBOWANIE
 function tryJump() {
   if (!G.running || G.paused) return;
-  if (!P.airborne) { P.vy = 8.2; P.airborne = true; }
+  if (!P.airborne) { P.vy = 8.2; P.airborne = true; AUDIO.sfx('skok'); }
   else if (hasDjump() && !P.usedDouble) {          // podwójny skok
     P.vy = 7.6; P.usedDouble = true;
     dmgPop(P.pos.x, P.y + 0.4, P.pos.z, 'HOP!', '#aaeeff', 1.1);
+    AUDIO.sfx('skok');
   }
 }
 addEventListener('keydown', e => {
@@ -1583,6 +1584,7 @@ function killEnemy(e, i) {
   G.streak = (G.time - G.streakT < 1.3) ? G.streak + 1 : 1;
   G.streakT = G.time;
   G.shake = Math.max(G.shake, Math.min(0.5, 0.06 + G.streak * 0.03));
+  AUDIO.sfx(e.T.boss ? 'bossdown' : 'kill', { seria: G.streak });   // ton rośnie z serią
   AUDIO.seria(G.streak);                           // przy dużej serii postać się odezwie (rzadko)
   if (e.T.boss) { dmgPop(e.pos.x, e.ty + 1.2, e.pos.z, 'BOSS DOWN!', '#ff5555', 2.6); META.st.bosses++; saveMeta();
     // muzyka bossa wraca do utworu z biegu dopiero, gdy padnie OSTATNI boss
@@ -1806,6 +1808,7 @@ const WEAPONS = {
         .sort((a, b) => a.d - b.d).slice(0, count);
       if (!targets.length) return;
       w.t = 1 / (1.15 * fireMul());
+      AUDIO.sfx('strzal');
       while (targets.length < count) targets.push(targets[targets.length - 1]);
       for (const { e } of targets) {
         const dir = e.pos.clone().sub(P.pos).setY(0).normalize();
@@ -1874,6 +1877,7 @@ const WEAPONS = {
       for (let b = 0; b < Math.ceil(w.lvl / 2); b++) {
         const e = alive[Math.floor(Math.random() * alive.length)];
         boltFx(e.pos.x, e.ty, e.pos.z);
+        AUDIO.sfx('piorun');
         const bd = 3 * dmgAll();
         e.hp -= bd;
         dmgPop(e.pos.x, e.ty + 0.4, e.pos.z, dmgNum(bd), '#e8f4ff', 1.2);
@@ -2548,6 +2552,7 @@ function spawnChests(n) {
   }
 }
 function chestReward(c) {
+  AUDIO.sfx('skrzynia');
   const roll = Math.random();
   if (roll < 0.14 && !hasDjump()) {   // 🦘🦘 PODWÓJNY SKOK (na ten bieg)
     P.runDjump = true;
@@ -2599,6 +2604,7 @@ function updateWeaponChest(dt) {
     wchest.mesh.visible = wchest.ring.visible = false;
     wchest.wait = 25 + Math.random() * 20;
     G.shake = Math.max(G.shake, 0.2);
+    AUDIO.sfx('zlota');
     novaRing(wchest.pos.x, wchest.pos.z, 3);
     META.st.chests++; saveMeta();
     if (P.weapons.length < 3) openNewWeapon(); else openSwap();
@@ -2669,6 +2675,7 @@ function novaRing(x, z, rMax) {
 }
 function nova(x, z, r, dmg) {
   novaRing(x, z, r);
+  AUDIO.sfx('wybuch');
   for (let j = G.enemies.length - 1; j >= 0; j--) {
     const e = G.enemies[j];
     if (e.dying) continue;
@@ -2697,6 +2704,7 @@ function update(dt) {
     G.tier = tr;
     document.getElementById('tier').innerHTML = ico('ostrzezenie', 14) + ' ZAGROŻENIE ' + tr;
     if (tr > 1) {
+      AUDIO.sfx('zagrozenie');
       toastBuff('POZIOM ZAGROŻENIA ' + tr + (dmgScale() > 1 ? ' — wrogowie biją mocniej!' : ''));
       setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2200);
       G.shake = Math.max(G.shake, 0.25);
@@ -2756,7 +2764,9 @@ function update(dt) {
     if (P.gliding) P.vy = Math.max(P.vy, -1.5);
     P.y += P.vy * dt;
     if (P.vy <= 0 && P.y <= ground) {                    // lądowanie
+      const mocno = P.vy < -4;                           // z byle stopnia nie ma co dudnić
       P.y = ground; P.vy = 0; P.airborne = false; P.usedDouble = false; P.gliding = false;
+      if (mocno) AUDIO.sfx('ladowanie');
       if (stompLvl() > 0) nova(P.pos.x, P.pos.z, stompRad(stompLvl()), stompDmg(stompLvl()));
     }
   } else {
@@ -2814,6 +2824,7 @@ function update(dt) {
     G.bossAt += 120;
     const ile = 1 + Math.floor(G.time / 300);
     for (let b = 0; b < ile; b++) spawnEnemy('boss');
+    AUDIO.sfx('boss');                                           // niski róg = „coś dużego weszło"
     AUDIO.bossOn();                                              // muzyka przełącza się na walkę z bossem
   }
 
@@ -2884,7 +2895,7 @@ function update(dt) {
       if (e.lont <= 0) {
         nova(e.pos.x, e.pos.z, 2.6, 0);                           // wybuch rani TYLKO gracza
         if (e.pos.distanceTo(P.pos) < 2.6 && P.iframes <= 0 && P.y - e.ty < 1.2) {
-          P.hp -= 1; P.iframes = 0.9; drawHearts(); G.shake = 0.4;
+          P.hp -= 1; P.iframes = 0.9; drawHearts(); G.shake = 0.4; AUDIO.sfx('hurt');
           if (P.hp <= 0) { startDeath(); }
         }
         dmgPop(e.pos.x, e.ty + 0.8, e.pos.z, 'BUM!', '#ff9d3f', 1.6);
@@ -2925,12 +2936,14 @@ function update(dt) {
       if (tarczaLvl > 0 && P.shieldCd <= 0) {           // 🛡️ tarcza zjada cios
         P.shieldCd = [30, 24, 18][tarczaLvl - 1];
         P.iframes = 0.9;
+        AUDIO.sfx('tarcza');
         toastBuff('TARCZA zablokowała cios!');
         setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 1500);
         novaRing(P.pos.x, P.pos.z, 2);
       } else {
         P.hp -= e.T.dmg * (e.T.boss ? 1 : dmgScale()); P.iframes = 0.9;
         drawHearts();
+        AUDIO.sfx('hurt');
         G.shake = 0.35;
         const v = document.getElementById('vign');
         v.style.opacity = 1; setTimeout(() => v.style.opacity = 0, 180);
@@ -2966,6 +2979,7 @@ function update(dt) {
         e.kb.copy(s.dir).multiplyScalar(crit ? 2.6 : 1.6);
         spark(e.pos.x, e.ty + 1.1, e.pos.z);
         dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), crit ? '#ff9d3f' : '#ffe066', crit ? 1.5 : 1);
+        AUDIO.sfx(crit ? 'kryt' : 'traf');
         if (P.evo.meteor) boomQ.push({ x: e.pos.x, z: e.pos.z, dmg: dmg * 0.6 });
         if (e.hp <= 0) killEnemy(e, j);
         if (s.pierce-- <= 0) { dead = true; break; }
@@ -3087,6 +3101,7 @@ function update(dt) {
       if (t.pos.distanceTo(P.pos) < 1.6) {
         const b = BUFFS[Math.floor(Math.random() * BUFFS.length)];
         G.buff = { key: b.key, t: b.dur };
+        AUDIO.sfx('totem');
         toastBuff(b.label);
         t.cd = 45;
         novaRing(t.pos.x, t.pos.z, 4);
@@ -3120,11 +3135,13 @@ function update(dt) {
     g.mesh.rotation.set(0, camYaw, g.t * 2);
     if (d < 0.7) {
       P.xp += g.val;
+      AUDIO.sfx('xp');
       scene.remove(g.mesh); G.gems.splice(i, 1);
       if (P.xp >= P.xpNeed) {
         P.xp -= P.xpNeed; P.lvl++;
         P.xpNeed = Math.round(5 + P.lvl * 3.2);
         document.getElementById('lvl').textContent = 'POZIOM ' + P.lvl;
+        AUDIO.sfx('awans');
         AUDIO.event('awans');
         showCards();
       }
@@ -3139,6 +3156,7 @@ function update(dt) {
     c.mesh.rotation.y = camYaw;
     if (d < 0.7) {
       G.runCoins++; drawCoins();
+      AUDIO.sfx('moneta');
       scene.remove(c.mesh); G.coins.splice(i, 1);
     }
   }
@@ -3151,6 +3169,7 @@ function update(dt) {
     h.mesh.rotation.y = camYaw;
     if (d < 0.8 && P.hp < P.maxHp) {
       P.hp++; drawHearts();
+      AUDIO.sfx('serce');
       dmgPop(P.pos.x, pTy + 0.6, P.pos.z, '+SERCE', '#ff8080', 1.4);
       scene.remove(h.mesh); G.hps.splice(i, 1);
     }
@@ -3206,6 +3225,7 @@ function startDeath() {
   if (G.dying) return;
   G.dying = true; G.deathT = 0;
   G.shake = 0.9;
+  AUDIO.sfx('koniec');
   document.getElementById('vign').style.opacity = 1;
   dmgPop(P.pos.x, P.y + 1.2, P.pos.z, 'KONIEC!', '#ff4a4a', 2.4);
   novaRing(P.pos.x, P.pos.z, 6);
@@ -3446,6 +3466,11 @@ if (loadTip) {
   await ladowanie('Otwieranie sklepu…');
   renderShop(); renderMaps(); renderChars(); renderStats(); renderBestiary(); renderPick();
   AUDIO.initUI();        // suwaki głośności w zakładce Dźwięk
+  // KLIK w UI: jeden delegat na cały dokument zamiast dopisywania dźwięku
+  // do każdego przycisku osobno (menu jest generowane w kilku miejscach).
+  addEventListener('pointerdown', ev => {
+    if (ev.target.closest && ev.target.closest('.tab,.tile,.card,.bigbtn,.btn2,#jumpBtn')) AUDIO.sfx('klik');
+  }, true);
   AUDIO.setPostac(charKey);
   AUDIO.menu();          // motyw główny — ruszy przy pierwszym kliknięciu (autoplay policy)
   fitCamera();

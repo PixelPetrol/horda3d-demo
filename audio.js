@@ -46,7 +46,7 @@ const SERIA_PRZERWA = 25;  // ...i nie częściej niż co tyle sekund
 
 const zegar = () => performance.now() / 1000;
 const clamp01 = v => Math.max(0, Math.min(1, v));
-const domyslne = () => ({ muz: 0.55, glos: 0.9, mute: 0 });
+const domyslne = () => ({ muz: 0.55, glos: 0.9, efe: 0.7, mute: 0 });
 
 const S = {
   meta: null, zapisz: () => {},
@@ -65,6 +65,7 @@ const S = {
 const cichoBo = () => !!S.ust.mute;
 const wzmMuz  = () => (cichoBo() ? 0 : clamp01(S.ust.muz));
 const wzmGlos = () => (cichoBo() ? 0 : clamp01(S.ust.glos));
+const wzmEfe  = () => (cichoBo() ? 0 : clamp01(S.ust.efe));
 
 // ============================== MUZYKA ==============================
 function utwor(sciezka) {
@@ -117,6 +118,8 @@ function odblokuj() {
   if (S.odblok) return;
   S.odblok = true;
   odpal();                                           // to, co czekało, rusza teraz
+  const c = ctx();                                   // AudioContext też startuje dopiero po geście
+  if (c && c.state === 'suspended') c.resume();
 }
 for (const ev of ['pointerdown', 'touchstart', 'mousedown', 'keydown'])
   addEventListener(ev, odblokuj, { once: true, passive: true });
@@ -149,14 +152,139 @@ function mow(zdarzenie, wazne = false) {
   return true;
 }
 
+// ============================== EFEKTY (SFX) — SYNTEZA, ZERO PLIKÓW ==============================
+// Dlaczego synteza, a nie próbki: paczka audio waży już ~14 MB, a efektów leci
+// kilkaset na minutę (trafienia przy 300 wrogach). Oscylator + obwiednia to kilka
+// bajtów kodu, brzmi pixelowo (chiptune) i pozwala MODULOWAĆ dźwięk parametrem —
+// np. „kill" rośnie w górę razem z serią zabójstw. Wszystko idzie przez jeden
+// wzmacniacz `magEfe`, więc suwak Efekty działa natychmiast.
+let AC = null, magEfe = null, szumBuf = null;
+let glosyAkt = 0;                  // ile źródeł aktualnie gra (limit poniżej)
+const GLOSY_CAP = 20;              // przy hordzie trzeba ciąć, inaczej dźwięk się zlewa w szum
+const ostSfx = {};                 // nazwa -> czas ostatniego odtworzenia (throttle)
+
+function ctx() {
+  if (AC) return AC;
+  const K = window.AudioContext || window.webkitAudioContext;
+  if (!K) return null;
+  AC = new K();
+  magEfe = AC.createGain();
+  magEfe.gain.value = wzmEfe();
+  magEfe.connect(AC.destination);
+  // 1 s białego szumu — baza wybuchów, trafień i uderzeń (jeden bufor na całą grę)
+  szumBuf = AC.createBuffer(1, AC.sampleRate, AC.sampleRate);
+  const d = szumBuf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  return AC;
+}
+const tAC = () => AC.currentTime;
+
+// obwiednia: cichy start → szczyt po `a` → wygaszenie przez `d` (exp, bez kliknięć)
+function obwiednia(g, t0, a, d, szczyt) {
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.linearRampToValueAtTime(szczyt, t0 + a);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + a + d);
+}
+function pilnuj(src, koniec) {                     // liczenie głosów + sprzątanie
+  glosyAkt++;
+  src.onended = () => { glosyAkt = Math.max(0, glosyAkt - 1); };
+  src.stop(koniec);
+}
+// TON: oscylator, opcjonalne zjechanie wysokości f → f2
+function ton({ f, f2 = null, typ = 'square', a = 0.004, d = 0.08, g = 0.2, op = 0 }) {
+  const t0 = tAC() + op;
+  const o = AC.createOscillator(), gn = AC.createGain();
+  o.type = typ;
+  o.frequency.setValueAtTime(f, t0);
+  if (f2 !== null) o.frequency.exponentialRampToValueAtTime(Math.max(20, f2), t0 + a + d);
+  obwiednia(gn, t0, a, d, g);
+  o.connect(gn); gn.connect(magEfe);
+  o.start(t0); pilnuj(o, t0 + a + d + 0.02);
+}
+// SZUM: biały szum przez filtr (bandpass = uderzenie, lowpass = wybuch, highpass = syk)
+function szum({ d = 0.15, g = 0.2, f = 900, f2 = null, typ = 'lowpass', q = 1, op = 0 }) {
+  const t0 = tAC() + op;
+  const s = AC.createBufferSource(), fl = AC.createBiquadFilter(), gn = AC.createGain();
+  s.buffer = szumBuf;
+  s.playbackRate.value = 0.8 + Math.random() * 0.4;      // lekka losowość = mniej „karabinu"
+  fl.type = typ; fl.Q.value = q;
+  fl.frequency.setValueAtTime(f, t0);
+  if (f2 !== null) fl.frequency.exponentialRampToValueAtTime(Math.max(40, f2), t0 + d);
+  obwiednia(gn, t0, 0.003, d, g);
+  s.connect(fl); fl.connect(gn); gn.connect(magEfe);
+  s.start(t0); pilnuj(s, t0 + d + 0.02);
+}
+const akord = (nuty, opc = {}) => nuty.forEach((f, i) => ton(Object.assign({ f, op: i * (opc.krok || 0.07) }, opc)));
+
+// gap = minimalna przerwa między powtórzeniami (throttle); wazny = wolno przekroczyć limit głosów
+const EFEKTY = {
+  // --- walka ---
+  traf:     { gap: 0.035, f: () => ton({ f: 520, f2: 230, d: 0.05, g: 0.12 }) },
+  kryt:     { gap: 0.05,  f: () => { ton({ f: 940, f2: 300, d: 0.09, g: 0.2 });
+                                     szum({ d: 0.07, g: 0.14, f: 2800, typ: 'highpass' }); } },
+  kill:     { gap: 0.04,  f: o => { const s = Math.min(o.seria || 1, 12);   // seria podnosi ton = dopamina
+                                    ton({ f: 170 + s * 28, f2: 70, typ: 'triangle', d: 0.13, g: 0.16 });
+                                    szum({ d: 0.09, g: 0.16, f: 1100 + s * 130, typ: 'bandpass', q: 1.4 }); } },
+  wybuch:   { gap: 0.06,  f: () => { szum({ d: 0.34, g: 0.26, f: 1600, f2: 90, typ: 'lowpass' });
+                                     ton({ f: 130, f2: 42, typ: 'sine', d: 0.3, g: 0.22 }); } },
+  piorun:   { gap: 0.08,  f: () => { szum({ d: 0.2, g: 0.22, f: 5200, f2: 700, typ: 'highpass' });
+                                     ton({ f: 1400, f2: 220, typ: 'sawtooth', d: 0.12, g: 0.12 }); } },
+  strzal:   { gap: 0.11,  f: () => ton({ f: 700, f2: 420, typ: 'triangle', d: 0.04, g: 0.05 }) },
+  bossdown: { gap: 0.5, wazny: 1, f: () => { szum({ d: 0.7, g: 0.3, f: 900, f2: 60, typ: 'lowpass' });
+                                     akord([220, 165, 110], { typ: 'sawtooth', d: 0.4, g: 0.16, krok: 0.1 }); } },
+  boss:     { gap: 1.0, wazny: 1, f: () => { ton({ f: 62, f2: 44, typ: 'sawtooth', d: 0.9, g: 0.2 });
+                                     ton({ f: 124, f2: 88, typ: 'square', d: 0.7, g: 0.09, op: 0.05 }); } },
+  // --- zbieranie i progresja ---
+  xp:       { gap: 0.03,  f: () => ton({ f: 1250, f2: 1600, typ: 'square', d: 0.045, g: 0.06 }) },
+  moneta:   { gap: 0.05,  f: () => { ton({ f: 990, d: 0.05, g: 0.11 });        // klasyczne dwie nutki
+                                     ton({ f: 1480, d: 0.13, g: 0.11, op: 0.055 }); } },
+  serce:    { gap: 0.2, wazny: 1, f: () => akord([523, 659, 784], { typ: 'triangle', d: 0.18, g: 0.14 }) },
+  awans:    { gap: 0.3, wazny: 1, f: () => akord([523, 659, 784, 1047], { typ: 'square', d: 0.2, g: 0.15, krok: 0.08 }) },
+  skrzynia: { gap: 0.25, wazny: 1, f: () => { szum({ d: 0.18, g: 0.14, f: 500, f2: 1800, typ: 'bandpass', q: 2 });
+                                     akord([392, 523, 659], { typ: 'triangle', d: 0.22, g: 0.14, krok: 0.09 }); } },
+  zlota:    { gap: 0.3, wazny: 1, f: () => akord([523, 784, 1047, 1319], { typ: 'square', d: 0.26, g: 0.16, krok: 0.09 }) },
+  totem:    { gap: 0.3, wazny: 1, f: () => { ton({ f: 300, f2: 1200, typ: 'sine', a: 0.08, d: 0.4, g: 0.16 });
+                                     ton({ f: 450, f2: 1800, typ: 'triangle', a: 0.1, d: 0.4, g: 0.08, op: 0.06 }); } },
+  // --- gracz ---
+  skok:     { gap: 0.06,  f: () => ton({ f: 320, f2: 700, typ: 'square', d: 0.09, g: 0.09 }) },
+  ladowanie:{ gap: 0.1,   f: () => { ton({ f: 120, f2: 55, typ: 'sine', d: 0.1, g: 0.14 });
+                                     szum({ d: 0.08, g: 0.1, f: 400, typ: 'lowpass' }); } },
+  hurt:     { gap: 0.25, wazny: 1, f: () => { ton({ f: 260, f2: 80, typ: 'sawtooth', d: 0.22, g: 0.24 });
+                                     szum({ d: 0.14, g: 0.18, f: 700, typ: 'bandpass', q: 0.8 }); } },
+  tarcza:   { gap: 0.25, wazny: 1, f: () => { ton({ f: 1700, f2: 900, typ: 'square', d: 0.22, g: 0.14 });
+                                     ton({ f: 1130, f2: 700, typ: 'triangle', d: 0.26, g: 0.1, op: 0.02 }); } },
+  koniec:   { gap: 1.0, wazny: 1, f: () => akord([392, 330, 262, 196], { typ: 'triangle', d: 0.45, g: 0.18, krok: 0.16 }) },
+  // --- ostrzeżenia i UI ---
+  zagrozenie:{ gap: 0.8, wazny: 1, f: () => { ton({ f: 740, d: 0.16, g: 0.14, typ: 'square' });
+                                     ton({ f: 560, d: 0.22, g: 0.14, typ: 'square', op: 0.19 }); } },
+  klik:     { gap: 0.04, wazny: 1, f: () => ton({ f: 880, f2: 1200, typ: 'square', d: 0.035, g: 0.09 }) },
+};
+
+function sfx(nazwa, opcje = {}) {
+  const e = EFEKTY[nazwa];
+  if (!e || !S.odblok || wzmEfe() <= 0) return false;
+  const t = zegar();
+  if (t - (ostSfx[nazwa] || -99) < (e.gap || 0)) return false;
+  if (!ctx()) return false;
+  if (AC.state === 'suspended') AC.resume();
+  if (glosyAkt > GLOSY_CAP && !e.wazny) return false;       // horda nie zagłuszy ważnych dźwięków
+  ostSfx[nazwa] = t;
+  try { e.f(opcje); } catch { return false; }
+  return true;
+}
+function stosujWzmEfe() { if (magEfe) magEfe.gain.value = wzmEfe(); }
+
 // ============================== USTAWIENIA W MENU ==============================
 function odswiezUI() {
   const m = document.getElementById('volMuz'), g = document.getElementById('volGlos');
+  const f = document.getElementById('volEfe');
   if (!m || !g) return;
   m.value = Math.round(S.ust.muz * 100);
   g.value = Math.round(S.ust.glos * 100);
   document.getElementById('volMuzV').textContent = m.value + '%';
   document.getElementById('volGlosV').textContent = g.value + '%';
+  if (f) { f.value = Math.round(S.ust.efe * 100); document.getElementById('volEfeV').textContent = f.value + '%'; }
+  stosujWzmEfe();
   const b = document.getElementById('btnMute');
   b.innerHTML = cichoBo() ? ico('cisza', 16) + ' WŁĄCZ DŹWIĘK' : ico('glosnik', 16) + ' WYCISZ WSZYSTKO';
   b.classList.toggle('sel', cichoBo());
@@ -166,8 +294,14 @@ function initUI() {
   const m = document.getElementById('volMuz'), g = document.getElementById('volGlos');
   if (!m || !g) return;
   const eMuz = document.getElementById('etyMuz'), eGlos = document.getElementById('etyGlos');
+  const eEfe = document.getElementById('etyEfe'), f = document.getElementById('volEfe');
   if (eMuz) eMuz.insertAdjacentHTML('afterbegin', ico('nuta', 16) + ' ');
   if (eGlos) eGlos.insertAdjacentHTML('afterbegin', ico('glosnik', 16) + ' ');
+  if (eEfe) eEfe.insertAdjacentHTML('afterbegin', ico('fala', 16) + ' ');
+  if (f) f.oninput = () => {
+    S.ust.efe = f.value / 100; S.ust.mute = 0; zapiszUst(); odswiezUI();
+    sfx('klik');                                  // od razu słychać, co się ustawia
+  };
   m.oninput = () => { S.ust.muz = m.value / 100; S.ust.mute = 0; zapiszUst(); odswiezUI(); };
   g.oninput = () => {
     S.ust.glos = g.value / 100; S.ust.mute = 0; zapiszUst(); odswiezUI();
@@ -225,6 +359,8 @@ export const AUDIO = {
   endRun() { this.menu(); },
   // ---- kwestie ----
   event(zdarzenie) { return mow(zdarzenie, zdarzenie === 'smierc'); },
+  // ---- efekty (syntezowane; nazwy w EFEKTY) ----
+  sfx,
   seria(n) {
     if (n < SERIA_PROG) return false;
     const teraz = zegar();
@@ -242,6 +378,10 @@ export const AUDIO = {
     return { odblok: S.odblok, biezacy: S.biezacy && S.biezacy.split('/').pop(),
              przedBossem: S.przedBossem && S.przedBossem.split('/').pop(),
              postac: S.postac, ust: Object.assign({}, S.ust), utwory: u };
+  },
+  _stanSfx() {
+    return { ac: AC ? AC.state : null, glosyAkt, cap: GLOSY_CAP, wzmEfe: wzmEfe(),
+             nazwy: Object.keys(EFEKTY), ostatnie: Object.assign({}, ostSfx) };
   },
   _tick: tick,
   _odblokuj: odblokuj,
