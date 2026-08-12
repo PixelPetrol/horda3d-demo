@@ -93,10 +93,9 @@ def klatki_rotacji(root: str):
     per_dir = {}
     for rot in znajdz_katalogi(root, 'rotations'):
         for d in DIRS:
-            for ext in ('.png',):
-                p = os.path.join(rot, d + ext)
-                if os.path.isfile(p) and d not in per_dir:
-                    per_dir[d] = [p]
+            p = os.path.join(rot, d + '.png')
+            if os.path.isfile(p) and d not in per_dir:
+                per_dir[d] = [p]
     return per_dir
 
 

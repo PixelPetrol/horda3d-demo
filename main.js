@@ -1,6 +1,6 @@
 // HORDA 3D v4 — teren 3D + kamera za plecami + meta-progresja (monety/sklep)
 import * as THREE from './lib/three.module.js';
-import { SPRITEDATA } from './spritedata.js?v=5';
+import { SPRITEDATA } from './spritedata.js?v=6';
 import { icon, ico } from './icons.js?v=1';
 import { AUDIO } from './audio.js?v=3';            // muzyka wg fazy gry + kwestie głosowe + efekty
 
@@ -42,6 +42,12 @@ const CHARS = {
   beetino:    { nm: 'Beetino Bouncerino', ds: 'Buraczino Betonino — czołg z bramki. Wolny, ale twardy.',
                 char: 'beetino_bouncerino', price: 0, killGoal: 450,
                 spd: 0.85, hp: 3, dmg: 1.1, mag: 0.9, scale: 1.32 },
+  // Statystyki wprost z biblii postaci (HP 110 · Speed 0.9 · Might 1.0 · Pickup 1.1).
+  // Postac DO KUPIENIA: przy nowej ekonomii 700 monet wypada na ~6. biegu, czyli
+  // dokladnie tam, gdzie mial byc drugi przystanek progresji.
+  granny:     { nm: 'Granny Smithella', ds: 'Babuszkina Jabłuszkina — wolna, twarda, zbiera szerzej.',
+                char: 'granny_smithella', price: 700,
+                spd: 0.9, hp: 1, dmg: 1.0, mag: 1.1, scale: 1.28 },
 };
 // portret postaci = pierwsza klatka jej arkusza (pixel art zamiast emoji)
 const portretCache = new Map();
@@ -1173,6 +1179,17 @@ class Billboard {
     this.shadow.scale.set(this.h * 0.5, 1, this.h * 0.3);
     scene.add(this.mesh); scene.add(this.shadow);
     this.play('idle');
+    // MATERIAŁ MUSI BYĆ OD RAZU. Mesh powstaje z `null`, a materiał dostaje
+    // dopiero w `update()` — jeśli cokolwiek zrenderuje scenę PRZED pierwszym
+    // update'em tego billboardu, three.js czyta `material.visible` z null
+    // i cała klatka leci wyjątkiem (WebGLRenderer.projectObject).
+    // Trafia to każdy byt tworzony w środku pętli, po której iterujemy od końca
+    // (np. mini-ziarna bomby kasetowej dopisywane na koniec `G.kury`).
+    const A0 = LIB[char].anims[this.anim];
+    if (A0) {
+      const d0 = A0.dirs.south || A0.dirs[Object.keys(A0.dirs)[0]];
+      if (d0 && d0.length) this.mesh.material = d0[0];
+    }
   }
   play(an, loop = true) {
     if (this.anim === an) return;
@@ -2461,16 +2478,19 @@ const WEAPONS = {
     },
   },
   kura: {
-    ico: 'kura', nm: 'Kura-kamikaze', ds: 'Kura biegnie do wroga i WYBUCHA', max: 5, locked: true,
-    lvlDs: l => `wybuch r=${(2.5 + 0.3 * l).toFixed(1)}, co ${(4.5 - 0.35 * l).toFixed(1)} s`,
+    ico: 'kura', nm: 'Kernello Boomello', ds: 'Ziarno kukurydzy biegnie do wroga i STRZELA', max: 5, locked: true,
+    lvlDs: l => `wybuch r=${(2.5 + 0.3 * l).toFixed(1)}, co ${(4.5 - 0.35 * l).toFixed(1)} s`
+      + (l === 5 ? ' (→ ewolucja!)' : ''),
+    evoKey: 'kaseta', evoIco: 'kura', evoNm: 'BOMBA KASETOWA',
+    evoDs: 'EWOLUCJA: wybuch rozsypuje 6 mniejszych ziaren, każde z własnym lontem',
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
       const alive = G.enemies.filter(e => !e.dying && e.pos.distanceTo(P.pos) < 16);
       if (!alive.length) return;
       w.t = 4.5 - 0.35 * w.lvl;
-      const bb = new Billboard('kura_braz', 1.3);
-      bb.play('walk');
+      const bb = new Billboard('kernello_boomello', 1.0);
+      bb.play('run');
       G.kury.push({ bb, pos: P.pos.clone(), t: 0, lvl: w.lvl });
     },
   },
@@ -3960,10 +3980,25 @@ function update(dt) {
       K.bb.facing = faceAngle(dir.x, dir.z);
     }
     K.bb.update(dt, K.pos, terrainH(K.pos.x, K.pos.z));
-    if ((near && nd < 1.0) || K.t > 4) {                  // BUM!
-      nova(K.pos.x, K.pos.z, 2.5 + 0.3 * K.lvl, (3 + 0.7 * K.lvl) * dmgAll());
-      dmgPop(K.pos.x, terrainH(K.pos.x, K.pos.z) + 0.6, K.pos.z, 'KO-KO-BUM!', '#ffd75e', 1.5);
-      G.shake = Math.max(G.shake, 0.15);
+    if ((near && nd < 1.0) || K.t > (K.mini ? 1.1 : 4)) {  // BUM! (mini mają krótszy lont)
+      const promien = (K.mini ? 1.5 : 2.5 + 0.3 * K.lvl);
+      const sila = (K.mini ? 1.6 : 3 + 0.7 * K.lvl) * dmgAll();
+      nova(K.pos.x, K.pos.z, promien, sila);
+      dmgPop(K.pos.x, terrainH(K.pos.x, K.pos.z) + 0.6, K.pos.z,
+             K.mini ? 'POP!' : 'POP-POP-BUM!', '#ffd75e', K.mini ? 1.0 : 1.6);
+      okruchy(K.pos.x, terrainH(K.pos.x, K.pos.z) + 0.5, K.pos.z, 0xf6e27a, K.mini ? 3 : 7);
+      G.shake = Math.max(G.shake, K.mini ? 0.08 : 0.2);
+      // BOMBA KASETOWA: z wybuchu wylatuje 6 mniejszych ziaren w wachlarzu,
+      // każde z własnym krótkim lontem — stąd druga fala popcornu
+      if (P.evo.kaseta && !K.mini) {
+        for (let n = 0; n < 6; n++) {
+          const a = (n / 6) * Math.PI * 2 + Math.random() * 0.4;
+          const bb2 = new Billboard('kernello_boomello', 0.62);
+          bb2.play('run');
+          G.kury.push({ bb: bb2, mini: true, lvl: K.lvl, t: 0,
+                        pos: K.pos.clone().add(new THREE.Vector3(Math.cos(a) * 1.6, 0, Math.sin(a) * 1.6)) });
+        }
+      }
       K.bb.dispose(); G.kury.splice(i, 1);
     }
   }
@@ -4461,12 +4496,18 @@ if (loadTip) {
   await ladowanie('Budzenie Carrotella…');
   await buildChar('carrotello_squattello', ['idle', 'run', 'jump']);
   await ladowanie('Beetino zakłada okulary…');
-  await buildChar('beetino_bouncerino', ['run', 'jump']);
+  await buildChar('beetino_bouncerino', ['idle', 'run', 'jump']);   // poprawka MA idle
+  await ladowanie('Babcia szuka kapcia…');
+  await buildChar('granny_smithella', ['idle', 'run', 'jump']);
+  await ladowanie('Pipsini wychodzi z jabłka…');
+  await buildChar('pipsini_nipotini', ['idle', 'run']);
   await ladowanie('Zwoływanie Famiglia Snackoni…');
   for (const w of ['chipsetti_soldatetti', 'marshmallini_fluffini', 'gummini_bouncini',
                    'friesetti_spearetti', 'sodino_explodino', 'lollini_spinnini']) {
     await buildChar(w, ['run']);
   }
+  // Kernello ma WLASNA animacje eksplozji — jedyny wrog z prawdziwym `death`
+  await buildChar('kernello_boomello', ['idle', 'run', 'death']);
   await ladowanie('Sadzenie krzaków…');
   await loadDecoMats();
   chunkMat = addCloudShadow(new THREE.MeshLambertMaterial({ map: grassTexC, vertexColors: true }));
