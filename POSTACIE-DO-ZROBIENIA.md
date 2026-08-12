@@ -74,6 +74,11 @@ Stat­ystyki tak, żeby każdy grał inaczej, a nie był „Carrotellem +10%".
 | **Cipollino Lacrimini** | cebula, ciągle płacze, chusteczka w kieszeni | kontrola: wrogowie w pobliżu wolniejsi (łzy gryzą w oczy) | spd 0.95, hp +2, dmg 0.8, mag 1.1, cena 350 |
 | **Aglietto Vampirini** | czosnek w peleryne, wielkie zęby | leczenie: co jakiś czas kradnie serce z zabójstwa | spd 1.0, hp 0, dmg 1.0, mag 1.2, cena 450 |
 
-Trzy pierwsze dają trzy różne style gry (tłum / szkło / kontrola) i tyle
-proponuję zrobić w pierwszej kolejności. Aglietto wymaga nowej mechaniki
-(kradzież życia), więc jest naturalnie ostatni.
+**DECYZJA USERA (12.08): robimy tylko BROCCOLINO RASTAFARINO.** Pozostali trzej
+zostają w zamrażarce jako pomysły — nie generować bez ponownego potwierdzenia.
+
+Kod bohatera powstanie **dopiero razem z arkuszem**: wpis w `CHARS` bez sprite'a
+wywala Billboard na `SPRITEDATA[char]`, więc nie dopisuję go „na zapas".
+Do zaprojektowania przy wdrożeniu: czym dokładnie jest jego aura — czy to
+darmowa Skarpeta biologiczna od 1. poziomu, czy osobny, słabszy efekt obszarowy,
+żeby nie zdublować istniejącej broni.
