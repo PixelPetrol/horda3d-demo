@@ -3052,7 +3052,13 @@ function updatePadajace(dt) {
     s.t += dt;
     if (s.t < 0) continue;                                        // czeka na swoją kolej (domino)
     const k = Math.min(1, s.t / PAD_T);
-    s.grupa.rotation.x = s.kier * (Math.PI / 2) * k * k;          // przyspiesza jak pod grawitacją
+    const kat = (Math.PI / 2) * k * k;                            // przyspiesza jak pod grawitacją
+    s.grupa.rotation.x = s.kier * kat;
+    // Pivot leży na posadzce, a korpus ma 1.6 j. głębokości liczonej OD ŚRODKA,
+    // więc sam obrót wkopywałby połowę regału pod podłogę. Podnosimy go w trakcie
+    // upadku, żeby leżał NA posadzce — i żeby szczyt (1.25) dało się przeskoczyć
+    // jednym skokiem (1.46 j.), bo to jest cały sens rumowiska.
+    s.grupa.position.y = s.g0 + 0.45 * Math.sin(kat);
     if (!s.zadal && k > 0.55) {                                   // moment uderzenia w podłogę
       s.zadal = true;
       const dmg = 6 * dmgAll() + 4;
@@ -3089,11 +3095,23 @@ function updatePadajace(dt) {
     }
     if (k >= 1) {
       s.stan = 'lezy';
-      // bryła kolizji z pionowej ściany (top 2.3) robi się RUMOWISKIEM (top 1.0),
-      // czyli przejściem, na które wskoczysz jednym skokiem (1.46 j.)
-      s.solid.z = s.pivotZ + s.kier * SHELF_H / 2;
-      s.solid.hl = SHELF_H / 2;
-      s.solid.top = s.g0 + 1.0;
+      // Bryła kolizji z pionowej ściany (top 2.3) robi się RUMOWISKIEM, na które
+      // wskoczysz jednym skokiem. Wymiary MUSZĄ zgadzać się z tym, co widać,
+      // inaczej przenika się przez deski: leżący regał sięga od pivotu na
+      // 2.46 j. (korpus 2.3 + blat 0.16), a blat jest szerszy od korpusu o 0.3.
+      s.solid.z = s.pivotZ + s.kier * 1.23;
+      s.solid.hl = 1.23;
+      s.solid.hw = s.len / 2 + 0.15;
+      s.solid.top = s.g0 + 1.25;
+      // KTO ZOSTAŁ POD REGAŁEM, LĄDUJE NA NIM. Bez tego stoi się WEWNĄTRZ świeżej
+      // bryły kolizji: przy parze regałów dwie bryły stoją stykiem, więc
+      // wypchnięcia z obu stron znoszą się i nie ma gdzie uciec — stąd przenikanie.
+      const wSrodku = (px, pz) => Math.abs(px - s.solid.x) < s.solid.hw + 0.4 &&
+                                  Math.abs(pz - s.solid.z) < s.solid.hl + 0.4;
+      if (wSrodku(P.pos.x, P.pos.z) && P.y < s.solid.top) {
+        P.y = s.solid.top; P.vy = 0; P.airborne = false; P.usedDouble = false;
+      }
+      for (const e of G.enemies) if (!e.dying && wSrodku(e.pos.x, e.pos.z) && e.ty < s.solid.top) e.ty = s.solid.top;
       G.padajace.splice(i, 1);
     }
   }
