@@ -1561,6 +1561,11 @@ const hasWeapon = k => P.weapons.find(w => w.key === k);
 
 // ============================== WEJŚCIE ==============================
 const keys = {};
+// Utrata fokusa gubiła `keyup`, więc trzymany klawisz zostawał wciśnięty
+// na zawsze — po powrocie do gry postać sama jechała w skos. Czyścimy wszystko.
+const puscWszystko = () => { for (const k in keys) keys[k] = false; jumpHeld = false; };
+addEventListener('blur', puscWszystko);
+addEventListener('visibilitychange', () => { if (document.hidden) puscWszystko(); });
 const hasDjump = () => META.unlocked.djump || P.runDjump;
 const hasGlide = () => META.unlocked.glide || P.runGlide;
 let jumpHeld = false;                              // przytrzymanie = SZYBOWANIE
@@ -1804,7 +1809,8 @@ function spawnEnemy(type, angle = null, przy = null) {
 }
 
 function killEnemy(e, i) {
-  G.kills++;
+  if (e.dying) return;                             // strażnik: drugie wywołanie na tym
+  G.kills++;                                       // samym wrogu powtarzało drop i podział
   document.getElementById('kills').innerHTML = ico('czaszka', 15) + ' ' + G.kills;
   // ---- BESTIARIUSZ: licznik zabitych per typ (zostaje na stałe w META) ----
   const pierwszyRaz = !META.bestiary[e.type];
@@ -3070,7 +3076,11 @@ function novaRing(x, z, rMax) {
 function nova(x, z, r, dmg) {
   novaRing(x, z, r);
   AUDIO.sfx('wybuch');
-  przewrocRegaly(x, z, r + 1.2);                 // w markecie fala kładzie regały
+  // Regały kładą tylko DUŻE fale. Zmierzone: bez tego gate'a Kule Meteoryczne
+  // (nova r=1.8 na KAŻDE trafienie pocisku, czyli co pół sekundy) czyściły całą
+  // arenę do zera w 100 s — a to nie jest decyzja gracza, tylko efekt uboczny.
+  // Zostaje Tupnięcie (3.7+) i kura od 2. poziomu; odpadają meteor, butelka, Sodino.
+  if (r >= 3.0) przewrocRegaly(x, z, r + 1.2);
   for (let j = G.enemies.length - 1; j >= 0; j--) {
     const e = G.enemies[j];
     if (e.dying) continue;
@@ -3091,6 +3101,8 @@ function nova(x, z, r, dmg) {
 // i zostawia rumowisko, na które da się WSKOCZYĆ — a przewracając się, popycha
 // sąsiednie regały, więc jedno tupnięcie może pójść jak domino przez pół alejki.
 const PAD_T = 0.5;                               // czas upadku
+const RESTOCK_T = 22;                            // po tylu sekundach regał wstaje (poza kadrem)
+let restockT = 0;
 function przewrocRegaly(x, z, r, opoznienie = 0) {
   if (!MAPS[mapKey].indoor) return 0;
   let ile = 0;
@@ -3112,6 +3124,30 @@ function przewrocRegaly(x, z, r, opoznienie = 0) {
   }
   return ile;
 }
+// RESTOCK: obsługa sklepu stawia regał z powrotem. Bez tego arena, w której
+// gracz stoi, zostaje płaska tak długo, jak długo w niej stoi — czyli późna gra
+// w markecie jest ŁATWIEJSZA niż wczesna, odwrotnie niż powinno być.
+// Stawiamy tylko POZA KADREM (>22 j.), żeby regał nie wyrósł graczowi w twarz.
+function updateRestock(dt) {
+  restockT -= dt;
+  if (restockT > 0) return;
+  restockT = 0.5;                                // pełny przegląd 2× na sekundę, nie co klatkę
+  for (const [, ch] of chunkMap) {
+    if (!ch.shelves) continue;
+    for (const s of ch.shelves) {
+      if (s.stan !== 'lezy') continue;
+      s.tLezy = (s.tLezy || 0) + 0.5;
+      if (s.tLezy < RESTOCK_T) continue;
+      if (Math.hypot(s.x - P.pos.x, s.z - P.pos.z) < 22) continue;
+      s.stan = 'stoi'; s.t = 0; s.zadal = false; s.tLezy = 0;
+      s.grupa.rotation.x = 0;
+      s.grupa.position.y = s.g0;
+      if (s.schowane) { for (const m of s.schowane) m.visible = true; s.schowane = null; }
+      s.solid.z = s.z; s.solid.hl = 1.1; s.solid.hw = s.len / 2;
+      s.solid.top = s.g0 + SHELF_H + 0.16;
+    }
+  }
+}
 function updatePadajace(dt) {
   for (let i = G.padajace.length - 1; i >= 0; i--) {
     const s = G.padajace[i];
@@ -3121,14 +3157,21 @@ function updatePadajace(dt) {
     const k = Math.min(1, s.t / PAD_T);
     const kat = (Math.PI / 2) * k * k;                            // przyspiesza jak pod grawitacją
     s.grupa.rotation.x = s.kier * kat;
-    // Pivot leży na posadzce, a korpus ma 1.6 j. głębokości liczonej OD ŚRODKA,
-    // więc sam obrót wkopywałby połowę regału pod podłogę. Podnosimy go w trakcie
-    // upadku, żeby leżał NA posadzce — i żeby szczyt (1.25) dało się przeskoczyć
-    // jednym skokiem (1.46 j.), bo to jest cały sens rumowiska.
-    s.grupa.position.y = s.g0 + 0.45 * Math.sin(kat);
+    // ŻADNEGO PODNOSZENIA GRUPY. Pivot siedzi na KRAWĘDZI podstawy, a dzieci są
+    // odsunięte o -kier*0.8, więc korpus leży w lokalnym Z od -1.6 do 0 i po
+    // obrocie ląduje w Y od 0 do 1.6 — cały NAD posadzką. Wcześniejsze
+    // podnoszenie o 0.45 sprawiało, że wrak lewitował, a gracz stał 0.8 j.
+    // pod płaszczyzną desek (wystawały mu tylko liście).
     if (!s.zadal && k > 0.55) {                                   // moment uderzenia w podłogę
       s.zadal = true;
-      const dmg = 6 * dmgAll() + 4;
+      // Obrażenia PRZYCZEPIONE DO CZASU BIEGU, nie do buildu. Zmierzone: przy
+      // `6*dmgAll()+4` regał dawał stale 12-20 obrażeń, a HP szeregowego rośnie
+      // 4.8 → 15.8 → 37.5 (1/5/10 min), więc od 4. minuty przestawał kogokolwiek
+      // zabijać — dokładnie wtedy, gdy market jest najbardziej zapchany.
+      // Regał to element mapy, a nie broń: jego siła nie ma zależeć od tego,
+      // jaką broń ma gracz. 8 × hpScale() = zawsze 2.7 szeregowego, nigdy elita.
+      const dmg = 8 * hpScale();
+      let przygnieceni = 0;
       for (let j = G.enemies.length - 1; j >= 0; j--) {
         const e = G.enemies[j];
         if (e.dying) continue;
@@ -3138,7 +3181,15 @@ function updatePadajace(dt) {
         e.hp -= dmg;
         e.kb.set(0, 0, s.kier * 3);
         dmgPop(e.pos.x, e.ty + 0.6, e.pos.z, dmgNum(dmg), '#ffd75e', 1.5);
+        przygnieceni++;
         if (e.hp <= 0) killEnemy(e, j);
+      }
+      // NAGRODA za dobre ustawienie regału — bez niej przewrócenie nie dawało
+      // graczowi nic mierzalnego poza hałasem
+      if (przygnieceni >= 3) {
+        dmgPop(s.x, s.g0 + 2.2, s.pivotZ, 'ROZWALKA x' + przygnieceni, '#ffd75e', 2.2);
+        G.coins.push(makeCoin(s.x, s.pivotZ + s.kier * 1.2, 3));
+        G.hitstop = Math.max(G.hitstop, 0.06);
       }
       // gracz też dostanie, jeśli stoi w linii upadku — regały nie wybierają
       if (Math.abs(P.pos.x - s.x) < s.len / 2 + 0.6 && P.iframes <= 0 && !P.airborne) {
@@ -3162,14 +3213,24 @@ function updatePadajace(dt) {
     }
     if (k >= 1) {
       s.stan = 'lezy';
-      // Bryła kolizji z pionowej ściany (top 2.3) robi się RUMOWISKIEM, na które
-      // wskoczysz jednym skokiem. Wymiary MUSZĄ zgadzać się z tym, co widać,
-      // inaczej przenika się przez deski: leżący regał sięga od pivotu na
-      // 2.46 j. (korpus 2.3 + blat 0.16), a blat jest szerszy od korpusu o 0.3.
+      s.tLezy = 0;
+      // Dwie półki po obrocie STAJĄ PIONOWO i wystają na 2.15 j. — leżący regał
+      // wyglądał przez to jak drabina, a nie jak wrak. Chowamy je; zostaje korpus
+      // (płaszczyzna 1.6) i blat, który robi się ładnym progiem na końcu.
+      if (!s.schowane) {
+        s.schowane = [];
+        for (const dz of s.grupa.children) {
+          if (dz.scale.y < 0.2 && dz.position.z * s.kier < -1.0) { dz.visible = false; s.schowane.push(dz); }
+        }
+      }
+      // Bryła kolizji z pionowej ściany (top 2.46) robi się RUMOWISKIEM, na które
+      // wskoczysz jednym skokiem. Szczyt MUSI zgadzać się z płaszczyzną korpusu
+      // (1.6), inaczej stoi się w powietrzu albo po pas w deskach. 1.55 = ledwo
+      // pod deskami, a apeks skoku (1.461) + tolerancja 0.25 nadal łapie wejście.
       s.solid.z = s.pivotZ + s.kier * 1.23;
       s.solid.hl = 1.23;
       s.solid.hw = s.len / 2 + 0.15;
-      s.solid.top = s.g0 + 1.25;
+      s.solid.top = s.g0 + 1.55;
       // KTO ZOSTAŁ POD REGAŁEM, LĄDUJE NA NIM. Bez tego stoi się WEWNĄTRZ świeżej
       // bryły kolizji: przy parze regałów dwie bryły stoją stykiem, więc
       // wypchnięcia z obu stron znoszą się i nie ma gdzie uciec — stąd przenikanie.
@@ -3418,8 +3479,12 @@ function update(dt) {
       e.vy -= 22 * dt;
       e.ty += e.vy * dt;
       if (e.vy < 0 && e.ty <= eGround) { e.ty = eGround; e.vy = 0; }
-    } else if (blockTop > e.ty + 0.1 && P.y > e.ty + 0.6) {
-      // przeszkoda + gracz wyżej: podskocz (niska) albo mozolnie się wspinaj (wysoka)
+    } else if (blockTop > e.ty + 0.1 && (P.y > e.ty + 0.6 || blockTop - e.ty < 1.7)) {
+      // Przeszkoda: gracz wyżej ALBO przeszkoda niska (rumowisko po regale).
+      // Zmierzone: bez drugiego warunku 20 wrogów przez 30 s ani razu nie przeszło
+      // przez leżący regał i nie obeszło stojącego — stali wciśnięci w deskę,
+      // bo silnik nie ma omijania przeszkód. Teraz przewrócony regał JEST przejściem
+      // (dla nich mozolnym: 0.95 j./s wspinaczki), a nie ścianą na zawsze.
       if (blockTop - e.ty < 1.5 && e.jumpCd <= 0) { e.vy = 6.6; e.jumpCd = 1.6; }
       else { e.ty = Math.min(blockTop + 0.06, e.ty + 0.95 * dt); e.climbing = true; }
     } else if (e.T.skacze) {
@@ -3621,6 +3686,7 @@ function update(dt) {
 
   updateWeaponChest(dt);
   if (G.padajace.length) updatePadajace(dt);
+  if (MAPS[mapKey].indoor) updateRestock(dt);
 
   // ---- totemy ----
   for (const t of totems) {
@@ -3905,7 +3971,9 @@ function loop() {
   if (G.running && !G.paused) {
     try { update(dt); } catch (err) { console.error(err); }
   }
-  renderer.render(scene, camera);
+  // render TEŻ w try/catch: wyjątek stąd leciałby co klatkę, obraz by zamarzł,
+  // a symulacja szłaby dalej — najgorszy możliwy rodzaj awarii
+  try { renderer.render(scene, camera); } catch (err) { console.error(err); }
 }
 
 // ============================== START ==============================
