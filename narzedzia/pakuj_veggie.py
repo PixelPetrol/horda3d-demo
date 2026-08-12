@@ -21,6 +21,7 @@ DIRS = ['south', 'south-east', 'east', 'north-east',
         'north', 'north-west', 'west', 'south-west']
 
 # nazwa katalogu animacji w zipie -> nazwa używana w silniku + fps
+# (stara struktura eksportu PixelLaba: krótkie, przewidywalne nazwy — dopasowanie dokładne)
 ANIM_MAP = {
     'Idle': ('idle', 6),
     'Running': ('run', 12),
@@ -30,6 +31,41 @@ ANIM_MAP = {
     'Death': ('death', 10),
 }
 
+# Nowsze paczki PixelLaba nazywają katalogi animacji z promptu, więc nazwy są długie
+# i CZĘSTO OBCIĘTE (np. 'pixel_art_explosion_animation_sprite_sheet_horizon' bez
+# '..tal_strip'). Dlatego dopasowujemy po fragmencie nazwy. Kolejność ma znaczenie —
+# pierwszy trafiony wzorzec wygrywa, a fragmenty są coraz krótsze, żeby przetrwać obcięcie.
+ANIM_WZORCE = [
+    ('explosion', ('death', 12)),
+    ('explod', ('death', 12)),          # 'explode'/'exploding'/obcięte 'explos'
+    ('death', ('death', 10)),
+    ('dying', ('death', 10)),
+    ('attack', ('punch', 14)),
+    ('punch', ('punch', 14)),
+    ('jump', ('jump', 14)),
+    ('sprint', ('run', 12)),            # 'Full_Sprint'
+    ('running', ('run', 12)),
+    ('run', ('run', 12)),
+    ('walk', ('walk', 10)),
+    ('idle', ('idle', 6)),              # 'Breathing_Idle', 'idle_breathing'
+    ('breath', ('idle', 6)),
+    ('animation_sprite_sheet', ('idle', 6)),   # bazowa animacja z promptu
+    ('animation_sprite', ('idle', 6)),
+    ('sprite_sheet', ('idle', 6)),
+    ('sprite_she', ('idle', 6)),
+]
+
+
+def rozpoznaj_anim(nazwa_katalogu: str):
+    """Katalog animacji -> (nazwa w silniku, fps) albo None."""
+    if nazwa_katalogu in ANIM_MAP:            # stara struktura — bez zmian
+        return ANIM_MAP[nazwa_katalogu]
+    n = nazwa_katalogu.lower()
+    for frag, wynik in ANIM_WZORCE:
+        if frag in n:
+            return wynik
+    return None
+
 
 def klucz(nazwa: str) -> str:
     """Nazwa pliku zip -> klucz w SPRITEDATA (małe litery, podkreślenia)."""
@@ -38,50 +74,114 @@ def klucz(nazwa: str) -> str:
     return re.sub(r'[^a-z0-9_]', '', n)
 
 
-def znajdz_anim_root(root: str):
-    """Zwraca katalog zawierający podkatalog 'animations' (zipy mają go zagnieżdżonego)."""
+def znajdz_katalogi(root: str, nazwa: str):
+    """Wszystkie katalogi o danej nazwie ('animations' / 'rotations') w rozpakowanym zipie.
+
+    Stara struktura: <cokolwiek>/animations/<Anim>/<kierunek>/*.png
+    Nowa struktura:  <Poza>/animations/<Anim>/<kierunek>/*.png + <Poza>/rotations/<kierunek>.png
+    Oba przypadki obsługuje ten sam spacer po drzewie.
+    """
+    znalezione = []
     for base, dirs, _ in os.walk(root):
-        if 'animations' in dirs:
-            return os.path.join(base, 'animations')
-    return None
+        if nazwa in dirs:
+            znalezione.append(os.path.join(base, nazwa))
+    return sorted(znalezione)
+
+
+def klatki_rotacji(root: str):
+    """kierunek -> [pojedyncza klatka] z katalogów 'rotations' (nowe paczki)."""
+    per_dir = {}
+    for rot in znajdz_katalogi(root, 'rotations'):
+        for d in DIRS:
+            for ext in ('.png',):
+                p = os.path.join(rot, d + ext)
+                if os.path.isfile(p) and d not in per_dir:
+                    per_dir[d] = [p]
+    return per_dir
 
 
 def pakuj(zip_path: str, out_dir: str):
     key = klucz(zip_path)
+    ostrzezenia = []
     tmp = tempfile.mkdtemp()
     try:
         with zipfile.ZipFile(zip_path) as z:
             z.extractall(tmp)
-        anim_root = znajdz_anim_root(tmp)
-        if not anim_root:
-            print(f'  ! {key}: brak katalogu animations — pomijam')
+        anim_rooty = znajdz_katalogi(tmp, 'animations')
+        rotacje = klatki_rotacji(tmp)
+        if not anim_rooty and not rotacje:
+            print(f'  ! {key}: brak katalogu animations/rotations — pomijam')
             return None
 
         # zbierz: anim -> dir -> [ścieżki klatek]
         zebrane = {}
-        for anim_dir in sorted(os.listdir(anim_root)):
-            if anim_dir not in ANIM_MAP:
-                continue
-            nazwa, fps = ANIM_MAP[anim_dir]
-            per_dir = {}
-            for d in DIRS:
-                p = os.path.join(anim_root, anim_dir, d)
-                if not os.path.isdir(p):
+        for anim_root in anim_rooty:
+            for anim_dir in sorted(os.listdir(anim_root)):
+                if not os.path.isdir(os.path.join(anim_root, anim_dir)):
                     continue
-                klatki = sorted(f for f in os.listdir(p) if f.endswith('.png'))
-                if klatki:
-                    per_dir[d] = [os.path.join(p, f) for f in klatki]
-            if per_dir:
+                rozpoznane = rozpoznaj_anim(anim_dir)
+                if not rozpoznane:
+                    ostrzezenia.append(f'nierozpoznana animacja "{anim_dir}" — pominięta')
+                    continue
+                nazwa, fps = rozpoznane
+                per_dir = {}
+                for d in DIRS:
+                    p = os.path.join(anim_root, anim_dir, d)
+                    if not os.path.isdir(p):
+                        continue
+                    klatki = sorted(f for f in os.listdir(p) if f.endswith('.png'))
+                    if klatki:
+                        per_dir[d] = [os.path.join(p, f) for f in klatki]
+                if not per_dir:
+                    continue
+                if nazwa in zebrane:
+                    # dwa katalogi mapują się na tę samą animację silnika — wygrywa
+                    # bogatszy wariant (więcej kierunków, potem więcej klatek)
+                    stary = zebrane[nazwa][1]
+                    lepszy = (len(per_dir), max(len(v) for v in per_dir.values())) > \
+                             (len(stary), max(len(v) for v in stary.values()))
+                    ostrzezenia.append(
+                        f'"{anim_dir}" też mapuje się na {nazwa} — '
+                        f'{"nadpisuję poprzedni wariant" if lepszy else "pomijam (uboższy)"}')
+                    if not lepszy:
+                        continue
                 zebrane[nazwa] = (fps, per_dir)
+
+        # idle: uzupełnij brakujące kierunki pojedynczymi klatkami z 'rotations'
+        # (nowe paczki mają tam pełne 8 kierunków pozy bazowej)
+        if rotacje:
+            if 'idle' not in zebrane:
+                zebrane['idle'] = (6, dict(rotacje))
+                ostrzezenia.append('brak animacji idle — zbudowano 1-klatkowe idle z rotations')
+            else:
+                braki = [d for d in DIRS if d not in zebrane['idle'][1] and d in rotacje]
+                if braki:
+                    for d in braki:
+                        zebrane['idle'][1][d] = rotacje[d]
+                    ostrzezenia.append(
+                        f'idle nie miało kierunków {braki} — dopełnione klatkami z rotations')
 
         if not zebrane:
             print(f'  ! {key}: brak rozpoznanych animacji')
             return None
 
-        # rozmiar klatki z pierwszego pliku
-        pierwsza = next(iter(next(iter(zebrane.values()))[1].values()))[0]
-        with Image.open(pierwsza) as im:
-            size = im.width
+        # rozmiar klatki: dominująca szerokość (klatki o innym rozmiarze odrzucamy,
+        # bo arkusz ma sztywną siatkę size×size)
+        rozmiary = {}
+        for _, per_dir in zebrane.values():
+            for klatki in per_dir.values():
+                for kl in klatki:
+                    with Image.open(kl) as im:
+                        rozmiary[im.width] = rozmiary.get(im.width, 0) + 1
+        size = max(rozmiary, key=rozmiary.get)
+        if len(rozmiary) > 1:
+            ostrzezenia.append(f'niejednolite rozmiary klatek {rozmiary} — biorę {size}px')
+            def pasuje(kl):
+                with Image.open(kl) as im:
+                    return im.width == size
+            for _, per_dir in zebrane.values():
+                for d in list(per_dir):
+                    per_dir[d] = [kl for kl in per_dir[d] if pasuje(kl)] or per_dir[d]
 
         # policz wiersze i maksymalną liczbę klatek
         wiersze = []            # (anim, dir, [klatki])
@@ -101,6 +201,20 @@ def pakuj(zip_path: str, out_dir: str):
             meta['frames'][d] = len(klatki)
             meta['rows'][d] = r
 
+        # silnik przy braku kierunku spada na 'south' (main.js: DIR_ROWS[idx] in A.dirs
+        # ? ... : 'south'), więc animacja bez 'south' wywaliłaby grę. Aliasujemy
+        # 'south' na jedyny/pierwszy dostępny kierunek — bez dodatkowych pikseli w arkuszu.
+        for anim, meta in anims_meta.items():
+            if 'south' not in meta['rows']:
+                zrodlowy = next(iter(meta['rows']))
+                meta['rows']['south'] = meta['rows'][zrodlowy]
+                meta['frames']['south'] = meta['frames'][zrodlowy]
+                ostrzezenia.append(
+                    f'{anim}: brak kierunku south — alias south→{zrodlowy} (fallback silnika)')
+            braki = [d for d in DIRS if d not in meta['rows']]
+            if braki:
+                ostrzezenia.append(f'{anim}: brak kierunków {braki} (silnik pokaże south)')
+
         os.makedirs(out_dir, exist_ok=True)
         plik = f'{key}.png'
         sciezka = os.path.join(out_dir, plik)
@@ -119,8 +233,12 @@ def pakuj(zip_path: str, out_dir: str):
             'anims': anims_meta,
         }
         kb = os.path.getsize(sciezka) // 1024
+        opis = ', '.join(f'{a}@{m["fps"]}fps×{max(m["frames"].values())}kl/{len(m["frames"])}kier'
+                         for a, m in anims_meta.items())
         print(f'  + {key}: {len(wiersze)} wierszy, {maks_klatek} klatek, '
-              f'{size}px, {kb} kB, anim: {", ".join(anims_meta)}')
+              f'{size}px, {kb} kB, anim: {opis}')
+        for o in ostrzezenia:
+            print(f'      ! {o}')
         return key, wpis
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -136,10 +254,20 @@ def main():
                 out = pakuj(os.path.join(base, f), cel)
                 if out:
                     wyniki[out[0]] = out[1]
-    print(json.dumps(wyniki, ensure_ascii=False)[:200] + '...')
-    with open(os.path.join(cel, '_spritedata_veggie.json'), 'w', encoding='utf-8') as fh:
-        json.dump(wyniki, fh, ensure_ascii=False, indent=1)
-    print(f'\nZapakowano {len(wyniki)} postaci → {cel}')
+
+    # scalamy z istniejącym indeksem — pakowanie pojedynczej paczki nie może zgubić
+    # wpisów postaci zapakowanych wcześniej
+    plik_json = os.path.join(cel, '_spritedata_veggie.json')
+    scalone = {}
+    if os.path.isfile(plik_json):
+        with open(plik_json, encoding='utf-8') as fh:
+            scalone = json.load(fh)
+    nowe = [k for k in wyniki if k not in scalone]
+    scalone.update(wyniki)
+    with open(plik_json, 'w', encoding='utf-8') as fh:
+        json.dump(scalone, fh, ensure_ascii=False, indent=1)
+    print(f'\nZapakowano {len(wyniki)} postaci ({len(nowe)} nowych: {", ".join(nowe) or "-"}) '
+          f'→ {cel}; indeks ma {len(scalone)} wpisów')
 
 
 if __name__ == '__main__':

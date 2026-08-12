@@ -43,6 +43,10 @@
   #xpwrap{position:absolute;top:0;left:0;right:0;height:14px;background:rgba(0,0,0,.55)}
   #xpbar{height:100%;width:0%;background:linear-gradient(90deg,#7ee787,#3fb950);transition:width .15s}
   #lvl{position:absolute;top:18px;left:10px;font-weight:800;font-size:14px;text-shadow:0 2px 4px #000}
+  /* RANGA W BIEGU: zabijanie samo podnosi obrażenia — pasek pod poziomem */
+  #ranga{position:absolute;top:36px;left:10px;font-weight:800;font-size:12px;color:#ffd75e;text-shadow:0 2px 4px #000}
+  #rangawrap{position:absolute;top:52px;left:10px;width:92px;height:7px;background:rgba(0,0,0,.55)}
+  #rangabar{height:100%;width:0%;background:repeating-linear-gradient(90deg,#f5a623 0 5px,#ffc451 5px 10px)}
   #timer{position:absolute;top:20px;left:50%;transform:translateX(-50%);font-weight:800;font-size:21px;text-shadow:0 2px 4px #000}
   #kills{position:absolute;top:18px;right:12px;font-weight:800;font-size:14px;text-shadow:0 2px 4px #000}
   #coins{position:absolute;top:38px;right:12px;font-weight:800;font-size:14px;color:#ffd75e;text-shadow:0 2px 4px #000}
@@ -286,6 +290,8 @@
 <div id="hud">
   <div id="xpwrap"><div id="xpbar"></div></div>
   <div id="lvl">POZIOM 1</div>
+  <div id="ranga">RANGA 0</div>
+  <div id="rangawrap"><div id="rangabar"></div></div>
   <div id="timer">0:00</div>
   <div id="kills"></div>
   <div id="coins"></div>
@@ -386,6 +392,6 @@
   addEventListener('error', e => window.__err.push(String(e.message) + ' @ ' + (e.filename || '') + ':' + e.lineno));
   addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
 </script>
-<script type="module" src="main.js?v=74"></script>
+<script type="module" src="main.js?v=76"></script>
 </body>
 </html>

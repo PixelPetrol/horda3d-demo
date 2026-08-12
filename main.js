@@ -1536,6 +1536,7 @@ function renderShop() {
 const G = {
   running: false, over: false, paused: false,
   time: 0, kills: 0, runCoins: 0, zebrane: 0,
+  ranga: 0, rangaKille: 0,               // ranga w biegu (zabijanie = sila)
   enemies: [], gems: [], coins: [], shots: [], orbs: [], sparks: [], rings: [],
   lobs: [], boomers: [], bolts: [], pops: [], hps: [], kury: [], okruchy: [], puffs: [],
   padajace: [],                                    // regały w trakcie przewracania (market)
@@ -1564,8 +1565,33 @@ function resetStats() {
   });
 }
 // ---- statystyki pochodne (meta + pasywy + buffy) ----
-const dmgAll  = () => CHARS[charKey].dmg * (1 + 0.10 * META.up.dmg) * Math.pow(1.15, P.passives.moc || 0) * (G.buff.key === 'dmg' ? 2 : 1);
-const fireMul = () => Math.pow(1.12, P.passives.tempo || 0);
+// ============================== RANGA W BIEGU ==============================
+// HP wrogow rosnie KWADRATOWO (`hpScale`), a sila gracza dotad rosla tylko
+// kartami, ktore wypadaja coraz rzadziej (kazdy poziom wymaga wiecej XP).
+// Ranga zamyka te luke: samo zabijanie podnosi obrazenia, wiec agresywna gra
+// nadaza za krzywa trudnosci. Prog rosnie liniowo, wiec ranga nie ucieka w gore.
+const RANGA_CAP = 40;
+const rangaProg = r => 20 + 14 * r;               // ile zabojstw do NASTEPNEJ rangi
+const rangaDmg = () => 1 + 0.05 * G.ranga;        // +5% obrazen za range
+const rangaFire = () => 1 + 0.04 * Math.floor(G.ranga / 4);   // co 4. ranga tez +4% tempa
+function sprawdzRange() {
+  while (G.ranga < RANGA_CAP && G.rangaKille >= rangaProg(G.ranga)) {
+    G.rangaKille -= rangaProg(G.ranga);
+    G.ranga++;
+    AUDIO.sfx('awans');
+    dmgPop(P.pos.x, P.y + 2.0, P.pos.z, 'RANGA ' + G.ranga, '#ffd75e', 1.8);
+    if (G.ranga % 4 === 0) toastBuff('RANGA ' + G.ranga + ' — obrażenia +' + Math.round((rangaDmg() - 1) * 100) + '%, tempo +' + Math.round((rangaFire() - 1) * 100) + '%');
+  }
+  const el = document.getElementById('ranga');
+  if (el) {
+    el.innerHTML = ico('czaszka', 13) + ' RANGA ' + G.ranga;
+    const b = document.getElementById('rangabar');
+    if (b) b.style.width = (G.ranga >= RANGA_CAP ? 100 : G.rangaKille / rangaProg(G.ranga) * 100) + '%';
+  }
+}
+
+const dmgAll  = () => CHARS[charKey].dmg * (1 + 0.10 * META.up.dmg) * Math.pow(1.15, P.passives.moc || 0) * (G.buff.key === 'dmg' ? 2 : 1) * rangaDmg();
+const fireMul = () => Math.pow(1.12, P.passives.tempo || 0) * rangaFire();
 const critC   = () => 0.10 * (P.passives.krytyk || 0);
 const rangeF  = () => 14 * Math.pow(1.2, P.passives.zasieg || 0);
 const magnetF = () => CHARS[charKey].mag * 2.6 * (1 + 0.20 * META.up.magnes) * Math.pow(1.35, P.passives.magnes || 0);
@@ -1841,6 +1867,8 @@ function killEnemy(e, i) {
   // do menu z pauzy kasowało cały bieg, a na tym liczniku wisi odblokowanie postaci.
   META.st.kills++;
   sprawdzOdblokowaniaPostaci();
+  G.rangaKille++;
+  sprawdzRange();
   // KILL + combo (kille w oknie 1.3 s nabijają serię)
   G.streak = (G.time - G.streakT < 1.3) ? G.streak + 1 : 1;
   G.streakT = G.time;
@@ -1902,10 +1930,13 @@ const shotMat = new THREE.MeshBasicMaterial({ color: 0xffe066 });
 const sparkGeo = new THREE.SphereGeometry(0.3, 6, 6);
 const sparkMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true });
 
-let boneMatCache = null, boneAspect = 1;
+// XP zbiera sie jako PIGULKI (glosy Carrotella i tak mowia o witaminach),
+// a bron na lince to CZOSNEK — dwa osobne sprite'y, bo dotad oba szly z bone.png
+let pigulkaMat = null, pigulkaAspect = 1;
+let czosnekMat = null, czosnekAspect = 1;
 function makeGem(x, z, val) {
-  const m = new THREE.Mesh(unitGeo, boneMatCache);
-  m.scale.set(0.55 * boneAspect, 0.55, 1);
+  const m = new THREE.Mesh(unitGeo, pigulkaMat);
+  m.scale.set(0.5 * pigulkaAspect, 0.5, 1);
   m.position.set(x, terrainH(x, z) + 0.1, z);
   scene.add(m);
   return { mesh: m, pos: new THREE.Vector3(x, 0, z), val, t: Math.random() * 6 };
@@ -2011,6 +2042,75 @@ function puff(x, y, z, kol, skala = 1) {
   G.puffs.push({ mesh: m, t: 0, skala });
 }
 
+// ============================== PLAMY NA ZIEMI (ślad po rzezi) ==============================
+// Dowód, że gracz TU BYŁ i co tu zrobił. Przy 500 wrogach nie da się dodawać
+// mesha na każdą śmierć, więc pula 48 kwadratów krąży w kółko: najstarsza plama
+// jest przejmowana przez nowego trupa. Zero alokacji w trakcie biegu.
+const PLAM_MAX = 48;
+let plamaGeo = null, plamaMat = null, plamy = [], plamaIdx = 0;
+function plamaTexture() {
+  const S = 64;
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  // nieregularny placek + kilka kropel obok
+  g.fillStyle = '#ffffff';
+  g.beginPath();
+  for (let a = 0; a <= Math.PI * 2 + 0.01; a += Math.PI / 9) {
+    const r = S * (0.26 + Math.random() * 0.14);
+    const x = S / 2 + Math.cos(a) * r, y = S / 2 + Math.sin(a) * r * 0.85;
+    a === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+  }
+  g.closePath(); g.fill();
+  for (let i = 0; i < 7; i++) {
+    const a = Math.random() * Math.PI * 2, d = S * (0.3 + Math.random() * 0.16);
+    const r = 1.5 + Math.random() * 3.5;
+    g.beginPath();
+    g.arc(S / 2 + Math.cos(a) * d, S / 2 + Math.sin(a) * d * 0.85, r, 0, Math.PI * 2);
+    g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  return t;
+}
+function splat(x, z, kol, skala) {
+  if (!plamaGeo) {
+    plamaGeo = new THREE.PlaneGeometry(1, 1);
+    plamaGeo.rotateX(-Math.PI / 2);
+    plamaMat = new THREE.MeshBasicMaterial({ map: plamaTexture(), transparent: true,
+      depthWrite: false, opacity: 0.75 });
+  }
+  let p = plamy[plamaIdx];
+  if (!p) {
+    // materiał klonowany per plama: każda ma swój kolor i własne gaśnięcie
+    const m = new THREE.Mesh(plamaGeo, plamaMat.clone());
+    m.renderOrder = 1;
+    scene.add(m);
+    p = { mesh: m, t: 0 };
+    plamy[plamaIdx] = p;
+  }
+  plamaIdx = (plamaIdx + 1) % PLAM_MAX;
+  p.t = 0;
+  p.mesh.material.color.setHex(kol);
+  p.mesh.material.opacity = 0.75;
+  p.mesh.visible = true;
+  p.mesh.scale.set(skala, 1, skala * 0.9);
+  p.mesh.rotation.y = Math.random() * Math.PI * 2;
+  p.mesh.position.set(x, terrainH(x, z) + 0.035, z);
+}
+function updatePlamy(dt) {
+  for (const p of plamy) {
+    if (!p || !p.mesh.visible) continue;
+    p.t += dt;
+    if (p.t > 6) {                                 // gaśnie przez 2 s po 6 s leżenia
+      const k = (p.t - 6) / 2;
+      p.mesh.material.opacity = Math.max(0, 0.75 * (1 - k));
+      if (k >= 1) p.mesh.visible = false;
+    }
+  }
+}
+
 // ============================== PROCEDURALNA ŚMIERĆ WROGA ==============================
 // Snackoni nie mają arkusza `death` (patrz POSTACIE-DO-ZROBIENIA.md), a znikanie
 // pstryknięciem zabijało całą satysfakcję z zabójstwa. Zamiast czekać na grafikę:
@@ -2055,9 +2155,18 @@ function startRozpad(e) {
   }
   const kol = e.T.okrKol || 0xffffff;
   const duzy = e.T.boss || e.elite;
+  // WYBUCH SKALOWANY DO WROGA: szeregowy pyka, gruby robi hukiem. Przy 500 wrogach
+  // pierścień na każdą śmierć byłby kaszą, więc dostają go tylko duzi i wirujący.
+  const gruby = duzy || e.T.scale >= 1.2;
   okruchy(e.pos.x, e.ty + e.bb.h * 0.45, e.pos.z, kol,
-          e.T.boss ? 12 : (e.T.dzieli && !e.mini ? 7 : 4));
-  puff(e.pos.x, e.ty + e.bb.h * 0.5, e.pos.z, kol, e.bb.h * (duzy ? 1.5 : 0.9));
+          e.T.boss ? 16 : (gruby ? 10 : (e.T.dzieli && !e.mini ? 8 : 6)));
+  puff(e.pos.x, e.ty + e.bb.h * 0.5, e.pos.z, kol, e.bb.h * (duzy ? 1.9 : 1.15));
+  splat(e.pos.x, e.pos.z, kol, e.bb.h * (duzy ? 1.5 : 0.85));    // ślad zostaje na ziemi
+  if (gruby) {
+    novaRing(e.pos.x, e.pos.z, e.T.boss ? 4.5 : (duzy ? 2.6 : 1.6));
+    AUDIO.sfx('wybuch');
+    G.shake = Math.max(G.shake, e.T.boss ? 0.55 : 0.22);
+  }
   if (e.T.dzieli && !e.mini) novaRing(e.pos.x, e.pos.z, 1.3);   // widoczne PĘKNIĘCIE na dwa
   if (duzy) G.hitstop = Math.max(G.hitstop, e.T.boss ? 0.12 : 0.05);  // ciężar dużego zabójstwa
 }
@@ -2489,8 +2598,8 @@ const linkaGeo = new THREE.PlaneGeometry(1, 1);
 linkaGeo.rotateX(-Math.PI / 2);
 function nowyCzosnek(idx) {
   if (!linkaMat) linkaMat = new THREE.MeshBasicMaterial({ map: linkaTexture(), side: THREE.DoubleSide });
-  const m = new THREE.Mesh(unitGeo, boneMatCache);
-  m.scale.set(0.8 * boneAspect, 0.8, 1);
+  const m = new THREE.Mesh(unitGeo, czosnekMat);
+  m.scale.set(0.8 * czosnekAspect, 0.8, 1);
   scene.add(m);
   const pkt = [];
   for (let i = 0; i <= LINKA_SEG; i++) {
@@ -2586,7 +2695,7 @@ function updateCzosnki(dt, lvl) {
     o.mesh.position.set(czubek.x, anchorY + Math.sin(G.time * 5 + k) * 0.06, czubek.z);
     o.mesh.rotation.set(0, camYaw, -o.kat * 1.6);       // czosnek wiruje wokół własnej osi
     const skala = evo ? 1.2 : 0.8;
-    if (Math.abs(o.mesh.scale.y - skala) > 0.01) o.mesh.scale.set(skala * boneAspect, skala, 1);
+    if (Math.abs(o.mesh.scale.y - skala) > 0.01) o.mesh.scale.set(skala * czosnekAspect, skala, 1);
     for (let i = 0; i < o.segi.length; i++) {
       const a = pkt[i], b = pkt[i + 1], s = o.segi[i];
       const dx = b.x - a.x, dz = b.z - a.z;
@@ -3924,6 +4033,7 @@ function update(dt) {
   if (G.padajace.length) updatePadajace(dt);
   if (MAPS[mapKey].indoor) updateRestock(dt);
   if (G.turrets.length) updateTurrets(dt);
+  if (plamy.length) updatePlamy(dt);
 
   // ---- totemy ----
   for (const t of totems) {
@@ -4237,6 +4347,7 @@ function clearWorld() {
   for (const o of G.okruchy) scene.remove(o.mesh);
   for (const p of G.puffs) { scene.remove(p.mesh); p.mesh.material.dispose(); }
   for (const t of G.turrets) scene.remove(t.mesh);
+  for (const pl of plamy) if (pl) pl.mesh.visible = false;
   G.enemies = []; G.gems = []; G.coins = []; G.shots = []; G.orbs = []; G.sparks = []; G.rings = [];
   G.lobs = []; G.boomers = []; G.bolts = []; G.pops = []; G.hps = []; G.kury = []; G.okruchy = [];
   G.puffs = []; G.hitstop = 0; G.padajace = []; G.turrets = [];
@@ -4250,7 +4361,7 @@ function clearWorld() {
 function newGame() {
   clearWorld();
   resetStats();
-  Object.assign(G, { running: true, over: false, paused: false, dying: false, deathT: 0, time: 0, kills: 0, runCoins: 0, zebrane: 0, spawnT: 0.5, bossAt: 120, ringAt: 60, tier: 0, shake: 0 });
+  Object.assign(G, { running: true, over: false, paused: false, dying: false, deathT: 0, time: 0, kills: 0, runCoins: 0, zebrane: 0, ranga: 0, rangaKille: 0, spawnT: 0.5, bossAt: 120, ringAt: 60, tier: 0, shake: 0 });
   P.pos.set(0, 0, 0);
   P.y = terrainH(0, 0);
   wchest.active = false; wchest.wait = 8;
@@ -4320,9 +4431,11 @@ if (loadTip) {
 }
 
 (async function boot() {
-  await ladowanie('Rozpakowywanie kości…');
-  const bone = await flatMat('assets/bone.png');
-  boneMatCache = bone.mat; boneAspect = bone.w / bone.h;
+  await ladowanie('Wysypywanie witamin…');
+  const pig = await flatMat('assets/pigulka.png');
+  pigulkaMat = pig.mat; pigulkaAspect = pig.w / pig.h;
+  const czo = await flatMat('assets/czosnek.png');
+  czosnekMat = czo.mat; czosnekAspect = czo.w / czo.h;
   coinMat = new THREE.MeshBasicMaterial({ map: coinTexture(), transparent: true, depthWrite: false });
   ringMat = new THREE.MeshBasicMaterial({ map: ringTexture('rgba(255,235,150,0.95)'), transparent: true, depthWrite: false });
   eliteRingMat = new THREE.MeshBasicMaterial({ map: ringTexture('rgba(255,200,40,0.9)'), transparent: true, depthWrite: false });
