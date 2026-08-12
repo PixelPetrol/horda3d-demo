@@ -415,6 +415,121 @@ piana malowana z pozycji w świecie), forum three.js „Unlit water shader with 
 4. ~~Encyklopedia/bestiariusz~~ ✅ 10.08 (zakładka Bestiariusz, wpis po 1. zabiciu).
 5. Dalej: gradient nieba, miękkie cienie pod obiektami, toon-shading terenu.
 
+## ═══════════ STAN NA 12.08.2026 (22 commity w jeden dzień) ═══════════
+> Wszystko wypchnięte na `origin` i `play`. Demo: https://pixelpetrol.github.io/horda3d-demo/
+
+### OBSADA: 4 GRYWALNE POSTACIE, każda z INNĄ startową bronią (`CHARS[...].startWpn`)
+| postać | odblokowanie | staty | startowa broń |
+|---|---|---|---|
+| Carrotello Squattello | od startu | spd 1.15, mag 1.3 | 🟡 Kule energii |
+| Beetino Bouncerino | **450 zabójstw** (nie monety!) | spd 0.85, +3 serca | 💢 WYPAD! (stożek 60°, ogromny odrzut) |
+| Radishetta Razoretta | 500 monet | spd 1.2, −1 serce, dmg 1.25 | 🔪 SCYZORYKI (seria 3-7 rzutów w linii) |
+| Granny Smithella | 700 monet | spd 0.9, +1 serce, mag 1.1 | 🥿 LA CIABATTA (kapeć wraca, bije 2×) |
+
+Progi ustalone z właścicielem: **pierwsza dodatkowa postać na 3. biegu, druga na 6.**
+Zmierzona ścieżka: bieg 1 ≈ 60 zabójstw, bieg 2 ≈ 150, bieg 3 ≈ 250.
+`killGoal` sprawdzany w `killEnemy` (nie w `gameOver`!) → toast W TRAKCIE biegu,
+kamienie milowe co `killGoal/3`.
+
+### NOWE BRONIE I ICH MECHANIKI
+- **Czosnek na lince** (dawna kość orbitalna): linka = 5 segmentów VERLETEM,
+  czosnek to masa na końcu → zostaje z tyłu przy zmianie kierunku. Trafienie
+  szarpie czubkiem i **dławi napęd** (zmierzone: 0.045 → 0.022 rad/klatkę).
+  Sama linka odpycha wrogów i przy tym się wygina. Ewolucja CZOSNKOWY MŁYN.
+- **Pipsini Nipotini** (320🪙): TOWARZYSZ, nie pocisk. Goni wroga w promieniu
+  7.5 j., wraca do nogi gracza, co ~1.2 s sadzi KIEŁEK tłukący w promieniu 1.4 j.
+  Spirala co 12 s jako umiejętność specjalna. Ewolucja JABŁOŃ (kiełki ×2).
+  Zmierzone: dobiega do wroga 6 j. w sekundę, 36 obrażeń w 6 s.
+- **Sokowirówka** (280🪙): stawiana WIEŻYCZKA-PRZYNĘTA. Wyższa od wrogów (2.1 j.),
+  ma HP i **pasek życia**, wrogowie ją tłuką, po rozwaleniu wybucha.
+  ZWABIA w promieniu 9.5 j., ale **gracz jest ważniejszy**: wieżyczka przejmuje
+  wroga tylko gdy `dystans_do_niej × 1.7 < dystans_do_gracza`.
+- **Kernello Boomello** (dawna kura): ziarno kukurydzy z WŁASNĄ animacją eksplozji
+  (jedyny byt z prawdziwym `death`). Ewolucja **BOMBA KASETOWA**: wybuch rozsypuje
+  6 mini-ziaren z krótszym lontem.
+
+### EKONOMIA I PROGRESJA (spec projektanta, oparta na pomiarach)
+- Moneta ma WARTOŚĆ (`makeCoin(x,z,val)`): szeregowy 1, elita 4, boss 10.
+  Drop szeregowego 9% → **16%**; elita 2 monety → 1 warta 4; boss 12 → 3 warte 10.
+  Powód: zmierzony rozkład dochodu pokazał, że zabijanie hordy dawało tylko **14%**
+  monet (elity 34%, skrzynie 20%) — najmniej płaciła czynność gracza.
+- **MNOŻNIK ZA SERIĘ**: seria 12+ = monety ×2, 30+ = ×3.
+- **RANGA W BIEGU**: +5% obrażeń za rangę, co 4. ranga +4% tempa, próg `20+14r`,
+  cap **150**. Zamyka lukę wobec `hpScale` (rośnie kwadratowo). Zmierzone:
+  1604 zabójstwa (dobry bieg 5 min) = ranga 14 = +70% obrażeń.
+- Ceny w sklepie **+10% za KAŻDY dotychczasowy zakup** (u VS 91% pełnego kosztu
+  maksowania to sam narzut skalowania). Bazy podniesione: serce 80, siła 60,
+  kondycja 60, magnes 50.
+- **KLĄTWA NONNY** (120🪙, max 5): +10% HP wrogów i gęstszy spawn za +20% monet.
+  Wentyl na „wykupiłem wszystko".
+- **FIX WYCIEKU**: `META.st.kills` rósł tylko w `gameOver()`, a `btnQuit` kończył
+  bieg bez tego → wyjście do menu KASOWAŁO zabójstwa i monety całego biegu.
+  Rozliczenie wydzielone do `rozliczBieg()` i wołane z obu ścieżek.
+
+### DOPAMINA
+- **Pierwszych 6 skrzyń jest wyreżyserowanych** (mała, mała, MAGNES, mała, mała,
+  PODWÓJNY SKOK) — chwyt z Vampire Survivors (sekwencja 1-1-3-1-1-5). Licznik
+  `META.st.skrzynki`.
+- **Pierwsza przegrana = Piorun na stałe** (Brotato daje za to postać).
+- **Ceremonia końca biegu**: liczby lecą tickerem 900 ms z dźwiękiem co 55 ms,
+  pieczątka rekordu, deszcz 28 monet. PUŁAPKA: ticker chodzi na rAF (dławiony bez
+  fokusa) → jest twarde domknięcie przez `setTimeout`, inaczej ekran zostawał z ZERAMI.
+- **Śmierć wroga**: biały błysk 0.09 s, pixelowy dissolve w shaderze, puff, okruchy,
+  PLAMA NA ZIEMI (pula 48 kwadratów krążących w kółko), wybuch skalowany do wroga
+  (pierścień tylko dla grubych — przy 500 wrogach na każdą śmierć to kasza),
+  hitstop 0.05/0.12 s dla elity/bossa.
+- 22 syntezowane SFX w `audio.js` (WebAudio, ZERO plików: paczka audio ma już 14 MB).
+  Throttle per dźwięk + limit 20 głosów. Muzyka domyślnie **15%**.
+
+### WYDAJNOŚĆ (po audycie)
+- **REGAŁY NA INSTANCJACH**: 852 regały × 6 bryłek = 5100 mesh'y i 610 draw calli.
+  Teraz bryłki scalone (`scalBryly`) i wystawione jako 3 InstancedMesh na chunk
+  (`ustawRegal` zapisuje obrót w macierzy). **Render marketu 11.7 → 2.3 ms**,
+  mesh'e 6285 → 1539.
+- `popCache` (liczby obrażeń) rósł BEZ GRANIC: zmierzone 2470 tekstur i ZERO
+  usunięć po 4:43 gry = ~140 MB VRAM w 4 minuty. Teraz LRU na 200 wpisów.
+- Próg przebudowy trawy 1.2 → **6 j.** (kosztuje 9.6 ms, a przy 7.1 j./s wypadał
+  SZEŚĆ RAZY NA SEKUNDĘ).
+- Cień słońca **wyłączony w markecie** (żaden obiekt tam nie ma `castShadow`).
+- Porzucone dropy znikają po 45/60 s (leżało ich 299 na ziemi po 4:43).
+
+### BŁĘDY ZNALEZIONE I ZAMKNIĘTE — WARTO PAMIĘTAĆ
+1. **`Billboard` powstaje z `material = null`** i dostaje materiał w `update()`.
+   Każdy byt tworzony w środku pętli iterowanej OD KOŃCA (mini-ziarna dopisywane
+   na koniec `G.kury`) nie dostawał update'u w swojej pierwszej klatce → render
+   leciał `Cannot read properties of null (reading 'visible')` w `projectObject`.
+   Konstruktor ustawia teraz pierwszą klatkę od razu.
+2. **`rangeF()` zwraca wartość ABSOLUTNĄ** (`14 * 1.2^poziom`), nie mnożnik.
+   Pomnożenie przez nią dało wieżyczce zasięg 182 j., a lince czosnku 29 j.
+   Zawsze dzielić przez bazę 14.
+3. **`footOff` MUSI być liczony z alfy** (`dolnaKrawedz`), bo packer wpisuje tam
+   zero na sztywno — przepakowany Beetino zaczął lewitować.
+4. **Przesunięcie `footY` trzeba skrócić o `cos(pochylenia)`** — było liczone dla
+   pionowego billboardu, więc po pochyleniu stopy schodziły pod posadzkę
+   (na Łąkach zasłaniała to trawa, w markecie ucinało nogi).
+5. **`drawHearts` z `repeat(maxHp - hp)`** wywalał klatkę przy HP ponad maksimum.
+6. Boss NIE skalował się wcale: w 20. minucie 90 HP przy szeregowym 108.
+
+### CO ZOSTAŁO (kolejność ustalona z właścicielem)
+1. **SEKCJE MARKETU** (w robocie): mrożonki = cała podłoga śliska, alkohole =
+   tłuczone szkło rani, piekarnia = mąka obcina widoczność, kasy = bramki + ALARM
+   z elitarną Ochroną. Plus WÓZKI SKLEPOWE do pchania i rozjeżdżania hordy.
+2. **Wygląd** (punkt 5 starej listy): gradient nieba, miękkie cienie pod obiektami,
+   toon-shading terenu. Agent padł na błędzie 529, do powtórzenia.
+3. **Oprawa bossa**: pasek HP z imieniem, wejście z przyciemnieniem.
+4. **Wydarzenie „Dostawa Nonny"**: paleta do obrony przez 45 s, wrogowie zmieniają
+   cel na nią — dopiero to nadaje wieżyczkom i przewróconym regałom sens jako lejowi.
+5. **Instancing WROGÓW** (atlas klatek zamiast mesha per wróg) — ostatni duży
+   pożeracz przy 500 wrogach.
+6. **Braki w grafice** (`POSTACIE-DO-ZROBIENIA.md`): Don Chipso bez własnego
+   arkusza, eksplozja Kernella tylko z jednego kierunku, Snackoni bez animacji
+   `death` (właściciel: „nie będzie na ten moment" — proceduralna śmierć zostaje).
+7. Z audytu, niezrobione: kolejka overlayów (skrzynia + awans w jednej klatce =
+   gra chodzi pod niewidzialną blokadą wejścia), kilka awansów w jednej klatce
+   gubi karty, 6 broni bez ewolucji, przycisk pauzy nachodzi na HUD w pionie,
+   `touch-action` na przewijanych panelach, martwy kod (karty liści, stara trawa,
+   `kura_braz`, `bone.png`) ~200 linii do usunięcia.
+
 ## ═══════════ VEGGIE FAMIGLIA: OBSADA I REBRAND (10.08) ═══════════
 - **Bohaterowie (2)**: 👦 Carrotello Squattello (starter, szybki, magnes ×1.3) ·
   Beetino Bouncerino (250🪙, czołg: +3 serca, wolniejszy, własny motyw muzyczny).
