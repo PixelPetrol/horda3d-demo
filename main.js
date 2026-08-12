@@ -1,6 +1,6 @@
 // HORDA 3D v4 — teren 3D + kamera za plecami + meta-progresja (monety/sklep)
 import * as THREE from './lib/three.module.js';
-import { SPRITEDATA } from './spritedata.js?v=6';
+import { SPRITEDATA } from './spritedata.js?v=7';
 import { icon, ico } from './icons.js?v=2';
 import { AUDIO } from './audio.js?v=4';            // muzyka wg fazy gry + kwestie głosowe + efekty
 
@@ -45,6 +45,11 @@ const CHARS = {
   // Statystyki wprost z biblii postaci (HP 110 · Speed 0.9 · Might 1.0 · Pickup 1.1).
   // Postac DO KUPIENIA: przy nowej ekonomii 700 monet wypada na ~6. biegu, czyli
   // dokladnie tam, gdzie mial byc drugi przystanek progresji.
+  // Radishetta Razoretta — szybka i krucha: seria scyzorykow przed siebie.
+  // Cena 500: ma wpasc miedzy Beetina (450 zabojstw) a Granny (700 monet).
+  razoretta:  { nm: 'Radishetta Razoretta', ds: 'Rzodkiewka z piornikiem — seria scyzorykow, ale cienka skora.',
+                char: 'radishetta_razoretta', price: 500, startWpn: 'scyzoryk',
+                spd: 1.2, hp: -1, dmg: 1.25, mag: 1.0, scale: 1.2 },
   granny:     { nm: 'Granny Smithella', ds: 'Babuszkina Jabłuszkina — kapeć wraca jak bumerang.',
                 char: 'granny_smithella', price: 700, startWpn: 'ciabatta',
                 spd: 0.9, hp: 1, dmg: 1.0, mag: 1.1, scale: 1.28 },
@@ -394,6 +399,69 @@ function shelfTexture() {
 }
 let shelfMat = null, coolerMat = null;   // tworzone w boot
 const shelfGeo = new THREE.BoxGeometry(1, 1, 1);
+// Sześć osobnych bryłek na regał (a regałów jest ~850) dawało 5100 mesh'y
+// i 610 draw calli tylko na market — pomiar audytu: 4.73 ms renderu przy PUSTEJ
+// arenie i wzrost do 6.44 ms po ZMNIEJSZENIU okna, czyli koszt siedzi w liczbie
+// obiektów, nie w pikselach. Scalamy więc bryłki w jedną geometrię i wystawiamy
+// je jako INSTANCJE per chunk: 3 draw calle na chunk zamiast 3 na regał.
+// Geometrię budujemy dla kier = +1; kier = -1 to ta sama bryła obrócona o 180°.
+function scalBryly(bryly) {
+  const poz = [], nor = [], uv = [], idx = [];
+  for (const b of bryly) {
+    const g = new THREE.BoxGeometry(b.sx, b.sy, b.sz);
+    g.translate(0, b.ly, b.lz);
+    const p = g.attributes.position, n = g.attributes.normal, u = g.attributes.uv, ind = g.index;
+    const off = poz.length / 3;
+    for (let i = 0; i < p.count; i++) {
+      poz.push(p.getX(i), p.getY(i), p.getZ(i));
+      nor.push(n.getX(i), n.getY(i), n.getZ(i));
+      uv.push(u.getX(i), u.getY(i));
+    }
+    for (let i = 0; i < ind.count; i++) idx.push(ind.getX(i) + off);
+    g.dispose();
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(poz, 3));
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  out.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  out.setIndex(idx);
+  return out;
+}
+let regalGeo = null;          // { korpus, polkiDol, polkiGora }
+function initRegalGeo() {
+  const len = 7, O = -0.8;                        // O = przesunięcie względem pivotu (krawędź podstawy)
+  regalGeo = {
+    korpus: scalBryly([{ sx: len, sy: SHELF_H, sz: 1.6, ly: SHELF_H / 2, lz: O }]),
+    // dolne półki + blat: to, co zostaje widoczne po przewróceniu
+    polkiDol: scalBryly([
+      { sx: len, sy: 0.14, sz: 0.6, ly: 0.8, lz: 1.05 + O },
+      { sx: len, sy: 0.14, sz: 0.6, ly: 1.6, lz: 1.05 + O },
+      { sx: len + 0.3, sy: 0.16, sz: 2.1, ly: SHELF_H + 0.08, lz: O },
+    ]),
+    // te dwie po obrocie STAJĄ PIONOWO i wystają na 2.15 j., więc na czas
+    // leżenia chowamy je (zerowa skala instancji)
+    polkiGora: scalBryly([
+      { sx: len, sy: 0.14, sz: 0.6, ly: 0.8, lz: -1.05 + O },
+      { sx: len, sy: 0.14, sz: 0.6, ly: 1.6, lz: -1.05 + O },
+    ]),
+  };
+}
+const _rm = new THREE.Matrix4(), _rq = new THREE.Quaternion(), _rp = new THREE.Vector3(), _rs = new THREE.Vector3(1, 1, 1);
+const _rzero = new THREE.Vector3(0, 0, 0);
+// zapisuje macierz instancji regału (obrót przewracania + yaw dla kierunku)
+function ustawRegal(s, kat) {
+  _rp.set(s.x, s.g0, s.pivotZ);
+  _rq.setFromEuler(new THREE.Euler(kat, s.kier === 1 ? 0 : Math.PI, 0));
+  _rm.compose(_rp, _rq, _rs);
+  s.inst.korpus.setMatrixAt(s.i, _rm);
+  s.inst.polkiDol.setMatrixAt(s.i, _rm);
+  if (s.stan === 'lezy') { _rm.compose(_rp, _rq, _rzero); }      // schowane górne półki
+  s.inst.polkiGora.setMatrixAt(s.i, _rm);
+  s.inst.korpus.instanceMatrix.needsUpdate = true;
+  s.inst.polkiDol.instanceMatrix.needsUpdate = true;
+  s.inst.polkiGora.instanceMatrix.needsUpdate = true;
+}
+
 const SHELF_H = 2.3;   // za wysoko na 1 skok — trzeba 🦘🦘 albo obejść
 
 // rozlana woda w markecie — ślisko!
@@ -1299,10 +1367,12 @@ function sznurkiTexture() {
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
-let lettuce = null, sznurki = null;
+let lettuce = null, sznurki = null, salataMat = null;
 function initLettuce() {
-  const m = new THREE.MeshBasicMaterial({ map: lettuceTexture(), transparent: true,
-    alphaTest: 0.4, side: THREE.DoubleSide, depthWrite: false });
+  // czasza ze sprite'a od wlasciciela (lisc kapusty); proceduralna `lettuceTexture`
+  // zostaje jako awaryjna, gdyby pliku zabraklo
+  const m = new THREE.MeshBasicMaterial({ map: salataMat ? salataMat.map : lettuceTexture(),
+    transparent: true, alphaTest: 0.4, side: THREE.DoubleSide, depthWrite: false });
   lettuce = new THREE.Mesh(unitGeo, m);
   lettuce.scale.set(2.2, 1.3, 1);
   lettuce.visible = false;
@@ -1583,6 +1653,7 @@ const G = {
   padajace: [],                                    // regały w trakcie przewracania (market)
   turrets: [],                                     // postawione sokowirówki (TD-lite)
   pestki: [], kielki: [],                          // Pipsini i jego kiełki
+  seria: [],                                       // kolejka rzutów scyzorykiem
   hitstop: 0,                                      // krótkie zatrzymanie czasu przy grubym zabójstwie
   spawnT: 0, shake: 0, bossAt: 120, ringAt: 60, tier: 0,
   vacuum: 0, buff: { key: null, t: 0 },
@@ -2021,6 +2092,25 @@ function makeCoin(x, z, val = 1) {
 // materiały nowych broni + efekt pioruna
 let bottleMat = null, radioMat = null;
 let kapecMat = null, kapecAspect = 1.4;
+let scyzorykMat = null, scyzorykAspect = 2.2;
+// SCYZORYK — mala pixelowa ostrz z rekojescia (do podmiany na sprite z generatora)
+function scyzorykTexture() {
+  const W = 44, H = 20;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.fillStyle = '#d9e2ec'; g.fillRect(14, 7, 26, 5);        // ostrze
+  g.fillStyle = '#f2f7fb'; g.fillRect(14, 7, 26, 2);        // blysk
+  g.fillStyle = '#9aa5b1'; g.fillRect(36, 7, 4, 5);         // czubek
+  g.fillStyle = '#e0453c'; g.fillRect(3, 5, 12, 9);         // rekojesc
+  g.fillStyle = '#ff8a80'; g.fillRect(3, 5, 12, 2);
+  g.fillStyle = '#1b1b22'; g.fillRect(13, 5, 2, 9);
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
 // KAPEĆ w kratkę — rysowany w kodzie, dopóki nie przyjdzie sprite z generatora
 function kapecTexture() {
   const W = 56, H = 40;
@@ -2552,6 +2642,32 @@ const WEAPONS = {
       G.kury.push({ bb, pos: P.pos.clone(), t: 0, lvl: w.lvl });
     },
   },
+  // ===== SCYZORYK (startowa broń Razoretty) =====
+  // Nie „kolejny pocisk samonaprowadzający": to SERIA trzech-pięciu rzutów w tę
+  // samą stronę, jeden po drugim, mocnych i przebijających. Gracz musi ustawić
+  // się w linii z tłumem — to jedyna broń w grze nagradzająca celowanie ciałem.
+  scyzoryk: {
+    ico: 'celownik', nm: 'Scyzoryki', ds: 'Seria mocnych rzutów przed siebie — przebijają', max: 5,
+    lvlDs: l => `${2 + l} rzutów w serii, co ${(2.2 - 0.15 * l).toFixed(1)} s`
+      + (l === 5 ? ' (→ ewolucja!)' : ''),
+    evoKey: 'wachlarz', evoIco: 'celownik', evoNm: 'WACHLARZ RZODKIEWKI',
+    evoDs: 'EWOLUCJA: każdy rzut to trzy scyzoryki w wachlarzu',
+    tick(w, dt) {
+      w.t -= dt;
+      if (w.t > 0) return;
+      w.t = 2.2 - 0.15 * w.lvl;
+      // kierunek liczony RAZ dla całej serii — inaczej seria rozjeżdżałaby się
+      // za obracającym się graczem i przestałaby być „linią"
+      let cel = null, najl = rangeF();
+      for (const e of G.enemies) { if (e.dying) continue;
+        const d = e.pos.distanceTo(P.pos); if (d < najl) { najl = d; cel = e; } }
+      const kat = cel ? Math.atan2(cel.pos.x - P.pos.x, cel.pos.z - P.pos.z) : playerBB.facing;
+      const ile = 2 + w.lvl;
+      for (let i = 0; i < ile; i++) {
+        G.seria.push({ kat, opoznienie: i * 0.11, lvl: w.lvl });
+      }
+    },
+  },
   // ===== LA CIABATTA (startowa broń Granny, wg biblii) =====
   // Kapeć-bumerang: leci, przebija WSZYSTKO i wraca, bijąc drugi raz w drodze
   // powrotnej. Korzysta z tej samej maszynerii co radio-bumerang (`G.boomers`),
@@ -2769,7 +2885,9 @@ function updatePestki(dt, lvl) {
 }
 
 const SOKO_ILE = l => 1 + Math.floor(l / 2);      // 1 / 1 / 2 / 2 / 3
-const SOKO_ZYCIE = l => 14 + l * 2;               // 16 → 24 s
+const SOKO_ZYCIE = l => 20 + l * 3;               // 23 → 35 s (jeśli wcześniej nie rozwalą)
+const SOKO_HP = l => 6 + 3 * l;                   // wytrzymałość na ciosy wrogów
+const SOKO_WABI = 9.5;                            // w tym promieniu wrogowie idą po NIĄ, nie po gracza
 const SOKO_CD = l => 0.55 - 0.05 * l;             // strzał co 0.5 → 0.3 s
 const SOKO_DMG = l => 0.8 + 0.25 * l;             // mnożnik obrażeń pocisku
 
@@ -2798,18 +2916,47 @@ function sokowirowkaTexture() {
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
-let sokoMat = null;
+let sokoMat = null, paskoTlo = null, paskoFill = null;
+// PASEK ŻYCIA nad wieżyczką: dwa płaskie quady zawsze zwrócone do kamery.
+// Wieżyczka ściąga na siebie hordę, więc gracz musi widzieć, ile jej zostało.
+function dodajPasek(t, y) {
+  if (!paskoTlo) {
+    paskoTlo = new THREE.MeshBasicMaterial({ color: 0x1b1b22, transparent: true, opacity: 0.85, depthWrite: false });
+    paskoFill = new THREE.MeshBasicMaterial({ color: 0x8ad14f, depthWrite: false });
+  }
+  t.pasTlo = new THREE.Mesh(unitGeo, paskoTlo);
+  t.pasFill = new THREE.Mesh(unitGeo, paskoFill.clone());
+  for (const m of [t.pasTlo, t.pasFill]) { m.renderOrder = 4; scene.add(m); }
+  t.pasY = y;
+}
+function updatePasek(t) {
+  const k = Math.max(0, t.hp / t.maxHp);
+  t.pasTlo.position.set(t.pos.x, t.pasY, t.pos.z);
+  t.pasTlo.scale.set(1.5, 0.16, 1);
+  billboardQuat(t.pasTlo.quaternion);
+  // wypełnienie od LEWEJ: skalujemy i przesuwamy o połowę ubytku
+  t.pasFill.position.set(t.pos.x - (1 - k) * 0.72, t.pasY + 0.01, t.pos.z);
+  t.pasFill.scale.set(1.44 * k, 0.11, 1);
+  billboardQuat(t.pasFill.quaternion);
+  t.pasFill.material.color.setHex(k > 0.5 ? 0x8ad14f : (k > 0.25 ? 0xf2c14a : 0xe0453c));
+  t.pasFill.visible = k > 0.001;
+}
 function stawSokowirowke(lvl) {
   if (!sokoMat) sokoMat = new THREE.MeshBasicMaterial({ map: sokowirowkaTexture(),
     transparent: true, alphaTest: 0.4, side: THREE.DoubleSide });
   const y = supportY(P.pos.x, P.pos.z, P.y);      // staje tam, gdzie stoisz — też na regale
-  const h = 1.15;
+  // WYŻSZA OD WROGÓW (wróg ma ~1.5 j.): ma być widoczna w tłumie, bo to ona
+  // przejmuje na siebie hordę i gracz musi wiedzieć, gdzie stoi.
+  const h = 2.1;
   const m = new THREE.Mesh(unitGeo, sokoMat);
   m.scale.set(h * 0.8, h, 1);
   m.position.set(P.pos.x, y, P.pos.z);
   scene.add(m);
-  G.turrets.push({ mesh: m, pos: new THREE.Vector3(P.pos.x, y, P.pos.z),
-                   t: 0, zycie: SOKO_ZYCIE(lvl), cd: 0, lvl });
+  const hp = SOKO_HP(lvl);
+  const t = { mesh: m, pos: new THREE.Vector3(P.pos.x, y, P.pos.z),
+              t: 0, zycie: SOKO_ZYCIE(lvl), cd: 0, lvl, hp, maxHp: hp, hitCd: 0 };
+  dodajPasek(t, y + h + 0.25);
+  G.turrets.push(t);
   AUDIO.sfx('totem');
   puff(P.pos.x, y + 0.6, P.pos.z, 0xa8e05f, 1.4);
   dmgPop(P.pos.x, y + 1.6, P.pos.z, 'MIELE!', '#a8e05f', 1.2);
@@ -2821,6 +2968,18 @@ function updateTurrets(dt) {
     // drga jak pracująca sokowirówka; przechył doklejamy do obrotu billboardu
     billboardQuat(t.mesh.quaternion, Math.sin(t.t * 26) * 0.045);
     if (t.zycie - t.t < 3) t.mesh.visible = Math.sin(t.t * 16) > -0.45;   // miga przed końcem
+    updatePasek(t);
+    // WROGOWIE JĄ TŁUKĄ — to ona przejmuje na siebie hordę
+    t.hitCd -= dt;
+    if (t.hitCd <= 0) {
+      for (const e of G.enemies) {
+        if (e.dying || e.pos.distanceTo(t.pos) > 1.3) continue;
+        t.hp -= e.T.dmg * dmgScale();
+        t.hitCd = 0.35;
+        okruchy(t.pos.x, t.pos.y + 0.9, t.pos.z, 0xd7dde6, 2);
+        break;
+      }
+    }
     t.cd -= dt;
     if (t.cd <= 0) {
       let cel = null, najl = 13 * (rangeF() / 14);   // rangeF() jest ABSOLUTNY (14 * 1.2^lvl)
@@ -2842,9 +3001,11 @@ function updateTurrets(dt) {
         AUDIO.sfx('strzal');
       }
     }
-    if (t.t >= t.zycie) {
-      scene.remove(t.mesh);
-      okruchy(t.pos.x, t.pos.y + 0.5, t.pos.z, 0xd7dde6, 5);
+    if (t.t >= t.zycie || t.hp <= 0) {
+      scene.remove(t.mesh); scene.remove(t.pasTlo); scene.remove(t.pasFill);
+      t.pasFill.material.dispose();
+      okruchy(t.pos.x, t.pos.y + 0.5, t.pos.z, 0xd7dde6, t.hp <= 0 ? 10 : 5);
+      if (t.hp <= 0) { nova(t.pos.x, t.pos.z, 2.4, 2 * dmgAll()); AUDIO.sfx('wybuch'); }
       G.turrets.splice(i, 1);
     }
   }
@@ -3292,25 +3453,26 @@ function buildChunk(cx, cz) {
           for (const oz of offs) {
             const zz = z + oz;
             const pivotZ = zz + kier * 0.8;                // krawędź podstawy od strony upadku
-            const grupa = new THREE.Group();
-            grupa.position.set(x, g0, pivotZ);
-            const dodaj = (mat, sx, sy, sz, ly, lz) => {
-              const mm = new THREE.Mesh(shelfGeo, mat);
-              mm.scale.set(sx, sy, sz);
-              mm.position.set(0, ly, lz - kier * 0.8);      // lokalnie względem pivotu
-              grupa.add(mm);
-            };
-            dodaj(shelfMat, len, SHELF_H, 1.6, SHELF_H / 2, 0);
-            for (const [hy, dz] of [[0.8, 1.05], [1.6, 1.05], [0.8, -1.05], [1.6, -1.05]])
-              dodaj(plankMat, len, 0.14, 0.6, hy, dz);
-            dodaj(plankMat, len + 0.3, 0.16, 2.1, SHELF_H + 0.08, 0);
-            scene.add(grupa); rocks.push(grupa);
             const solid = { x, z: zz, hw: len / 2, hl: 1.1, top: g0 + SHELF_H + 0.16 };
             solids.push(solid);
-            shelves.push({ grupa, solid, x, z: zz, g0, len, kier, pivotZ, t: 0, stan: 'stoi' });
+            shelves.push({ solid, x, z: zz, g0, len, kier, pivotZ, t: 0, stan: 'stoi' });
           }
         }
       }
+    }
+    // ======== REGAŁY JAKO INSTANCJE: 3 draw calle na chunk zamiast 3 na regał ========
+    if (shelves.length) {
+      if (!regalGeo) initRegalGeo();
+      const inst = {
+        korpus: new THREE.InstancedMesh(regalGeo.korpus, shelfMat, shelves.length),
+        polkiDol: new THREE.InstancedMesh(regalGeo.polkiDol, plankMat, shelves.length),
+        polkiGora: new THREE.InstancedMesh(regalGeo.polkiGora, plankMat, shelves.length),
+      };
+      for (const im of [inst.korpus, inst.polkiDol, inst.polkiGora]) {
+        im.frustumCulled = false;                  // regały sięgają poza pudełko chunka
+        scene.add(im); rocks.push(im);
+      }
+      shelves.forEach((sh, i) => { sh.inst = inst; sh.i = i; ustawRegal(sh, 0); });
     }
   } else {
     // ======== ŁĄKI: struktury do wskakiwania (proste bryły) ========
@@ -3771,9 +3933,7 @@ function updateRestock(dt) {
       if (s.tLezy < RESTOCK_T) continue;
       if (Math.hypot(s.x - P.pos.x, s.z - P.pos.z) < 22) continue;
       s.stan = 'stoi'; s.t = 0; s.zadal = false; s.tLezy = 0;
-      s.grupa.rotation.x = 0;
-      s.grupa.position.y = s.g0;
-      if (s.schowane) { for (const m of s.schowane) m.visible = true; s.schowane = null; }
+      ustawRegal(s, 0);                              // wraca pionowo, górne półki widoczne
       s.solid.z = s.z; s.solid.hl = 1.1; s.solid.hw = s.len / 2;
       s.solid.top = s.g0 + SHELF_H + 0.16;
     }
@@ -3782,12 +3942,12 @@ function updateRestock(dt) {
 function updatePadajace(dt) {
   for (let i = G.padajace.length - 1; i >= 0; i--) {
     const s = G.padajace[i];
-    if (!s.grupa.parent) { G.padajace.splice(i, 1); continue; }   // chunk zniknął pod nogami
+    if (!s.inst || !s.inst.korpus.parent) { G.padajace.splice(i, 1); continue; }  // chunk zniknął
     s.t += dt;
     if (s.t < 0) continue;                                        // czeka na swoją kolej (domino)
     const k = Math.min(1, s.t / PAD_T);
     const kat = (Math.PI / 2) * k * k;                            // przyspiesza jak pod grawitacją
-    s.grupa.rotation.x = s.kier * kat;
+    ustawRegal(s, kat);                                           // obrót zapisany w macierzy instancji
     // ŻADNEGO PODNOSZENIA GRUPY. Pivot siedzi na KRAWĘDZI podstawy, a dzieci są
     // odsunięte o -kier*0.8, więc korpus leży w lokalnym Z od -1.6 do 0 i po
     // obrocie ląduje w Y od 0 do 1.6 — cały NAD posadzką. Wcześniejsze
@@ -3848,12 +4008,7 @@ function updatePadajace(dt) {
       // Dwie półki po obrocie STAJĄ PIONOWO i wystają na 2.15 j. — leżący regał
       // wyglądał przez to jak drabina, a nie jak wrak. Chowamy je; zostaje korpus
       // (płaszczyzna 1.6) i blat, który robi się ładnym progiem na końcu.
-      if (!s.schowane) {
-        s.schowane = [];
-        for (const dz of s.grupa.children) {
-          if (dz.scale.y < 0.2 && dz.position.z * s.kier < -1.0) { dz.visible = false; s.schowane.push(dz); }
-        }
-      }
+      ustawRegal(s, Math.PI / 2);                    // `stan` już 'lezy' → górne półki znikają
       // Bryła kolizji z pionowej ściany (top 2.46) robi się RUMOWISKIEM, na które
       // wskoczysz jednym skokiem. Szczyt MUSI zgadzać się z płaszczyzną korpusu
       // (1.6), inaczej stoi się w powietrzu albo po pas w deskach. 1.55 = ledwo
@@ -4066,8 +4221,25 @@ function update(dt) {
       }
       continue;
     }
-    const to = P.pos.clone().sub(e.pos).setY(0);
-    const d = to.length(); to.normalize();
+    // SOKOWIRÓWKA ZWABIA: jeśli stoi bliżej niż 9.5 j., wróg idzie po NIĄ, nie po
+    // gracza. To zamienia wieżyczkę w prawdziwą przynętę — stawiasz ją w alejce
+    // i horda skręca, zamiast gonić Ciebie. Obrażenia kontaktowe gracza liczą się
+    // dalej od DYSTANSU DO GRACZA, więc przynęta nie daje nietykalności.
+    // Gracz jest WAZNIEJSZYM celem: wiezyczka przejmuje wroga tylko wtedy, gdy
+    // jest wyraznie blizej (dystans do niej x 1.7 musi byc mniejszy niz do gracza).
+    // Dzieki temu przynęta odciaga hordę w alejce, ale nie robi z gracza widza.
+    let celPos = P.pos;
+    if (G.turrets.length) {
+      const dGracz = e.pos.distanceTo(P.pos);
+      let najl = SOKO_WABI;
+      for (const t of G.turrets) {
+        const dt2 = t.pos.distanceTo(e.pos);
+        if (dt2 < najl && dt2 * 1.7 < dGracz) { najl = dt2; celPos = t.pos; }
+      }
+    }
+    const to = celPos.clone().sub(e.pos).setY(0);
+    const dCel = to.length(); to.normalize();
+    const d = e.pos.distanceTo(P.pos);              // do gracza — od tego zależą jego obrażenia
     let es = e.T.speed * (e.elite ? 0.85 : 1) * spdScale();
     if (e.stun > 0) { e.stun -= dt; es = 0; }        // ogluszenie z ewolucji "DZIS NIE WEJDZIESZ"
     if (e.ty < WATER_Y - 0.04) es *= 0.7;               // woda spowalnia też ich
@@ -4076,6 +4248,7 @@ function update(dt) {
     const wspin = terrainH(e.pos.x + to.x * 0.7, e.pos.z + to.z * 0.7) - e.ty;
     if (wspin > 0.18) es *= 0.35;
     if (MAPS[mapKey].indoor && onSpill(e.pos.x, e.pos.z)) es *= 0.55;   // im też ślisko
+    if (celPos !== P.pos && dCel < 1.1) es = 0;      // dotarł do przynęty — bije ją, nie przepycha
     e.pos.addScaledVector(to, es * dt);
     if (!e.T.bezKb) {                                  // Gummini są odporne na odrzut
       e.pos.add(e.kb.clone().multiplyScalar(dt * 8));
@@ -4342,6 +4515,25 @@ function update(dt) {
   if (G.padajace.length) updatePadajace(dt);
   if (MAPS[mapKey].indoor) updateRestock(dt);
   if (G.turrets.length) updateTurrets(dt);
+  // SERIA SCYZORYKÓW: rzuty wychodzą jeden po drugim, więc słychać i widać „ta-ta-ta"
+  for (let i = G.seria.length - 1; i >= 0; i--) {
+    const r = G.seria[i];
+    r.opoznienie -= dt;
+    if (r.opoznienie > 0) continue;
+    G.seria.splice(i, 1);
+    const katy = P.evo.wachlarz ? [-0.22, 0, 0.22] : [0];
+    for (const dk of katy) {
+      const a = r.kat + dk;
+      const m = new THREE.Mesh(unitGeo, scyzorykMat);
+      m.scale.set(0.5 * scyzorykAspect, 0.5, 1);
+      m.position.set(P.pos.x, P.y + 1.0, P.pos.z);
+      scene.add(m);
+      G.shots.push({ mesh: m, dir: new THREE.Vector3(Math.sin(a), 0, Math.cos(a)),
+                     life: 1.2, pierce: 2 + r.lvl, hit: new Set(), y: P.y + 1.0,
+                     dmg: 2.2 + 0.5 * r.lvl });
+    }
+    AUDIO.sfx('kryt');
+  }
   if (plamy.length) updatePlamy(dt);
 
   // ---- totemy ----
@@ -4659,13 +4851,13 @@ function clearWorld() {
   for (const k of G.kury) k.bb.dispose();
   for (const o of G.okruchy) scene.remove(o.mesh);
   for (const p of G.puffs) { scene.remove(p.mesh); p.mesh.material.dispose(); }
-  for (const t of G.turrets) scene.remove(t.mesh);
+  for (const t of G.turrets) { scene.remove(t.mesh); if (t.pasTlo) { scene.remove(t.pasTlo); scene.remove(t.pasFill); } }
   for (const pe of G.pestki) pe.bb.dispose();
   for (const ki of G.kielki) scene.remove(ki.mesh);
   for (const pl of plamy) if (pl) pl.mesh.visible = false;
   G.enemies = []; G.gems = []; G.coins = []; G.shots = []; G.orbs = []; G.sparks = []; G.rings = [];
   G.lobs = []; G.boomers = []; G.bolts = []; G.pops = []; G.hps = []; G.kury = []; G.okruchy = [];
-  G.puffs = []; G.hitstop = 0; G.padajace = []; G.turrets = []; G.pestki = []; G.kielki = [];
+  G.puffs = []; G.hitstop = 0; G.padajace = []; G.turrets = []; G.pestki = []; G.kielki = []; G.seria = [];
   G.streak = 0; G.streakT = -9;
   G.vacuum = 0; G.buff = { key: null, t: 0 };
   document.getElementById('buff').style.opacity = 0;
@@ -4771,6 +4963,9 @@ if (loadTip) {
   radioMat = (await flatMat('assets/radio.png')).mat;
   kapecMat = new THREE.MeshBasicMaterial({ map: kapecTexture(), transparent: true,
     alphaTest: 0.4, side: THREE.DoubleSide });
+  try { salataMat = (await flatMat('assets/salata_czasza.png')).mat; } catch { salataMat = null; }
+  scyzorykMat = new THREE.MeshBasicMaterial({ map: scyzorykTexture(), transparent: true,
+    alphaTest: 0.4, side: THREE.DoubleSide });
   heartMat = emojiMat('❤️');
   await buildChar('kura_braz', ['walk']);
   // postacie grywalne (potrzebne też do portretów w menu)
@@ -4781,6 +4976,8 @@ if (loadTip) {
   await buildChar('beetino_bouncerino', ['idle', 'run', 'jump']);   // poprawka MA idle
   await ladowanie('Babcia szuka kapcia…');
   await buildChar('granny_smithella', ['idle', 'run', 'jump']);
+  await ladowanie('Razoretta ostrzy scyzoryk…');
+  await buildChar('radishetta_razoretta', ['idle', 'run', 'jump']);
   await ladowanie('Pipsini wychodzi z jabłka…');
   await buildChar('pipsini_nipotini', ['idle', 'run']);
   await ladowanie('Zwoływanie Famiglia Snackoni…');
