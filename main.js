@@ -2222,38 +2222,12 @@ const WEAPONS = {
     },
   },
   kosc: {
-    ico: 'kosc', nm: 'Kość orbitalna', ds: 'Kości krążą i biją wrogów', max: 5,
-    lvlDs: l => l + (l === 1 ? ' kość' : ' kości') + (l === 5 ? ' (→ ewolucja!)' : ''),
-    evoKey: 'kosci', evoIco: 'kosc', evoNm: 'KOŚCIOTRZĘSIENIE', evoDs: 'EWOLUCJA: kości ×1.5 większe, szybsze i 2× mocniejsze',
+    ico: 'kosc', nm: 'Czosnek na lince', ds: 'Kręci się na giętkiej lince i odpycha hordę', max: 5,
+    lvlDs: l => l + (l === 1 ? ' czosnek' : ' czosnki') + (l === 5 ? ' (→ ewolucja!)' : ''),
+    evoKey: 'kosci', evoIco: 'kosc', evoNm: 'CZOSNKOWY MŁYN', evoDs: 'EWOLUCJA: dłuższa linka, szybszy obrót i 2× mocniejsze',
     tick(w, dt) {
-      while (G.orbs.length < w.lvl) {
-        const m = new THREE.Mesh(unitGeo, boneMatCache);
-        m.scale.set(0.8 * boneAspect, 0.8, 1);
-        scene.add(m);
-        G.orbs.push({ mesh: m });
-      }
-      const evo = P.evo.kosci;
-      const orbSpd = evo ? 4.8 : 2.6, orbRR = evo ? 2.6 : 1.0, oDmg = 2 * (evo ? 2 : 1) * dmgAll();
-      for (let k = 0; k < G.orbs.length; k++) {
-        const o = G.orbs[k];
-        const a = G.time * orbSpd + k * (Math.PI * 2 / G.orbs.length);
-        const ox = P.pos.x + Math.cos(a) * 2.1, oz = P.pos.z + Math.sin(a) * 2.1;
-        o.mesh.position.set(ox, terrainH(ox, oz) + 0.9 + Math.sin(G.time * 5 + k) * 0.1, oz);
-        o.mesh.rotation.set(0, camYaw, -a);
-        if (evo && Math.abs(o.mesh.scale.y - 1.2) > 0.01) o.mesh.scale.set(1.2 * boneAspect, 1.2, 1);
-        for (let j = G.enemies.length - 1; j >= 0; j--) {
-          const e = G.enemies[j];
-          if (e.dying || e.orbCd > 0) continue;
-          const dx = o.mesh.position.x - e.pos.x, dz = o.mesh.position.z - e.pos.z;
-          if (dx * dx + dz * dz < orbRR) {
-            e.hp -= oDmg; e.orbCd = 0.5;
-            e.kb.copy(e.pos).sub(P.pos).setY(0).normalize().multiplyScalar(2.2);
-            spark(e.pos.x, e.ty + 1.0, e.pos.z);
-            dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(oDmg), '#cfe8ff', 0.9);
-            if (e.hp <= 0) killEnemy(e, j);
-          }
-        }
-      }
+      while (G.orbs.length < w.lvl) G.orbs.push(nowyCzosnek(G.orbs.length));
+      updateCzosnki(dt, w.lvl);
     },
   },
   tupniecie: {
@@ -2488,6 +2462,142 @@ function updateTurrets(dt) {
     }
   }
 }
+// ============================== CZOSNEK NA GIĘTKIEJ LINCE ==============================
+// Zamiast sztywnej orbity: linka z segmentów liczona VERLETEM, a czosnek jest masą
+// na jej końcu. Dzięki temu przy zmianie kierunku zostaje z tyłu i dopiero go
+// dogania, a uderzenie w wroga odpycha wroga I szarpie linką — widać opór.
+// Sama linka też odpycha (delikatnie), więc horda ją wygina.
+const LINKA_SEG = 5;                   // liczba segmentów linki
+const LINKA_DL = 0.46;                 // długość jednego segmentu (zasięg ~2.1 j.)
+const LINKA_TLUM = 0.90;               // tłumienie bezwładności
+let linkaMat = null;
+function linkaTexture() {
+  const c = document.createElement('canvas'); c.width = 8; c.height = 8;
+  const g = c.getContext('2d');
+  g.fillStyle = '#cfc08a'; g.fillRect(0, 0, 8, 8);
+  g.fillStyle = '#a89566'; g.fillRect(0, 5, 8, 3);      // cień wzdłuż linki = wygląda na skręconą
+  g.fillStyle = '#eadfb4'; g.fillRect(0, 0, 8, 2);
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+// segment linki to PŁASKI quad leżący w płaszczyźnie XZ — linka wisi na wysokości
+// pasa, a kamera patrzy z góry, więc płaski pasek czyta się jak sznurek
+const linkaGeo = new THREE.PlaneGeometry(1, 1);
+linkaGeo.rotateX(-Math.PI / 2);
+function nowyCzosnek(idx) {
+  if (!linkaMat) linkaMat = new THREE.MeshBasicMaterial({ map: linkaTexture(), side: THREE.DoubleSide });
+  const m = new THREE.Mesh(unitGeo, boneMatCache);
+  m.scale.set(0.8 * boneAspect, 0.8, 1);
+  scene.add(m);
+  const pkt = [];
+  for (let i = 0; i <= LINKA_SEG; i++) {
+    const d = i * LINKA_DL;
+    pkt.push({ x: P.pos.x + d, z: P.pos.z, px: P.pos.x + d, pz: P.pos.z });
+  }
+  const segi = [];
+  for (let i = 0; i < LINKA_SEG; i++) {
+    const s = new THREE.Mesh(linkaGeo, linkaMat);
+    s.scale.set(0.09, 1, LINKA_DL);
+    scene.add(s);
+    segi.push(s);
+  }
+  return { mesh: m, pkt, segi, kat: idx * 2.1, opor: 0 };
+}
+function usunCzosnki() {
+  for (const o of G.orbs) { scene.remove(o.mesh); if (o.segi) for (const s of o.segi) scene.remove(s); }
+  G.orbs = [];
+}
+function updateCzosnki(dt, lvl) {
+  const evo = P.evo.kosci;
+  const omega = evo ? 4.6 : 2.7;                       // prędkość kątowa napędu
+  const zasieg = (evo ? 2.7 : 2.1);
+  const rr = evo ? 1.5 : 1.0;                          // promień rażenia czosnku
+  const oDmg = 2 * (evo ? 2 : 1) * dmgAll();
+  const anchorY = P.y + 0.95;                          // linka wisi na wysokości pasa
+  for (let k = 0; k < G.orbs.length; k++) {
+    const o = G.orbs[k];
+    // napęd: kąt rośnie, ale trafienie na moment go dławi (stąd czuć opór)
+    o.opor = Math.max(0, o.opor - dt * 2.2);
+    o.kat += omega * dt * (1 - 0.65 * Math.min(1, o.opor)) + (k === 0 ? 0 : 0);
+    const rozstaw = k * (Math.PI * 2 / Math.max(1, G.orbs.length));
+    const tx = P.pos.x + Math.cos(o.kat + rozstaw) * zasieg;
+    const tz = P.pos.z + Math.sin(o.kat + rozstaw) * zasieg;
+    const pkt = o.pkt;
+    pkt[0].x = P.pos.x; pkt[0].z = P.pos.z;            // uchwyt trzyma gracz
+    // VERLET: bezwładność + sprężyna ciągnąca czubek do punktu napędu
+    for (let i = 1; i < pkt.length; i++) {
+      const p = pkt[i];
+      const vx = p.x - p.px, vz = p.z - p.pz;
+      p.px = p.x; p.pz = p.z;
+      p.x += vx * LINKA_TLUM; p.z += vz * LINKA_TLUM;
+      if (i === pkt.length - 1) {                      // czubek = czosnek
+        const s = Math.min(1, 9 * dt);
+        p.x += (tx - p.x) * s; p.z += (tz - p.z) * s;
+      }
+    }
+    // WIĘZY długości — 3 iteracje wystarczają, żeby linka nie gumowała
+    for (let it = 0; it < 3; it++) {
+      for (let i = 0; i < pkt.length - 1; i++) {
+        const a = pkt[i], b = pkt[i + 1];
+        let dx = b.x - a.x, dz = b.z - a.z;
+        const d = Math.hypot(dx, dz) || 1e-6;
+        const korekta = (d - LINKA_DL) / d;
+        const w0 = i === 0 ? 0 : 0.5, w1 = i === 0 ? 1 : 0.5;   // punkt 0 przypięty
+        a.x += dx * korekta * w0; a.z += dz * korekta * w0;
+        b.x -= dx * korekta * w1; b.z -= dz * korekta * w1;
+      }
+    }
+    // ---- KOLIZJE ----
+    const czubek = pkt[pkt.length - 1];
+    for (let j = G.enemies.length - 1; j >= 0; j--) {
+      const e = G.enemies[j];
+      if (e.dying) continue;
+      const dx = czubek.x - e.pos.x, dz = czubek.z - e.pos.z;
+      if (dx * dx + dz * dz < rr && e.orbCd <= 0) {
+        e.hp -= oDmg; e.orbCd = 0.5;
+        e.kb.copy(e.pos).sub(P.pos).setY(0).normalize().multiplyScalar(2.6);
+        spark(e.pos.x, e.ty + 1.0, e.pos.z);
+        dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(oDmg), '#eaffd0', 0.9);
+        // SZARPNIĘCIE: czubek traci prędkość i napęd na moment staje
+        const dl = Math.hypot(dx, dz) || 1e-6;
+        czubek.px = czubek.x + (dx / dl) * 0.22;
+        czubek.pz = czubek.z + (dz / dl) * 0.22;
+        o.opor = 1;
+        if (e.hp <= 0) killEnemy(e, j);
+      }
+    }
+    // sama LINKA odpycha (bez obrażeń) i sama się przy tym wygina
+    for (let i = 1; i < pkt.length - 1; i++) {
+      const p = pkt[i];
+      for (const e of G.enemies) {
+        if (e.dying) continue;
+        const dx = p.x - e.pos.x, dz = p.z - e.pos.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 > 0.42 || d2 < 1e-6) continue;
+        const d = Math.sqrt(d2), pchniecie = (0.65 - d) / d;
+        e.pos.x -= dx * pchniecie * 0.55; e.pos.z -= dz * pchniecie * 0.55;
+        p.x += dx * pchniecie * 0.45; p.z += dz * pchniecie * 0.45;
+      }
+    }
+    // ---- rysowanie ----
+    o.mesh.position.set(czubek.x, anchorY + Math.sin(G.time * 5 + k) * 0.06, czubek.z);
+    o.mesh.rotation.set(0, camYaw, -o.kat * 1.6);       // czosnek wiruje wokół własnej osi
+    const skala = evo ? 1.2 : 0.8;
+    if (Math.abs(o.mesh.scale.y - skala) > 0.01) o.mesh.scale.set(skala * boneAspect, skala, 1);
+    for (let i = 0; i < o.segi.length; i++) {
+      const a = pkt[i], b = pkt[i + 1], s = o.segi[i];
+      const dx = b.x - a.x, dz = b.z - a.z;
+      const dl = Math.hypot(dx, dz);
+      s.position.set((a.x + b.x) / 2, anchorY - 0.04, (a.z + b.z) / 2);
+      s.rotation.y = Math.atan2(dx, dz);
+      s.scale.set(0.09, 1, Math.max(0.05, dl));
+    }
+  }
+}
+
 const stompLvl = () => { const w = hasWeapon('tupniecie'); return w ? w.lvl : 0; };
 const stompRad = l => 3 + l * 0.7 + (P.evo.sejsm ? 2 : 0);
 const stompDmg = l => l * 1.5 * (P.evo.sejsm ? 2 : 1) * dmgAll();
@@ -2624,7 +2734,7 @@ function pickNewWeapon(oldW) {
     d.className = 'card gold';
     d.innerHTML = `<div class="ico">${ico(W.ico, 42)}</div><div class="nm">${W.nm}</div><div class="ds">${W.ds}</div>`;
     d.onclick = () => {
-      if (oldW.key === 'kosc') { for (const o of G.orbs) scene.remove(o.mesh); G.orbs = []; }
+      if (oldW.key === 'kosc') usunCzosnki();                 // razem z segmentami linki
       Object.assign(oldW, { key, lvl: 1, t: 0 });
       renderWpns();
       closeSwap();
@@ -4115,7 +4225,7 @@ function clearWorld() {
   for (const g of G.gems) scene.remove(g.mesh);
   for (const c of G.coins) scene.remove(c.mesh);
   for (const s of G.shots) scene.remove(s.mesh);
-  for (const o of G.orbs) scene.remove(o.mesh);
+  for (const o of G.orbs) { scene.remove(o.mesh); if (o.segi) for (const sg of o.segi) scene.remove(sg); }
   for (const s of G.sparks) scene.remove(s.mesh);
   for (const r of G.rings) scene.remove(r.mesh);
   for (const l of G.lobs) scene.remove(l.mesh);
