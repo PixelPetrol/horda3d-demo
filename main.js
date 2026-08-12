@@ -34,8 +34,13 @@ const CHARS = {
   // ===== VEGGIE FAMIGLIA (statystyki wg biblii postaci v1.1) =====
   carrotello: { nm: 'Carrotello Squattello', ds: 'Marchewino Dresino — szybki, ogromny magnes. Starter.',
                 char: 'carrotello_squattello', price: 0, spd: 1.15, hp: 0, dmg: 0.9, mag: 1.3, scale: 1.22 },
+  // Beetino idzie za ZABÓJSTWA, nie za monety: 250 monet uzbierało się już
+  // w drugim biegu, więc jako zakup nie był żadnym celem. 2000 zabójstw wypada
+  // między 6. a 9. biegiem — czyli dokładnie wtedy, gdy gracz zaczyna ginąć
+  // na krzywej trudności i czołg z bramki staje się odpowiedzią.
   beetino:    { nm: 'Beetino Bouncerino', ds: 'Buraczino Betonino — czołg z bramki. Wolny, ale twardy.',
-                char: 'beetino_bouncerino', price: 250, spd: 0.85, hp: 3, dmg: 1.1, mag: 0.9, scale: 1.32 },
+                char: 'beetino_bouncerino', price: 0, killGoal: 2000,
+                spd: 0.85, hp: 3, dmg: 1.1, mag: 0.9, scale: 1.32 },
 };
 // portret postaci = pierwsza klatka jej arkusza (pixel art zamiast emoji)
 const portretCache = new Map();
@@ -1344,11 +1349,13 @@ function saveMetaSoon() {
 }
 AUDIO.init(META, saveMeta);                        // dźwięk czyta/zapisuje głośności w META
 
+// Ceny wejścia podniesione razem z dopływem monet (×1.8): przy starych 30-40
+// pierwszy bieg wystarczał na 2-3 zakupy i sklep nie stawiał żadnego pytania.
 const SHOP = [
-  { key: 'serce',  ico: 'serce', nm: 'Twarde serce',   ds: '+1 serce na start',      base: 50, max: 3 },
-  { key: 'dmg',    ico: 'fala', nm: 'Siła', ds: '+10% obrażeń na stałe',  base: 40, max: 5 },
-  { key: 'szyb',   ico: 'but', nm: 'Kondycja',       ds: '+8% szybkości na stałe', base: 40, max: 5 },
-  { key: 'magnes', ico: 'magnes', nm: 'Przyciąganie',   ds: '+20% magnesu na stałe',  base: 30, max: 5 },
+  { key: 'serce',  ico: 'serce', nm: 'Twarde serce',   ds: '+1 serce na start',      base: 80, max: 3 },
+  { key: 'dmg',    ico: 'fala', nm: 'Siła', ds: '+10% obrażeń na stałe',  base: 60, max: 5 },
+  { key: 'szyb',   ico: 'but', nm: 'Kondycja',       ds: '+8% szybkości na stałe', base: 60, max: 5 },
+  { key: 'magnes', ico: 'magnes', nm: 'Przyciąganie',   ds: '+20% magnesu na stałe',  base: 50, max: 5 },
 ];
 // odblokowania broni i pasywów (jednorazowe — wchodzą do puli kart w biegu)
 const SHOP_UNLOCKS = [
@@ -1376,18 +1383,47 @@ function renderMaps() {
     wrap.appendChild(d);
   }
 }
+// czy postać jest już nasza (kupiona ALBO wypracowana zabójstwami)
+const maszPostac = (key) => !!META.chars[key] ||
+  (CHARS[key].killGoal && META.st.kills >= CHARS[key].killGoal);
+// Wywoływane z `killEnemy`: odblokowanie ma wystrzelić W TRAKCIE biegu, bo toast
+// w środku walki jest mocniejszy niż komunikat na ekranie śmierci.
+// Kamienie milowe co 500 dzielą duży cel na cztery mniejsze.
+function sprawdzOdblokowaniaPostaci() {
+  for (const key of Object.keys(CHARS)) {
+    const C = CHARS[key];
+    if (!C.killGoal || META.chars[key]) continue;
+    if (META.st.kills >= C.killGoal) {
+      META.chars[key] = 1; saveMeta(); renderChars();
+      toastBuff('NOWA POSTAĆ: ' + C.nm.toUpperCase() + '!');
+      AUDIO.sfx('zlota');
+    } else if (META.st.kills % 500 === 0) {
+      toastBuff(C.nm.split(' ')[0].toUpperCase() + ': ' + META.st.kills + '/' + C.killGoal);
+    }
+  }
+}
 function renderChars() {
   const wrap = document.getElementById('charGrid'); wrap.innerHTML = '';
   for (const key of Object.keys(CHARS)) {
     const C = CHARS[key];
-    const owned = !!META.chars[key];
+    const owned = maszPostac(key);
     const d = document.createElement('div');
     d.className = 'tile' + (key === charKey ? ' sel' : '') + (owned ? '' : ' lock');
+    // postać za zabójstwa pokazuje POSTĘP, nie cenę — inaczej nie wiadomo, po co grać
+    const cel = C.killGoal
+      ? `<div class="pr">${ico('czaszka', 15)} ${Math.min(META.st.kills, C.killGoal)}/${C.killGoal}</div>
+         <div class="pbar"><i style="width:${Math.min(100, META.st.kills / C.killGoal * 100).toFixed(1)}%"></i></div>`
+      : `<div class="pr">${ico('moneta', 15)} ${C.price}</div>`;
     d.innerHTML = `<div class="ico"><img class="pxi" src="${portret(C.char)}" style="height:62px"></div>
       <div class="nm">${C.nm}</div>
-      <div class="ds">${C.ds}</div>${owned ? '' : `<div class="pr">${ico('moneta', 15)} ${C.price}</div>`}`;
+      <div class="ds">${C.ds}</div>${owned ? '' : cel}`;
     d.onclick = () => {
       if (!owned) {
+        if (C.killGoal) {                          // tej się nie kupi, trzeba wyrobić
+          d.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' },
+            { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }], { duration: 200 });
+          return;
+        }
         if (META.coins < C.price) { d.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' },
           { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }], { duration: 200 }); return; }
         META.coins -= C.price; META.chars[key] = 1;
@@ -1484,7 +1520,7 @@ function renderShop() {
 // ============================== STAN GRY ==============================
 const G = {
   running: false, over: false, paused: false,
-  time: 0, kills: 0, runCoins: 0,
+  time: 0, kills: 0, runCoins: 0, zebrane: 0,
   enemies: [], gems: [], coins: [], shots: [], orbs: [], sparks: [], rings: [],
   lobs: [], boomers: [], bolts: [], pops: [], hps: [], kury: [], okruchy: [], puffs: [],
   padajace: [],                                    // regały w trakcie przewracania (market)
@@ -1775,9 +1811,14 @@ function killEnemy(e, i) {
     toastBuff('NOWY WPIS W ENCYKLOPEDII: ' + (e.T.nm || e.type));
     setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2600);
   } else saveMetaSoon();
+  // ŁĄCZNY LICZNIK ZABÓJSTW liczymy TUTAJ, nie w `gameOver()` — inaczej wyjście
+  // do menu z pauzy kasowało cały bieg, a na tym liczniku wisi odblokowanie postaci.
+  META.st.kills++;
+  sprawdzOdblokowaniaPostaci();
   // KILL + combo (kille w oknie 1.3 s nabijają serię)
   G.streak = (G.time - G.streakT < 1.3) ? G.streak + 1 : 1;
   G.streakT = G.time;
+  if (G.streak === 12 || G.streak === 30) toastBuff('SERIA x' + G.streak + ' — MONETY ×' + (G.streak >= 30 ? 3 : 2));
   G.shake = Math.max(G.shake, Math.min(0.5, 0.06 + G.streak * 0.03));
   AUDIO.sfx(e.T.boss ? 'bossdown' : 'kill', { seria: G.streak });   // ton rośnie z serią
   AUDIO.seria(G.streak);                           // przy dużej serii postać się odezwie (rzadko)
@@ -1797,10 +1838,20 @@ function killEnemy(e, i) {
       G.gems.push(makeGem(e.pos.x + (Math.random() - .5) * 1.5, e.pos.z + (Math.random() - .5) * 1.5, xpTotal / n));
     }
   }
-  // monety: 9% szansy, elita 2 szt. gwarantowane, boss garść
-  if (e.T.boss) { for (let k = 0; k < 12; k++) G.coins.push(makeCoin(e.pos.x + (Math.random() - .5) * 2.5, e.pos.z + (Math.random() - .5) * 2.5)); }
-  else if (e.elite) { G.coins.push(makeCoin(e.pos.x, e.pos.z)); G.coins.push(makeCoin(e.pos.x + 0.6, e.pos.z)); }
-  else if (Math.random() < 0.09) G.coins.push(makeCoin(e.pos.x, e.pos.z));
+  // MONETY. Zmierzone: przy starych stawkach zabijanie hordy dawało tylko 14%
+  // dochodu (elity 34%, skrzynie 20%) — czyli najmniej płaciła czynność, którą
+  // gracz faktycznie wykonuje. Stawki w górę, a elita/boss dostają JEDNĄ monetę
+  // o dużej wartości zamiast garści (mniej śmieci na ekranie przy 500 wrogach).
+  // MNOŻNIK ZA SERIĘ nagradza stanie w hordzie, a nie kitowanie w pustce.
+  const mnoznikSerii = G.streak >= 30 ? 3 : (G.streak >= 12 ? 2 : 1);
+  const wyplac = (n, val, rozrzut = 0) => {
+    for (let k = 0; k < n; k++)
+      G.coins.push(makeCoin(e.pos.x + (Math.random() - .5) * rozrzut,
+                            e.pos.z + (Math.random() - .5) * rozrzut, val * mnoznikSerii));
+  };
+  if (e.T.boss) wyplac(3, 10, 2.5);
+  else if (e.elite) wyplac(1, 4);
+  else if (Math.random() < 0.16) wyplac(1, 1);
   // serca: elity 30%, boss zawsze 2
   if (e.T.boss) { G.hps.push(makeHeart(e.pos.x - 0.8, e.pos.z)); G.hps.push(makeHeart(e.pos.x + 0.8, e.pos.z)); }
   else if (e.elite && Math.random() < 0.3) G.hps.push(makeHeart(e.pos.x, e.pos.z));
@@ -1845,12 +1896,25 @@ function coinTexture() {
   return t;
 }
 let coinMat = null;
-function makeCoin(x, z) {
-  const m = new THREE.Mesh(unitGeo, coinMat);
-  m.scale.set(0.5, 0.5, 1);
+// Moneta ma WARTOŚĆ: 12 osobnych brzdęków z bossa czyta się jak nic, a jeden
+// duży „+30" jak nagroda — i jest tańsze, bo to jeden mesh zamiast dwunastu.
+const coinMats = new Map();
+function coinMat4Val(val) {
+  let m = coinMats.get(val);
+  if (!m) {
+    m = coinMat.clone();
+    m.color.setHex(val >= 10 ? 0xffc14a : (val >= 4 ? 0xcfe8ff : 0xffffff));
+    coinMats.set(val, m);
+  }
+  return m;
+}
+function makeCoin(x, z, val = 1) {
+  const m = new THREE.Mesh(unitGeo, val > 1 ? coinMat4Val(val) : coinMat);
+  const s = val >= 10 ? 0.8 : (val >= 4 ? 0.62 : 0.5);
+  m.scale.set(s, s, 1);
   m.position.set(x, terrainH(x, z) + 0.1, z);
   scene.add(m);
-  return { mesh: m, pos: new THREE.Vector3(x, 0, z), t: Math.random() * 6 };
+  return { mesh: m, pos: new THREE.Vector3(x, 0, z), t: Math.random() * 6, val };
 }
 
 // materiały nowych broni + efekt pioruna
@@ -2886,7 +2950,7 @@ function chestReward(c) {
     toastBuff('PODWÓJNY SKOK do końca biegu!');
     setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2500);
   } else if (roll < 0.62) {          // monety
-    for (let k = 0; k < 5 + Math.floor(Math.random() * 6); k++)
+    for (let k = 0; k < 8 + Math.floor(Math.random() * 8); k++)
       G.coins.push(makeCoin(c.pos.x + (Math.random() - .5) * 2, c.pos.z + (Math.random() - .5) * 2));
   } else if (roll < 0.87) {          // kości XP
     for (let k = 0; k < 6; k++)
@@ -3623,7 +3687,7 @@ function update(dt) {
     c.mesh.position.set(c.pos.x, terrainH(c.pos.x, c.pos.z) + 0.3 + Math.sin(c.t * 5) * 0.1, c.pos.z);
     c.mesh.rotation.y = camYaw;
     if (d < 0.7) {
-      G.runCoins++; drawCoins();
+      G.runCoins += c.val || 1; drawCoins();
       AUDIO.sfx('moneta');
       scene.remove(c.mesh); G.coins.splice(i, 1);
     }
@@ -3734,20 +3798,31 @@ function updateDeath(dt) {
   if (t > 1.8) { G.dying = false; gameOver(); }
 }
 
+// Rozliczenie biegu w JEDNYM miejscu. Wcześniej monety dopisywał tylko
+// `gameOver()`, więc wyjście do menu z pauzy po długim biegu kasowało cały
+// zarobek — i to prawdopodobnie stąd brało się część odczucia „monet jest za mało".
+function rozliczBieg() {
+  G.zebrane = G.runCoins;                          // do pokazania na ekranie końca
+  if (!G.runCoins) return;
+  META.coins += G.runCoins;
+  META.st.coins += G.runCoins;
+  G.runCoins = 0;
+  drawCoins();
+}
 function gameOver() {
   G.over = true; G.running = false;
   AUDIO.endRun();                                  // koniec biegu = powrót do motywu głównego
   document.getElementById('vign').style.opacity = 0;
   playerBB.mesh.rotation.z = 0;
-  META.coins += G.runCoins;
+  rozliczBieg();
   const s = META.st;
-  s.kills += G.kills; s.runs++; s.time += G.time; s.coins += G.runCoins; s.lvl += P.lvl - 1;
+  s.runs++; s.time += G.time; s.lvl += P.lvl - 1;
   if (G.time > s.best) s.best = G.time;
   if (G.kills > s.bestKills) s.bestKills = G.kills;
   saveMeta(); renderShop(); renderStats(); renderBestiary();
   document.getElementById('overStats').innerHTML =
     `Przetrwano: <b>${fmtTime(G.time)}</b> · Pokonano: <b>${G.kills}</b> · Poziom: <b>${P.lvl}</b><br>` +
-    `Zebrano: <b>${ico('moneta',15)} ${G.runCoins}</b> (łącznie ${ico('moneta',15)} ${META.coins})` +
+    `Zebrano: <b>${ico('moneta',15)} ${G.zebrane}</b> (łącznie ${ico('moneta',15)} ${META.coins})` +
     (G.time >= s.best ? '<br><b style="color:#ffd75e">' + ico('puchar',18) + ' NOWY REKORD CZASU!</b>' : '');
   document.getElementById('overOv').style.display = 'flex';
   document.getElementById('wArrow').style.display = 'none';
@@ -3805,7 +3880,7 @@ function clearWorld() {
 function newGame() {
   clearWorld();
   resetStats();
-  Object.assign(G, { running: true, over: false, paused: false, dying: false, deathT: 0, time: 0, kills: 0, runCoins: 0, spawnT: 0.5, bossAt: 120, ringAt: 60, tier: 0, shake: 0 });
+  Object.assign(G, { running: true, over: false, paused: false, dying: false, deathT: 0, time: 0, kills: 0, runCoins: 0, zebrane: 0, spawnT: 0.5, bossAt: 120, ringAt: 60, tier: 0, shake: 0 });
   P.pos.set(0, 0, 0);
   P.y = terrainH(0, 0);
   wchest.active = false; wchest.wait = 8;
@@ -3929,7 +4004,7 @@ if (loadTip) {
   plankMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#a9793f', '#6d4a22', 6) });
   stoneMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#9a9c96', '#6f7169', 3) });
 
-  charKey = (META.chars[META.lastChar] && CHARS[META.lastChar]) ? META.lastChar : 'carrotello';
+  charKey = (CHARS[META.lastChar] && maszPostac(META.lastChar)) ? META.lastChar : 'carrotello';
   mapKey = MAPS[META.lastMap] ? META.lastMap : 'laki';
   P.pos = new THREE.Vector3(0, 0, 0);
   P.y = terrainH(0, 0);
@@ -4019,12 +4094,17 @@ if (loadTip) {
   document.getElementById('btnResume').onclick = () => togglePause(false);
   document.getElementById('btnQuit').onclick = () => {
     togglePause(false);
-    G.running = false; clearWorld();
+    G.running = false;
+    rozliczBieg();                                // monety z przerwanego biegu też są nasze
+    META.st.runs++; META.st.time += G.time; META.st.lvl += Math.max(0, P.lvl - 1);
+    if (G.time > META.st.best) META.st.best = G.time;
+    if (G.kills > META.st.bestKills) META.st.bestKills = G.kills;
+    clearWorld();
     AUDIO.endRun();                               // z powrotem motyw główny
     document.getElementById('wArrow').style.display = 'none';
     menu.style.display = 'flex';
     saveMeta();                                   // zapisz liczniki bestiariusza z przerwanego biegu
-    renderStats(); renderShop(); renderBestiary();
+    renderStats(); renderShop(); renderBestiary(); renderChars();
   };
   addEventListener('keydown', e => {
     if (e.code === 'Escape' && G.running &&
