@@ -1487,6 +1487,7 @@ const G = {
   time: 0, kills: 0, runCoins: 0,
   enemies: [], gems: [], coins: [], shots: [], orbs: [], sparks: [], rings: [],
   lobs: [], boomers: [], bolts: [], pops: [], hps: [], kury: [], okruchy: [], puffs: [],
+  padajace: [],                                    // regały w trakcie przewracania (market)
   hitstop: 0,                                      // krótkie zatrzymanie czasu przy grubym zabójstwie
   spawnT: 0, shake: 0, bossAt: 120, ringAt: 60, tier: 0,
   vacuum: 0, buff: { key: null, t: 0 },
@@ -2544,6 +2545,7 @@ function buildChunk(cx, cz) {
   scene.add(mesh);
   const rng = chunkRng(cx, cz);
   const deco = [], rocks = [], solids = [], spills = [], leaves = [], sway = [];
+  const shelves = [];                            // regały do przewrócenia (tylko market)
   let grass = null;
 
   if (MAPS[mapKey].indoor) {
@@ -2588,23 +2590,37 @@ function buildChunk(cx, cz) {
         } else if (co < 0.62) {
           continue;                               // przerwa = przejście w alejce
         } else {
-          // REGAŁ: korpus + 2 wystające półki (bryły) = lepiej czytelny
+          // REGAŁ: korpus + 2 wystające półki (bryły) = lepiej czytelny.
+          // Wszystkie części siedzą w GRUPIE, której pivot leży na KRAWĘDZI
+          // podstawy od strony upadku — dzięki temu przewracanie to jeden obrót
+          // `rotation.x`, a nie ręczne przeliczanie pozycji pięciu bryłek.
           const len = 7;
-          const m = new THREE.Mesh(shelfGeo, shelfMat);
-          m.scale.set(len, SHELF_H, 1.6);
-          m.position.set(x, g0 + SHELF_H / 2, z);
-          scene.add(m); rocks.push(m);
-          for (const [hy, dz] of [[0.8, 1.05], [1.6, 1.05], [0.8, -1.05], [1.6, -1.05]]) {
-            const p2 = new THREE.Mesh(shelfGeo, plankMat);
-            p2.scale.set(len, 0.14, 0.6);
-            p2.position.set(x, g0 + hy, z + dz);
-            scene.add(p2); rocks.push(p2);
+          const kier = rng() < 0.5 ? 1 : -1;               // w którą stronę się przewróci
+          // PARA PLECAMI DO SIEBIE (40% miejsc): przewrócony regał sięga 2.3 j.,
+          // a rzędy stoją 8 j. od siebie — bez pary DOMINO nie ma czego trącić.
+          // Oba regały w parze padają w TĘ SAMĄ stronę, więc pierwszy wywala drugi.
+          const para = rng() < 0.4;
+          const offs = para ? [-1.25 * kier, 1.25 * kier] : [0];
+          for (const oz of offs) {
+            const zz = z + oz;
+            const pivotZ = zz + kier * 0.8;                // krawędź podstawy od strony upadku
+            const grupa = new THREE.Group();
+            grupa.position.set(x, g0, pivotZ);
+            const dodaj = (mat, sx, sy, sz, ly, lz) => {
+              const mm = new THREE.Mesh(shelfGeo, mat);
+              mm.scale.set(sx, sy, sz);
+              mm.position.set(0, ly, lz - kier * 0.8);      // lokalnie względem pivotu
+              grupa.add(mm);
+            };
+            dodaj(shelfMat, len, SHELF_H, 1.6, SHELF_H / 2, 0);
+            for (const [hy, dz] of [[0.8, 1.05], [1.6, 1.05], [0.8, -1.05], [1.6, -1.05]])
+              dodaj(plankMat, len, 0.14, 0.6, hy, dz);
+            dodaj(plankMat, len + 0.3, 0.16, 2.1, SHELF_H + 0.08, 0);
+            scene.add(grupa); rocks.push(grupa);
+            const solid = { x, z: zz, hw: len / 2, hl: 1.1, top: g0 + SHELF_H + 0.16 };
+            solids.push(solid);
+            shelves.push({ grupa, solid, x, z: zz, g0, len, kier, pivotZ, t: 0, stan: 'stoi' });
           }
-          const top = new THREE.Mesh(shelfGeo, plankMat);   // blat na górze
-          top.scale.set(len + 0.3, 0.16, 2.1);
-          top.position.set(x, g0 + SHELF_H + 0.08, z);
-          scene.add(top); rocks.push(top);
-          solids.push({ x, z, hw: len / 2, hl: 1.1, top: g0 + SHELF_H + 0.16 });
         }
       }
     }
@@ -2729,7 +2745,7 @@ function buildChunk(cx, cz) {
       }
     }
   }
-  return { mesh, deco, rocks, solids, spills, grass, leaves, sway };
+  return { mesh, deco, rocks, solids, spills, grass, leaves, sway, shelves };
 }
 
 // czy punkt jest na rozlanej wodzie (market) — wtedy ŚLIZG
@@ -2987,6 +3003,7 @@ function novaRing(x, z, rMax) {
 function nova(x, z, r, dmg) {
   novaRing(x, z, r);
   AUDIO.sfx('wybuch');
+  przewrocRegaly(x, z, r + 1.2);                 // w markecie fala kładzie regały
   for (let j = G.enemies.length - 1; j >= 0; j--) {
     const e = G.enemies[j];
     if (e.dying) continue;
@@ -2997,6 +3014,87 @@ function nova(x, z, r, dmg) {
       spark(e.pos.x, e.ty + 1.0, e.pos.z);
       dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), '#ffb56e', 0.85);
       if (e.hp <= 0) killEnemy(e, j);
+    }
+  }
+}
+
+// ============================== PRZEWRACANE REGAŁY (market) ==============================
+// Każda fala uderzeniowa (tupnięcie, wybuch butelki, meteoryt, Sodino) przewraca
+// regały w zasięgu. Regał przygniata wszystko na swojej długości, otwiera przejście
+// i zostawia rumowisko, na które da się WSKOCZYĆ — a przewracając się, popycha
+// sąsiednie regały, więc jedno tupnięcie może pójść jak domino przez pół alejki.
+const PAD_T = 0.5;                               // czas upadku
+function przewrocRegaly(x, z, r, opoznienie = 0) {
+  if (!MAPS[mapKey].indoor) return 0;
+  let ile = 0;
+  const cx = Math.floor(x / CHUNK), cz = Math.floor(z / CHUNK);
+  for (let gx = cx - 1; gx <= cx + 1; gx++) for (let gz = cz - 1; gz <= cz + 1; gz++) {
+    const ch = chunkMap.get(gx + ',' + gz);
+    if (!ch || !ch.shelves || !ch.shelves.length) continue;
+    for (const s of ch.shelves) {
+      if (s.stan !== 'stoi') continue;
+      // odległość do PROSTOKĄTA regału, nie do środka — inaczej fala u końca
+      // siedmiometrowego regału nie ruszałaby go wcale
+      const dx = Math.max(0, Math.abs(x - s.x) - s.len / 2);
+      const dz = Math.max(0, Math.abs(z - s.z) - 1.1);
+      if (dx * dx + dz * dz > r * r) continue;
+      s.stan = 'pada'; s.t = -opoznienie; s.zadal = false;
+      G.padajace.push(s);
+      ile++;
+    }
+  }
+  return ile;
+}
+function updatePadajace(dt) {
+  for (let i = G.padajace.length - 1; i >= 0; i--) {
+    const s = G.padajace[i];
+    if (!s.grupa.parent) { G.padajace.splice(i, 1); continue; }   // chunk zniknął pod nogami
+    s.t += dt;
+    if (s.t < 0) continue;                                        // czeka na swoją kolej (domino)
+    const k = Math.min(1, s.t / PAD_T);
+    s.grupa.rotation.x = s.kier * (Math.PI / 2) * k * k;          // przyspiesza jak pod grawitacją
+    if (!s.zadal && k > 0.55) {                                   // moment uderzenia w podłogę
+      s.zadal = true;
+      const dmg = 6 * dmgAll() + 4;
+      for (let j = G.enemies.length - 1; j >= 0; j--) {
+        const e = G.enemies[j];
+        if (e.dying) continue;
+        if (Math.abs(e.pos.x - s.x) > s.len / 2 + 0.7) continue;
+        const wzdluz = (e.pos.z - s.pivotZ) * s.kier;             // leży od pivotu w stronę upadku
+        if (wzdluz < -0.7 || wzdluz > SHELF_H + 0.7) continue;
+        e.hp -= dmg;
+        e.kb.set(0, 0, s.kier * 3);
+        dmgPop(e.pos.x, e.ty + 0.6, e.pos.z, dmgNum(dmg), '#ffd75e', 1.5);
+        if (e.hp <= 0) killEnemy(e, j);
+      }
+      // gracz też dostanie, jeśli stoi w linii upadku — regały nie wybierają
+      if (Math.abs(P.pos.x - s.x) < s.len / 2 + 0.6 && P.iframes <= 0 && !P.airborne) {
+        const wzdluz = (P.pos.z - s.pivotZ) * s.kier;
+        if (wzdluz > -0.6 && wzdluz < SHELF_H + 0.6) {
+          P.hp -= 1; P.iframes = 1.1; drawHearts(); AUDIO.sfx('hurt'); G.shake = 0.5;
+          if (P.hp <= 0) startDeath();
+        }
+      }
+      AUDIO.sfx('wybuch');
+      G.shake = Math.max(G.shake, 0.4);
+      G.hitstop = Math.max(G.hitstop, 0.05);
+      okruchy(s.x, s.g0 + 0.5, s.pivotZ + s.kier * SHELF_H * 0.5, 0xb98a4e, 8);   // drewno
+      // rozsypany TOWAR — bez tego przewrócony regał to sama deska
+      for (const kol of [0xd94f4f, 0x4f8fd9, 0xf2c14a])
+        okruchy(s.x + (Math.random() - 0.5) * s.len, s.g0 + 1.2, s.pivotZ, kol, 3);
+      puff(s.x, s.g0 + 0.4, s.pivotZ + s.kier * SHELF_H * 0.5, 0xd8c49a, 3.5);
+      novaRing(s.x, s.pivotZ + s.kier * SHELF_H * 0.5, 3);
+      // DOMINO: koniec leżącego regału trąca to, co tam stoi (para plecami do siebie)
+      przewrocRegaly(s.x, s.pivotZ + s.kier * SHELF_H, 1.0, 0.08);
+    }
+    if (k >= 1) {
+      s.stan = 'lezy';
+      // bryła kolizji z pionowej ściany (top 2.3) robi się RUMOWISKIEM (top 1.0),
+      // czyli przejściem, na które wskoczysz jednym skokiem (1.46 j.)
+      s.solid.z = s.pivotZ + s.kier * SHELF_H / 2;
+      s.solid.hl = SHELF_H / 2;
+      s.solid.top = s.g0 + 1.0;
+      G.padajace.splice(i, 1);
     }
   }
 }
@@ -3437,6 +3535,7 @@ function update(dt) {
   }
 
   updateWeaponChest(dt);
+  if (G.padajace.length) updatePadajace(dt);
 
   // ---- totemy ----
   for (const t of totems) {
@@ -3677,7 +3776,7 @@ function clearWorld() {
   for (const p of G.puffs) { scene.remove(p.mesh); p.mesh.material.dispose(); }
   G.enemies = []; G.gems = []; G.coins = []; G.shots = []; G.orbs = []; G.sparks = []; G.rings = [];
   G.lobs = []; G.boomers = []; G.bolts = []; G.pops = []; G.hps = []; G.kury = []; G.okruchy = [];
-  G.puffs = []; G.hitstop = 0;
+  G.puffs = []; G.hitstop = 0; G.padajace = [];
   G.streak = 0; G.streakT = -9;
   G.vacuum = 0; G.buff = { key: null, t: 0 };
   document.getElementById('buff').style.opacity = 0;
@@ -3921,6 +4020,7 @@ if (loadTip) {
     wchest, META, CHARS, MAPS, ENEMY_TYPES, spawnEnemy, killEnemy, renderBestiary, saveMeta,
     setPlayerChar, togglePause, get charKey() { return charKey; }, AUDIO,
     setTilt(v) { SPRITE_TILT = v; refreshSpriteTilt(); },   // 0 = pionowe billboardy, 1 = do kamery
+    przewrocRegaly, nova,
     get tilt() { return { SPRITE_TILT, kat: +(tiltKat * 180 / Math.PI).toFixed(1) }; },
     get grass() { return grassField; },
     PAD, pollPads, get camYaw() { return camYaw; }, get gpSel() { return gpSel; },
