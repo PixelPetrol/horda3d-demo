@@ -134,6 +134,14 @@ Stat­ystyki tak, żeby każdy grał inaczej, a nie był „Carrotellem +10%".
 **DECYZJA USERA (12.08): robimy tylko BROCCOLINO RASTAFARINO.** Pozostali trzej
 zostają w zamrażarce jako pomysły — nie generować bez ponownego potwierdzenia.
 
+**TEMPO ODBLOKOWAŃ (decyzja usera 12.08):** pierwsza dodatkowa postać na **3. biegu**,
+druga na **6. biegu**. Wdrożone: Beetino `killGoal: 450` (zmierzona ścieżka: bieg 1
+≈ 60 zabójstw, bieg 2 ≈ 150, bieg 3 ≈ 250 → ~460 łącznie).
+**Broccolino ma być DO KUPIENIA** i wpaść na 6. biegu — przy nowej ekonomii
+(~1.8× więcej monet, bieg startowy 90-150, dobry 5-min ~1450) i przy założeniu,
+że gracz część monet wydaje w sklepie, cena wychodzi na **700 monet**.
+Do ustawienia razem z arkuszem: `CHARS.broccolino = { …, price: 700 }`.
+
 Kod bohatera powstanie **dopiero razem z arkuszem**: wpis w `CHARS` bez sprite'a
 wywala Billboard na `SPRITEDATA[char]`, więc nie dopisuję go „na zapas".
 Do zaprojektowania przy wdrożeniu: czym dokładnie jest jego aura — czy to

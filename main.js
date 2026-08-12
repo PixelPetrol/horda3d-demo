@@ -34,12 +34,13 @@ const CHARS = {
   // ===== VEGGIE FAMIGLIA (statystyki wg biblii postaci v1.1) =====
   carrotello: { nm: 'Carrotello Squattello', ds: 'Marchewino Dresino — szybki, ogromny magnes. Starter.',
                 char: 'carrotello_squattello', price: 0, spd: 1.15, hp: 0, dmg: 0.9, mag: 1.3, scale: 1.22 },
-  // Beetino idzie za ZABÓJSTWA, nie za monety: 250 monet uzbierało się już
-  // w drugim biegu, więc jako zakup nie był żadnym celem. 2000 zabójstw wypada
-  // między 6. a 9. biegiem — czyli dokładnie wtedy, gdy gracz zaczyna ginąć
-  // na krzywej trudności i czołg z bramki staje się odpowiedzią.
+  // Beetino idzie za ZABÓJSTWA, nie za monety (250 monet uzbierało się już
+  // w drugim biegu, więc jako zakup nie był żadnym celem).
+  // PRÓG 450 = TRZECI BIEG. Zmierzona ścieżka nowego gracza: bieg 1 ≈ 60 zabójstw,
+  // bieg 2 ≈ 150, bieg 3 ≈ 250 → łącznie ~460. Nagroda ma przyjść, GDY GRACZ
+  // JESZCZE NIE WIE, czy zostaje — nie po ośmiu biegach.
   beetino:    { nm: 'Beetino Bouncerino', ds: 'Buraczino Betonino — czołg z bramki. Wolny, ale twardy.',
-                char: 'beetino_bouncerino', price: 0, killGoal: 2000,
+                char: 'beetino_bouncerino', price: 0, killGoal: 450,
                 spd: 0.85, hp: 3, dmg: 1.1, mag: 0.9, scale: 1.32 },
 };
 // portret postaci = pierwsza klatka jej arkusza (pixel art zamiast emoji)
@@ -1397,7 +1398,9 @@ function sprawdzOdblokowaniaPostaci() {
       META.chars[key] = 1; saveMeta(); renderChars();
       toastBuff('NOWA POSTAĆ: ' + C.nm.toUpperCase() + '!');
       AUDIO.sfx('zlota');
-    } else if (META.st.kills % 500 === 0) {
+    } else if (META.st.kills % Math.max(50, Math.round(C.killGoal / 3)) === 0) {
+      // kamienie milowe LICZONE OD CELU (trzy przystanki), nie na sztywno co 500 —
+      // przy progu 450 komunikat co 500 nie pojawiłby się ani razu
       toastBuff(C.nm.split(' ')[0].toUpperCase() + ': ' + META.st.kills + '/' + C.killGoal);
     }
   }
