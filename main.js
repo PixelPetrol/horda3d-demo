@@ -171,10 +171,66 @@ function updateSun(x, z) {
   sun.target.updateMatrixWorld();
 }
 
+// ============================== NIEBO Z GRADIENTEM ==============================
+// Kopuła jeżdżąca za kamerą (r=1 × skala 300 przy camera.far = 400). `fog:false`,
+// `depthWrite:false` i renderOrder −1000 → rysuje się PIERWSZA i nie wchodzi nikomu
+// w z-bufor. KOLOR DOLNY MUSI RÓWNAĆ SIĘ `scene.fog.color` (czyli `MAPS[...].sky`),
+// inaczej dalekie wzgórza wtapiają się w inny kolor niż niebo za nimi = szew.
+// Gradient jest KWANTOWANY na pasy — gładkie przejście wygląda jak z Unity,
+// a nie jak tło pixel-artowej gry.
+const SKY = {
+  laki:   { dol: 0x9cc8ec, srodek: 0x7fb6e6, gora: 0x4a86cf, slonce: 0xfff0c4, pasy: 16 },
+  market: { dol: 0xb8bfc7, srodek: 0xacb4bd, gora: 0x939ba5, slonce: 0xd8d8d0, pasy: 0 },
+};
+const skyU = {
+  uDol:    { value: new THREE.Color(SKY.laki.dol) },
+  uSrodek: { value: new THREE.Color(SKY.laki.srodek) },
+  uGora:   { value: new THREE.Color(SKY.laki.gora) },
+  uSlonce: { value: new THREE.Color(SKY.laki.slonce) },
+  uSunDir: { value: SUN_OFF.clone().normalize() },
+  uPasy:   { value: SKY.laki.pasy },
+};
+const skyDome = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.ShaderMaterial({
+  uniforms: skyU, side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false,
+  vertexShader: `
+    varying vec3 vDir;
+    void main() {
+      vDir = normalize(position);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }`,
+  fragmentShader: `
+    uniform vec3 uDol, uSrodek, uGora, uSlonce, uSunDir;
+    uniform float uPasy;
+    varying vec3 vDir;
+    void main() {
+      float h = clamp(vDir.y, -0.2, 1.0);
+      float hq = uPasy > 0.5 ? floor(h * uPasy + 0.5) / uPasy : h;   // pasy zamiast gładzi
+      vec3 col = mix(uDol, uSrodek, smoothstep(0.00, 0.24, hq));
+      col = mix(col, uGora,        smoothstep(0.20, 0.80, hq));
+      float sd = max(dot(vDir, normalize(uSunDir)), 0.0);            // ciepła poświata od słońca
+      col = mix(col, uSlonce, pow(sd, 7.0) * 0.55);
+      gl_FragColor = vec4(col, 1.0);
+      #include <colorspace_fragment>
+    }`,
+}));
+skyDome.scale.setScalar(300);
+skyDome.frustumCulled = false;
+skyDome.renderOrder = -1000;
+scene.add(skyDome);
+function setSky(key) {
+  const S = SKY[key] || SKY.laki;
+  skyU.uDol.value.setHex(S.dol);
+  skyU.uSrodek.value.setHex(S.srodek);
+  skyU.uGora.value.setHex(S.gora);
+  skyU.uSlonce.value.setHex(S.slonce);
+  skyU.uPasy.value = S.pasy;
+}
+
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   applyResolution();
   fitCamera();
+  if (typeof przeliczWylot === 'function') przeliczWylot();   // wylot lufy zmienia miejsce z rozmiarem okna
 });
 addEventListener('orientationchange', () => setTimeout(fitCamera, 250));
 
@@ -955,6 +1011,80 @@ let stalkMat = null, stalkField = null;        // wysokie suche trawy z kłosem
 // uniformy dywanu: środek (gracz) + promień — do PŁYNNEGO WYRASTANIA (bez wyskakiwania)
 const grassCenterU = { value: new THREE.Vector2() };
 const grassRU = { value: 20 };
+
+// ================= MAPA NACISKU: TRAWA UGINA SIĘ POD HORDĄ =================
+// 500 pozycji wrogów nie da się przekazać do shadera uniformami, więc idziemy tą samą
+// drogą co mapa głębi wody: wypiekamy pole nacisku do DataTexture wokół gracza,
+// a vertex shader czyta je per kępkę. Kierunek pochylenia bierzemy z GRADIENTU pola
+// (jak piana na brzegu jeziora) — sam skalar nie mówi, w którą stronę uciekać.
+// Format R8 + LinearFilter, dokładnie jak `waterDepthTex` (filtrowalny wszędzie).
+const TR_RES = 96, TR_SPAN = 72;                   // 0.75 j./texel
+const TR_ST = TR_SPAN / TR_RES;
+const trData = new Uint8Array(TR_RES * TR_RES);
+const trPrzesuw = new Uint8Array(TR_RES * TR_RES);
+const trampleTex = new THREE.DataTexture(trData, TR_RES, TR_RES, THREE.RedFormat);
+trampleTex.minFilter = trampleTex.magFilter = THREE.LinearFilter;
+trampleTex.wrapS = trampleTex.wrapT = THREE.ClampToEdgeWrapping;
+trampleTex.unpackAlignment = 1;
+trampleTex.needsUpdate = true;
+const trampleU = { value: trampleTex };
+const trCenterU = { value: new THREE.Vector2(1e9, 1e9) };
+let trCx = 1e9, trCz = 1e9;
+function stampTrample(x, z, moc) {
+  if (Math.abs(x - trCx) > TR_SPAN / 2 || Math.abs(z - trCz) > TR_SPAN / 2) return;
+  const gx = Math.round((x - trCx) / TR_ST + TR_RES / 2);
+  const gz = Math.round((z - trCz) / TR_ST + TR_RES / 2);
+  for (let j = -2; j <= 2; j++) {
+    const jz = gz + j;
+    if (jz < 0 || jz >= TR_RES) continue;
+    for (let i = -2; i <= 2; i++) {
+      const ix = gx + i;
+      if (ix < 0 || ix >= TR_RES) continue;
+      const d2 = i * i + j * j;
+      if (d2 > 5) continue;                        // okrągła plama, nie kwadrat
+      const v = moc * (d2 === 0 ? 1 : d2 <= 2 ? 0.78 : 0.46);
+      const k = jz * TR_RES + ix;
+      if (v > trData[k]) trData[k] = v;
+    }
+  }
+}
+function updateTrample(dt) {
+  if (MAPS[mapKey].indoor) return;                 // w markecie nie ma trawy
+  // ŚRODEK SNAPOWANY DO TEXELA: bez tego te same punkty świata wypadałyby po każdym
+  // przesunięciu w innym miejscu texela i cały dywan drgałby przy marszu.
+  const nx = Math.round(P.pos.x / TR_ST) * TR_ST, nz = Math.round(P.pos.z / TR_ST) * TR_ST;
+  if (nx !== trCx || nz !== trCz) {
+    const dx = Math.round((nx - trCx) / TR_ST), dz = Math.round((nz - trCz) / TR_ST);
+    if (!isFinite(dx) || !isFinite(dz) || Math.abs(dx) >= TR_RES || Math.abs(dz) >= TR_RES) {
+      trData.fill(0);
+    } else {
+      // przesunięcie pola o CAŁE texele — ślady zostają przyklejone do świata,
+      // więc wygięta trawa nie jedzie za graczem
+      trPrzesuw.set(trData);
+      trData.fill(0);
+      for (let j = 0; j < TR_RES; j++) {
+        const src = j + dz;
+        if (src < 0 || src >= TR_RES) continue;
+        for (let i = 0; i < TR_RES; i++) {
+          const si = i + dx;
+          if (si < 0 || si >= TR_RES) continue;
+          trData[j * TR_RES + i] = trPrzesuw[src * TR_RES + si];
+        }
+      }
+    }
+    trCx = nx; trCz = nz;
+    trCenterU.value.set(nx, nz);
+  }
+  // ZANIK: trawa wstaje z powrotem, więc po hordzie zostaje na chwilę wydeptany ślad
+  const zanik = Math.max(0, 1 - dt * 2.6);
+  for (let k = 0; k < trData.length; k++) {
+    const v = trData[k];
+    if (v) trData[k] = v * zanik < 2 ? 0 : v * zanik;
+  }
+  stampTrample(P.pos.x, P.pos.z, 255);
+  for (const e of G.enemies) if (!e.dying) stampTrample(e.pos.x, e.pos.z, e.T.boss ? 255 : 205);
+  trampleTex.needsUpdate = true;
+}
 function makeBladeMaterial(mapa = null) {
   const m = new THREE.MeshBasicMaterial({ map: mapa || clumpTexture(), alphaTest: 0.42,
     side: THREE.DoubleSide, vertexColors: true });
@@ -965,7 +1095,10 @@ function makeBladeMaterial(mapa = null) {
     sh.uniforms.uTime = windU;
     sh.uniforms.uCenter = grassCenterU;
     sh.uniforms.uR = grassRU;
-    sh.vertexShader = 'uniform float uTime;uniform vec2 uCenter;uniform float uR;\n' +
+    sh.uniforms.uTr = trampleU;
+    sh.uniforms.uTrC = trCenterU;
+    sh.vertexShader = 'uniform float uTime;uniform vec2 uCenter;uniform float uR;' +
+      'uniform sampler2D uTr;uniform vec2 uTrC;\n' +
       sh.vertexShader.replace('#include <begin_vertex>',
       `#include <begin_vertex>
        vec3 iP = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
@@ -976,7 +1109,24 @@ function makeBladeMaterial(mapa = null) {
        float sw = sin(uTime * 2.2 + iP.x * 0.45 + iP.z * 0.35) * 0.28 * h * fade
                 + sin(uTime * 0.7 + iP.x * 0.08) * 0.10 * h * fade;   // druga, wolna fala
        transformed.x += sw;
-       transformed.z += sw * 0.45;`);
+       transformed.z += sw * 0.45;
+       // ---- UGINANIE POD HORDĄ ----
+       vec2 tuv = (iP.xz - uTrC) * ${(1 / TR_SPAN).toFixed(7)} + 0.5;
+       if (tuv.x > 0.0 && tuv.x < 1.0 && tuv.y > 0.0 && tuv.y < 1.0) {
+         float nac = texture2D(uTr, tuv).r;
+         if (nac > 0.01) {
+           // kierunek Z GRADIENTU pola: kępka kładzie się W DÓŁ zbocza, czyli OD nacisku
+           float tx1 = texture2D(uTr, tuv + vec2(${(1 / TR_RES).toFixed(7)}, 0.0)).r;
+           float tx0 = texture2D(uTr, tuv - vec2(${(1 / TR_RES).toFixed(7)}, 0.0)).r;
+           float tz1 = texture2D(uTr, tuv + vec2(0.0, ${(1 / TR_RES).toFixed(7)})).r;
+           float tz0 = texture2D(uTr, tuv - vec2(0.0, ${(1 / TR_RES).toFixed(7)})).r;
+           vec2 gr = vec2(tx1 - tx0, tz1 - tz0);
+           float gl = length(gr);
+           vec2 kier = gl > 0.0015 ? -gr / gl : vec2(0.0);
+           transformed.xz += kier * nac * 0.95 * h * fade;
+           transformed.y *= 1.0 - nac * 0.55;                  // przygniecione = niższe
+         }
+       }`);
   };
   return m;
 }
@@ -1355,8 +1505,8 @@ function sznurkiTexture() {
   // ciemna oliwka, nie krem: na jasnym tle marketu jasne linie czytały się
   // jak promienie słońca. Dwa główne sznurki od krawędzi czaszy + dwa ledwo
   // widoczne w środku, wszystkie prawie pionowe (fan pod 30° wyglądał jak gwiazda).
-  const linie = [[3, 60, '#3f5c22', 2], [124, 68, '#3f5c22', 2],
-                 [34, 62, '#4d6b2c', 1], [93, 66, '#4d6b2c', 1]];
+  const linie = [[3, 60, '#2b3550', 2], [124, 68, '#2b3550', 2],
+                 [34, 62, '#3d4a6b', 1], [93, 66, '#3d4a6b', 1]];
   for (const [gx, dx, kol, w] of linie) {
     g.strokeStyle = kol; g.lineWidth = w;
     g.beginPath(); g.moveTo(gx, 1); g.lineTo(dx, S - 2); g.stroke();
@@ -1367,14 +1517,55 @@ function sznurkiTexture() {
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
+// ============================== FOLIOWA TORBA (spadochron) ==============================
+// Był to płaski billboard z liściem sałaty i wyglądał źle z prostego powodu:
+// spadochron czyta się dopiero jako WYGIĘTA CZASZA. Teraz jest to kopuła 3D
+// (górna czapa sfery) z falującym rantem, a motyw zmieniono na nadmuchującą się
+// torbę z marketu — śmieszniej i spójnie ze sklepem.
+function torbaTexture() {
+  const W = 64, H = 32;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.fillStyle = '#eef3fa'; g.fillRect(0, 0, W, H);                 // biała folia
+  for (let x = 0; x < W; x += 4) {                                  // pionowe zagniecenia
+    g.fillStyle = (x / 4) % 2 ? '#dde5f0' : '#f7fbff';
+    g.fillRect(x, 0, 2, H);
+  }
+  g.fillStyle = '#c9d4e2';                                          // cień pod rantem
+  g.fillRect(0, H - 6, W, 6);
+  g.fillStyle = '#e0524f'; g.fillRect(0, 11, W, 5);                 // czerwony pas „marketu"
+  g.fillStyle = '#f2f6fb'; g.fillRect(0, 13, W, 1);
+  g.fillStyle = '#2b3550';                                          // pixelowy napis-plamka na pasie
+  for (const x of [8, 14, 20, 30, 36, 46, 52]) g.fillRect(x, 12, 3, 3);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = THREE.RepeatWrapping;
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
 let lettuce = null, sznurki = null, salataMat = null;
 function initLettuce() {
-  // czasza ze sprite'a od wlasciciela (lisc kapusty); proceduralna `lettuceTexture`
-  // zostaje jako awaryjna, gdyby pliku zabraklo
-  const m = new THREE.MeshBasicMaterial({ map: salataMat ? salataMat.map : lettuceTexture(),
-    transparent: true, alphaTest: 0.4, side: THREE.DoubleSide, depthWrite: false });
-  lettuce = new THREE.Mesh(unitGeo, m);
-  lettuce.scale.set(2.2, 1.3, 1);
+  // GÓRNA CZAPA SFERY = czasza. thetaLength 0.46π daje kopułę trochę większą niż
+  // półkula, więc rant lekko podwija się do dołu tak jak w napełnionej torbie.
+  const geo = new THREE.SphereGeometry(1, 16, 6, 0, Math.PI * 2, 0, Math.PI * 0.46);
+  const m = new THREE.MeshBasicMaterial({ map: torbaTexture(), transparent: true,
+    opacity: 0.93, side: THREE.DoubleSide, depthWrite: false });
+  // FALOWANIE RANTU w vertex shaderze: im dalej od czubka (position.y niżej), tym
+  // mocniejszy ruch — czubek jest napięty, dół trzepocze.
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uTime = windU;
+    sh.vertexShader = 'uniform float uTime;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+      `#include <begin_vertex>
+       float kraw = 1.0 - clamp(position.y, 0.0, 1.0);          // 0 na czubku, 1 na rancie
+       float kat = atan(position.z, position.x);
+       transformed.y += sin(uTime * 7.0 + kat * 3.0) * 0.11 * kraw * kraw;
+       transformed.x *= 1.0 + sin(uTime * 5.0 + kat * 2.0) * 0.05 * kraw;
+       transformed.z *= 1.0 + cos(uTime * 5.4 + kat * 2.0) * 0.05 * kraw;`);
+  };
+  lettuce = new THREE.Mesh(geo, m);
+  lettuce.scale.set(1.75, 1.25, 1.75);
   lettuce.visible = false;
   scene.add(lettuce);
   const ms = new THREE.MeshBasicMaterial({ map: sznurkiTexture(), transparent: true,
@@ -1388,14 +1579,15 @@ function updateLettuce(dt) {
   lettuce.visible = sznurki.visible = !!P.gliding;
   if (!P.gliding) return;
   const kolysanie = Math.sin(G.time * 5) * 0.12;
-  const czaszaY = P.y + 2.5 + Math.sin(G.time * 3) * 0.07;
+  const czaszaY = P.y + 2.35 + Math.sin(G.time * 3) * 0.07;
   lettuce.position.set(P.pos.x, czaszaY, P.pos.z);
-  lettuce.rotation.set(-0.9 + kolysanie * 0.4, camYaw, kolysanie);
-  // sznurki: od barków (P.y + 1.1) do dolnej krawędzi czaszy, kołyszą się z nią
+  // czasza jest bryłą obrotową, więc NIE billboardujemy jej do kamery — tylko
+  // przechylamy na boki razem z kołysaniem lotu (obrót w Y daje ruch tekstury)
+  lettuce.rotation.set(kolysanie * 0.5, G.time * 0.35, kolysanie);
+  // uchwyty: od barków (P.y + 1.1) do rantu czaszy, kołyszą się z nią
   const barki = P.y + 1.1;
   sznurki.position.set(P.pos.x + kolysanie * 0.25, barki, P.pos.z);
-  // szerokość ~ czasza (2.2), inaczej sznurki wiszą w powietrzu obok jej krawędzi
-  sznurki.scale.set(2.0, Math.max(0.2, czaszaY - 0.30 - barki), 1);
+  sznurki.scale.set(1.9, Math.max(0.2, czaszaY - 0.22 - barki), 1);
   billboardQuat(sznurki.quaternion, kolysanie * 0.8);
 }
 
@@ -1411,11 +1603,16 @@ function initHitFlash() {
 }
 function updateHitFlash() {
   if (!hitFlash) return;
-  const on = P.iframes > 0 && !G.dying;
+  // Ta sama nakładka obsługuje DWA stany: czerwony błysk po ciosie i złotą
+  // poświatę NIETYKALNOŚCI. Zero nowych obiektów w scenie.
+  const niet = G.buff.key === 'niet';
+  const on = (P.iframes > 0 || niet) && !G.dying && !G.fps.on;
   hitFlash.visible = on;
   if (!on) return;
+  hitFlashMat.color.setHex(niet ? 0xffd75e : 0xff2a2a);
   hitFlashMat.map = playerBB.mesh.material.map;          // ta sama klatka co postać
-  hitFlashMat.opacity = 0.35 + 0.45 * Math.abs(Math.sin(P.iframes * 22));
+  hitFlashMat.opacity = niet ? 0.28 + 0.22 * Math.abs(Math.sin(G.time * 7))
+                             : 0.35 + 0.45 * Math.abs(Math.sin(P.iframes * 22));
   hitFlashMat.needsUpdate = true;
   hitFlash.scale.copy(playerBB.mesh.scale);
   hitFlash.position.copy(playerBB.mesh.position);
@@ -1426,7 +1623,7 @@ function updateHitFlash() {
 const META_KEY = 'horda3d_meta_v1';
 function loadMeta() {
   const def = () => ({
-    coins: 0, up: { serce: 0, dmg: 0, szyb: 0, magnes: 0, klatwa: 0 }, unlocked: {},
+    coins: 0, up: { serce: 0, dmg: 0, szyb: 0, magnes: 0, klatwa: 0, karabin: 0 }, unlocked: {},
     chars: { carrotello: 1 }, lastChar: 'carrotello', lastMap: 'laki',
     // `chests` = złote skrzynie z bronią, `skrzynki` = zwykłe (od nich zależy
     // wyreżyserowana sekwencja pierwszych sześciu nagród)
@@ -1474,6 +1671,10 @@ const SHOP = [
   // końca progresji dostajesz dźwignię. Więcej wrogów = więcej XP i monet.
   { key: 'klatwa', ico: 'ostrzezenie', nm: 'Klątwa Nonny',
     ds: 'Wrogowie twardsi i liczniejsi, ale monety sypią się gęściej', base: 120, max: 5 },
+  // Sam KARABIN wypada ze skrzyni (nie da się go kupić) — w sklepie kupujesz tylko
+  // DŁUŻSZY tryb. Inaczej najmocniejsza rzecz w grze byłaby na stałe za monety.
+  { key: 'karabin', ico: 'celownik', nm: 'Magazynek Nonny',
+    ds: '+5 s trybu KARABIN (baza 20 s)', base: 300, max: 3 },
 ];
 // odblokowania broni i pasywów (jednorazowe — wchodzą do puli kart w biegu)
 const SHOP_UNLOCKS = [
@@ -1482,7 +1683,7 @@ const SHOP_UNLOCKS = [
   { key: 'bumerang', ico: 'radio', nm: 'Radio-bumerang',  ds: 'Leci i wraca, kosząc po drodze', price: 250 },
   { key: 'tarcza',   ico: 'tarcza', nm: 'Tarcza',         ds: 'Blokuje 1 trafienie co jakiś czas', price: 120 },
   { key: 'djump',    ico: 'skok', nm: 'Podwójny skok',         ds: 'Drugi skok w powietrzu — przeskakuj regały (bywa też w skrzyniach)', price: 300 },
-  { key: 'glide',    ico: 'skok', nm: 'Liść sałaty',            ds: 'PRZYTRZYMAJ skok w locie = szybujesz i uciekasz hordzie', price: 250 },
+  { key: 'glide',    ico: 'skok', nm: 'Foliowa torba',           ds: 'PRZYTRZYMAJ skok w locie = szybujesz na torbie i uciekasz hordzie', price: 250 },
   { key: 'skarpeta', ico: 'skarpeta', nm: 'Skarpeta', ds: 'Śmierdząca aura truje wokół', price: 180 },
   { key: 'wiatrowka', ico: 'wiatr', nm: 'Wiatrówka',      ds: 'Promień przeszywa całą linię', price: 220 },
   { key: 'kura',     ico: 'kukurydza', nm: 'Kernello Boomello', ds: 'Ziarno biegnie do wroga i strzela jak popcorn', price: 350 },
@@ -1653,12 +1854,17 @@ const G = {
   padajace: [],                                    // regały w trakcie przewracania (market)
   turrets: [],                                     // postawione sokowirówki (TD-lite)
   pestki: [], kielki: [],                          // Pipsini i jego kiełki
+  karabinPoc: [],                                  // ziarna kukurydzy z karabinu (tryb FPP)
   seria: [],                                       // kolejka rzutów scyzorykiem
   hitstop: 0,                                      // krótkie zatrzymanie czasu przy grubym zabójstwie
   spawnT: 0, shake: 0, bossAt: 120, ringAt: 60, tier: 0,
   vacuum: 0, buff: { key: null, t: 0 },
   streak: 0, streakT: -9,
   dying: false, deathT: 0,
+  // TRYB KARABINU (pierwsza osoba). `zycia` to LICZNIK TRAFIEŃ W TRYBIE, nie serca:
+  // po trzecim ciosie wracamy do widoku za plecami, ale HP zostaje nietknięte —
+  // tryb ma być nagrodą, a nie sposobem na zgon w nagrodzie.
+  fps: { on: false, t: 0, max: 0, zycia: 0, fireT: 0, pitch: 0, wejscie: 0, wyjscie: 0, kick: 0 },
 };
 const P = {};
 
@@ -1669,7 +1875,8 @@ function resetStats() {
     pos: new THREE.Vector3(0, 0, 0),
     hp: maxHp, maxHp,
     iframes: 0, y: 1.55, vy: 0, airborne: false, usedDouble: false, runDjump: false, shieldCd: 0,
-    gliding: false, runGlide: false,
+    // karabin: `karabinRun` = już wypadł w tym biegu, `karabinMa` = leży w kieszeni gotowy
+    gliding: false, runGlide: false, karabinRun: false, karabinMa: false,
     vx: 0, vz: 0,
     weapons: [{ key: CHARS[charKey].startWpn || 'kule', lvl: 1, t: 0 }],   // max 3 sloty (broń z biblii)
     passives: {},                                // key -> poziom
@@ -1733,6 +1940,7 @@ function tryJump() {
 addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'Space') { e.preventDefault(); if (!jumpHeld) tryJump(); jumpHeld = true; }
+  if (e.code === KARABIN_KLAWISZ && G.running && !G.paused) startKarabin();
 });
 addEventListener('keyup', e => {
   keys[e.code] = false;
@@ -1742,7 +1950,11 @@ addEventListener('keyup', e => {
 // dotyk: lewa połowa = joystick; mysz / prawa połowa dotyku = obrót kamery
 const stickEl = document.getElementById('stick'), knobEl = document.getElementById('knob');
 const touch = { on: false, id: null, cx: 0, cy: 0, vx: 0, vy: 0 };
-const camDrag = { on: false, id: null, lx: 0 };
+const camDrag = { on: false, id: null, lx: 0, ly: 0 };
+// W trybie karabinu pion myszy/palca CELUJE. Clamp jest ciasny (±20°) świadomie:
+// przy 500 wrogach zadarcie kamery w niebo znaczy zgon, a i tak nie ma w co strzelać.
+const PITCH_MAX = 0.35;
+const dodajPitch = d => { G.fps.pitch = Math.max(-PITCH_MAX, Math.min(PITCH_MAX, G.fps.pitch + d)); };
 addEventListener('pointerdown', e => {
   if (!G.running || G.paused || e.target.closest('.ov') || e.target.id === 'jbtn') return;
   const joyZone = e.pointerType === 'touch' && e.clientX < innerWidth * 0.55;
@@ -1752,7 +1964,7 @@ addEventListener('pointerdown', e => {
     stickEl.style.display = 'block';
     stickEl.style.left = (e.clientX - 55) + 'px'; stickEl.style.top = (e.clientY - 55) + 'px';
   } else if (!camDrag.on) {
-    camDrag.on = true; camDrag.id = e.pointerId; camDrag.lx = e.clientX;
+    camDrag.on = true; camDrag.id = e.pointerId; camDrag.lx = e.clientX; camDrag.ly = e.clientY;
   }
 });
 addEventListener('pointermove', e => {
@@ -1764,7 +1976,8 @@ addEventListener('pointermove', e => {
     knobEl.style.transform = `translate(calc(-50% + ${dx * m}px), calc(-50% + ${dy * m}px))`;
   } else if (camDrag.on && e.pointerId === camDrag.id) {
     camYaw -= (e.clientX - camDrag.lx) * 0.008;
-    camDrag.lx = e.clientX;
+    if (G.fps.on) dodajPitch(-(e.clientY - camDrag.ly) * 0.005);
+    camDrag.lx = e.clientX; camDrag.ly = e.clientY;
   }
 });
 function endTouch(e) {
@@ -1785,6 +1998,8 @@ addEventListener('pointercancel', endTouch);
   jb.addEventListener('pointercancel', puscil);
   jb.addEventListener('pointerleave', puscil);
   addEventListener('pointerup', puscil);            // gdy palec zjedzie poza przycisk
+  const kb = document.getElementById('karabinBtn');
+  kb.addEventListener('pointerdown', e => { e.stopPropagation(); startKarabin(); });
 }
 
 // ============================== KONTROLER (Gamepad API) ==============================
@@ -1863,7 +2078,7 @@ function pollPads(dt) {
   const btn = i => !!(B[i] && (B[i].pressed || B[i].value > 0.5));
   const hit = i => btn(i) && !PAD.prev[i];         // zbocze narastające
   const [lx, ly] = padStick(ax[0] || 0, ax[1] || 0);
-  const [rx] = padStick(ax[2] || 0, ax[3] || 0);
+  const [rx, ry] = padStick(ax[2] || 0, ax[3] || 0);   // ry = celowanie w pionie (tylko tryb karabinu)
   const ov = topOverlay();
 
   if (ov) {                                        // ---- nawigacja po menu/overlayu ----
@@ -1885,8 +2100,10 @@ function pollPads(dt) {
     if (gpSel) gpMark(null);
     PAD.mx = lx; PAD.mz = ly;
     camYaw -= rx * 2.6 * dt;
+    if (G.fps.on && ry) dodajPitch(-ry * 1.3 * dt);
     if (hit(0)) { PAD.jump = true; jumpHeld = true; tryJump(); }
     if (PAD.jump && !btn(0)) { PAD.jump = false; jumpHeld = false; }
+    if (hit(2)) startKarabin();                      // X = karabin (jeśli leży w kieszeni)
     if (hit(9)) togglePause(true);
   }
   for (let i = 0; i < B.length; i++) PAD.prev[i] = btn(i);
@@ -1933,7 +2150,7 @@ const tier = () => 1 + Math.floor(G.time / 60);
 // KLĄTWA: kupione poziomy podnoszą HP wrogów i zagęszczają spawn, a w zamian
 // mnożą monety (patrz `monetyMul`). Świadomie kupowana trudność.
 const klatwa = () => META.up.klatwa || 0;
-const monetyMul = () => 1 + 0.20 * klatwa();
+const monetyMul = () => (1 + 0.20 * klatwa()) * (G.buff.key === 'kasa' ? 2 : 1);
 const hpScale = () => (1 + G.time / 60 * 0.55 + Math.pow(G.time / 300, 2) * 1.5) * (1 + 0.10 * klatwa());  // późno rośnie ostro
 const spdScale = () => Math.min(1.5, 1 + G.time / 60 * 0.035);
 const dmgScale = () => G.time > 600 ? 3 : (G.time > 330 ? 2 : 1);               // 5.5 min → 2, 10 min → 3
@@ -2471,7 +2688,7 @@ function emojiMat(emoji) {
 // tick(w, dt) woła się co klatkę dla każdej posiadanej broni; w = {key, lvl, t}
 const WEAPONS = {
   kule: {
-    ico: 'kula', nm: 'Kule energii', ds: 'Samonaprowadzające pociski', max: 5,
+    ico: 'kula', nm: 'Kule energii', ds: 'Samonaprowadzające pociski', max: 5, postac: 'carrotello',
     lvlDs: l => ['1 pocisk', '2 pociski', '+1 przebicie', '3 pociski', '+2 przebicia (→ ewolucja!)'][l - 1],
     evoKey: 'meteor', evoIco: 'kula', evoNm: 'KULE METEORYCZNE', evoDs: 'EWOLUCJA: pociski WYBUCHAJĄ przy trafieniu',
     tick(w, dt) {
@@ -2647,7 +2864,7 @@ const WEAPONS = {
   // samą stronę, jeden po drugim, mocnych i przebijających. Gracz musi ustawić
   // się w linii z tłumem — to jedyna broń w grze nagradzająca celowanie ciałem.
   scyzoryk: {
-    ico: 'celownik', nm: 'Scyzoryki', ds: 'Seria mocnych rzutów przed siebie — przebijają', max: 5,
+    ico: 'celownik', nm: 'Scyzoryki', ds: 'Seria mocnych rzutów przed siebie — przebijają', max: 5, postac: 'razoretta',
     lvlDs: l => `${2 + l} rzutów w serii, co ${(2.2 - 0.15 * l).toFixed(1)} s`
       + (l === 5 ? ' (→ ewolucja!)' : ''),
     evoKey: 'wachlarz', evoIco: 'celownik', evoNm: 'WACHLARZ RZODKIEWKI',
@@ -2673,7 +2890,7 @@ const WEAPONS = {
   // powrotnej. Korzysta z tej samej maszynerii co radio-bumerang (`G.boomers`),
   // ale rzuca DWA kapcie w wachlarzu i celuje w najbliższego wroga, nie w przód.
   ciabatta: {
-    ico: 'kapec', nm: 'La Ciabatta', ds: 'Kapeć leci, przebija wszystko i WRACA', max: 5,
+    ico: 'kapec', nm: 'La Ciabatta', ds: 'Kapeć leci, przebija wszystko i WRACA', max: 5, postac: 'granny',
     lvlDs: l => `${l >= 3 ? 2 : 1} kapeć(cie), zasięg ${(6 + 0.5 * l).toFixed(0)}, co ${(1.9 - 0.12 * l).toFixed(1)} s`
       + (l === 5 ? ' (→ ewolucja!)' : ''),
     evoKey: 'doppia', evoIco: 'kapec', evoNm: 'CIABATTA DOPPIA',
@@ -2702,7 +2919,7 @@ const WEAPONS = {
   // Pchnięcie falą w stożku 60° przed sobą: mały zasięg, ale OGROMNY knockback —
   // bramkarz nie zabija, on odprowadza. Skalowanie: zasięg → knockback → obrażenia.
   wypad: {
-    ico: 'fala', nm: 'Wypad!', ds: 'Pchnięcie w stożku — ogromny knockback', max: 5,
+    ico: 'fala', nm: 'Wypad!', ds: 'Pchnięcie w stożku — ogromny knockback', max: 5, postac: 'beetino',
     lvlDs: l => `stożek ${(3.4 + 0.4 * l).toFixed(1)} j., odrzut ${(5 + l).toFixed(0)}, co ${(1.5 - 0.08 * l).toFixed(2)} s`
       + (l === 5 ? ' (→ ewolucja!)' : ''),
     evoKey: 'selekcja', evoIco: 'tarcza', evoNm: 'DZIŚ NIE WEJDZIESZ',
@@ -3242,10 +3459,18 @@ function openSwap() {
   wrap.appendChild(skip);
   document.getElementById('swapOv').style.display = 'flex';
 }
+// BROŃ POSTACI JEST TYLKO JEJ. Bez tego świeży Carrotello wyciągał ze skrzyni
+// Scyzoryki (najlepszą broń jednocelową w grze) w 40. sekundzie pierwszego biegu
+// i wybór postaci przestawał cokolwiek znaczyć — a to on ma być powodem, żeby
+// odblokowywać kolejne warzywa. Decyzja właściciela.
+const broniDostepna = k => {
+  const W = WEAPONS[k];
+  if (W.postac && W.postac !== charKey) return false;   // startowa broń innej postaci
+  return !W.locked || META.unlocked[k];
+};
 // skrzynia przy WOLNYM slocie: prezent — wybór nowej broni bez oddawania
 function openNewWeapon() {
-  const wszystkie = Object.keys(WEAPONS).filter(k =>
-    !hasWeapon(k) && (!WEAPONS[k].locked || META.unlocked[k]));
+  const wszystkie = Object.keys(WEAPONS).filter(k => !hasWeapon(k) && broniDostepna(k));
   if (!wszystkie.length) { G.runCoins += 15; drawCoins(); return; }
   // LOSUJEMY 2 propozycje (nie pokazujemy całej listy — wybór ma coś znaczyć)
   const opts = [];
@@ -3275,8 +3500,7 @@ function openNewWeapon() {
 }
 
 function pickNewWeapon(oldW) {
-  const wszystkie = Object.keys(WEAPONS).filter(k =>
-    !hasWeapon(k) && (!WEAPONS[k].locked || META.unlocked[k]));
+  const wszystkie = Object.keys(WEAPONS).filter(k => !hasWeapon(k) && broniDostepna(k));
   if (!wszystkie.length) { G.runCoins += 15; drawCoins(); return closeSwap(); }
   const opts = [];
   const pula = wszystkie.slice();
@@ -3682,7 +3906,8 @@ function rebuildWorld() {
 function setMap(key) {
   mapKey = key;
   const M = MAPS[key];
-  scene.background.setHex(M.sky);
+  scene.background.setHex(M.sky);                  // awaryjne tło pod kopułą nieba
+  setSky(key);                                     // gradient nieba per mapa (dol == M.sky!)
   scene.fog.color.setHex(M.sky);
   scene.fog.near = M.fog[0]; scene.fog.far = M.fog[1];
   water.visible = M.water;
@@ -3694,6 +3919,7 @@ function setMap(key) {
   grassCenter.set(1e9, 1e9);
   updateGrassField();
   for (const c of chests) placeChest(c);
+  ustawWygladGarnkow(key);          // garnek na Łąkach / witryna chłodnicza w markecie
   for (const t of totems) placeTotem(t);
 }
 function ensureChunks() {
@@ -3751,6 +3977,17 @@ function chestReward(c) {
   META.st.skrzynki = nr + 1;
   saveMetaSoon();
   const scenariusz = nr < SKRZYNIE_SCENARIUSZ.length ? SKRZYNIE_SCENARIUSZ[nr] : null;
+  // KARABIN: najrzadsza i najmocniejsza nagroda, RAZ NA BIEG. Poza wyreżyserowaną
+  // szóstką pierwszych skrzyń — te mają swoją własną dramaturgię i nie wolno jej psuć.
+  // Skrzynia respawnuje się co ~45 s, więc 18% na skrzynię wychodzi ~1 raz na bieg.
+  // NIE ODPALAMY GO OD RAZU: gracz dostaje go „do kieszeni" i sam wybiera moment
+  // (przycisk obok skoku / klawisz R). Odpalenie z zaskoczenia przy skrzyni marnowało
+  // pół trybu na bieg do hordy.
+  if (!scenariusz && !P.karabinRun && Math.random() < 0.18) {
+    P.karabinRun = true;
+    dajKarabin();
+    return;
+  }
   // ze scenariusza wypada tylko to, czego gracz jeszcze nie ma (podwójny skok)
   const wybor = (scenariusz === 'djump' && hasDjump()) ? 'magnes' : scenariusz;
   const roll = wybor === 'djump' ? 0.0 : wybor === 'monety' ? 0.3
@@ -3825,25 +4062,99 @@ function updateWeaponChest(dt) {
   arrow.querySelector('.dist').textContent = Math.round(d) + ' m';
 }
 
-// ============================== TOTEMY BUFFÓW ==============================
+// ============================== GARNEK NONNY (dawne totemy) ==============================
+// Kamienna kolumna fantasy nie miała nic wspólnego z warzywami walczącymi z mafią
+// przekąsek. Mechanika została ta sama (dotknij → losowy buff → cooldown), zmienił
+// się kostium: na Łąkach BULGOCZĄCY GARNEK, w markecie WITRYNA CHŁODNICZA.
+// Nazwa tablicy `totems` zostaje — wisi na niej debug `window.HORDA` i scenariusze testera.
 const totems = [];        // {mesh, ring, pos, cd, mat}
+
+// ---- pomocnik pixel artu: prostokąty + darmowy kontur (warstwa o piksel większa pod spodem) ----
+function pixTex(W, H, bryly, kontur = '#1b1b22') {
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  if (kontur) { g.fillStyle = kontur; for (const [x, y, w, h] of bryly) g.fillRect(x - 1, y - 1, w + 2, h + 2); }
+  for (const [x, y, w, h, kol] of bryly) { g.fillStyle = kol; g.fillRect(x, y, w, h); }
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function garnekTexture() {
+  const b = [];
+  const r = (x, y, w, h, kol) => b.push([x, y, w, h, kol]);
+  r(9, 1, 3, 3, '#e4ecf5'); r(15, 0, 4, 3, '#d3dee9'); r(12, 4, 2, 2, '#e4ecf5');   // para
+  r(18, 4, 2, 2, '#d3dee9');
+  r(4, 8, 22, 3, '#6b727d');                                                        // rant
+  r(6, 10, 18, 2, '#8ec44f');                                                       // zawartość
+  r(9, 9, 4, 2, '#b6e26a'); r(16, 9, 3, 2, '#b6e26a');                              // bąble
+  for (let i = 0; i < 11; i++)                                                      // brzuch (schodki)
+    r(5 + Math.floor(i * 0.32), 11 + i, 20 - Math.floor(i * 0.64), 1, i % 4 === 3 ? '#4a4f58' : '#3b4048');
+  r(1, 11, 3, 3, '#6b727d'); r(26, 11, 3, 3, '#6b727d');                            // uchwyty
+  r(9, 22, 12, 3, '#ff8a2a'); r(12, 24, 7, 2, '#ffd75e');                           // ogień pod garnkiem
+  return pixTex(30, 27, b);
+}
+function witrynaTexture() {
+  const b = [];
+  const r = (x, y, w, h, kol) => b.push([x, y, w, h, kol]);
+  r(2, 2, 24, 26, '#c8ced6');                          // obudowa
+  r(4, 4, 20, 21, '#69a8c9');                          // szyba
+  r(5, 5, 4, 19, '#8fc6de');                           // refleks
+  r(4, 11, 20, 2, '#aeb6c0'); r(4, 18, 20, 2, '#aeb6c0');   // półki
+  r(6, 7, 4, 4, '#e05a5a'); r(12, 7, 3, 4, '#f2c14a'); r(18, 8, 4, 3, '#8ec44f');
+  r(6, 14, 3, 4, '#f0efe6'); r(11, 14, 5, 4, '#d98f3c'); r(19, 15, 3, 3, '#b06bd6');
+  r(7, 21, 5, 3, '#7ab648'); r(15, 21, 6, 3, '#e0873c');
+  r(2, 27, 24, 4, '#8f97a1');                          // podstawa
+  r(9, 28, 10, 2, '#6b727d');
+  return pixTex(28, 32, b);
+}
+// Buffy: waga = jak często wypada. Nietykalność i mrożonki są RZADSZE, bo zdejmują
+// napięcie — a w survivors-like napięcie JEST rozgrywką. 6 s zamiast 10 z tego samego
+// powodu: ma być momentem, nie przerwą w grze.
 const BUFFS = [
-  { key: 'dmg',  label: '💥 PODWÓJNE OBRAŻENIA', dur: 18 },
-  { key: 'szyb', label: '👟 PRZYSPIESZENIE',     dur: 18 },
-  { key: 'slow', label: '🥶 WROGOWIE ZWOLNILI',  dur: 14 },
+  { key: 'dmg',  ico: 'plomien', label: 'PODWÓJNE OBRAŻENIA',    dur: 18,  waga: 1.0 },
+  { key: 'szyb', ico: 'but',     label: 'PRZYSPIESZENIE',        dur: 18,  waga: 1.0 },
+  { key: 'slow', ico: 'zegar',   label: 'WROGOWIE ZWOLNILI',     dur: 14,  waga: 1.0 },
+  { key: 'kasa', ico: 'moneta',  label: 'PODWÓJNE MONETY',       dur: 20,  waga: 0.9 },
+  { key: 'niet', ico: 'tarcza',  label: 'NIETYKALNOŚĆ!',         dur: 6,   waga: 0.5 },
+  { key: 'mroz', ico: 'wiatr',   label: 'MROŻONKI — HORDA STOI', dur: 3.5, waga: 0.6 },
 ];
-function spawnTotems(n, colMat) {
+const BUFF_WAG = BUFFS.reduce((a, b) => a + b.waga, 0);
+function losujBuff() {
+  let r = Math.random() * BUFF_WAG;
+  for (const b of BUFFS) if ((r -= b.waga) <= 0) return b;
+  return BUFFS[0];
+}
+let garnekTex = null, witrynaTex = null;
+// wygląd zależy od mapy — garnki powstają raz przy boocie, więc teksturę podmieniamy w setMap
+function ustawWygladGarnkow(key) {
+  if (!garnekTex) { garnekTex = garnekTexture(); witrynaTex = witrynaTexture(); }
+  const indoor = MAPS[key] && MAPS[key].indoor;
+  const tex = indoor ? witrynaTex : garnekTex;
+  const obr = tex.image.width / tex.image.height;
+  for (const t of totems) {
+    t.mat.map = tex;
+    t.mat.needsUpdate = true;
+    t.mesh.scale.set(2.2 * obr, 2.2, 1);
+  }
+}
+function spawnTotems(n) {
   const ringTex = (() => {
     const c = document.createElement('canvas'); c.width = c.height = 64;
     const g = c.getContext('2d');
-    g.strokeStyle = 'rgba(120,220,255,0.9)'; g.lineWidth = 6;
+    g.strokeStyle = 'rgba(255,196,90,0.95)'; g.lineWidth = 6;      // ciepły pierścień pod garnkiem
     g.beginPath(); g.arc(32, 32, 24, 0, 7); g.stroke();
-    return new THREE.CanvasTexture(c);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
   })();
+  if (!garnekTex) { garnekTex = garnekTexture(); witrynaTex = witrynaTexture(); }
   for (let i = 0; i < n; i++) {
-    const mat = colMat.mat.clone(); mat.transparent = true;
+    const mat = new THREE.MeshBasicMaterial({ map: garnekTex, transparent: true,
+      alphaTest: 0.4, side: THREE.DoubleSide });
     const m = new THREE.Mesh(unitGeo, mat);
-    m.scale.set(2.2 * (colMat.w / colMat.h), 2.2, 1);
+    m.scale.set(2.2 * (garnekTex.image.width / garnekTex.image.height), 2.2, 1);
     scene.add(m);
     const ring = new THREE.Mesh(blobGeo, new THREE.MeshBasicMaterial({ map: ringTex, transparent: true, depthWrite: false }));
     ring.scale.set(3, 1, 3);
@@ -3860,10 +4171,298 @@ function placeTotem(t) {
   t.ring.position.set(s.x, terrainH(s.x, s.z) + 0.06, s.z);
   t.cd = 0; t.mat.opacity = 1; t.ring.visible = true;
 }
-function toastBuff(txt) {
+// `ikona` = nazwa z icons.js; bez niej zostaje czysty tekst (ZERO emoji w grze)
+function toastBuff(txt, ikona) {
   const el = document.getElementById('buff');
-  el.textContent = txt;
+  if (ikona) el.innerHTML = ico(ikona, 14) + ' ' + txt;
+  else el.textContent = txt;
   el.style.opacity = 1;
+}
+
+// ============================== TRYB KARABINU (PIERWSZA OSOBA) ==============================
+// Nagroda ze skrzyni: kamera zjeżdża do wysokości głowy, karabin strzela SAM,
+// a gracz normalnie biega. Sprite'y są 8-kierunkowymi billboardami à la Doom,
+// czyli z bliska i z pierwszej osoby wyglądają poprawnie — dlatego ten tryb
+// wizualnie nie wymaga niczego nowego poza widokiem broni.
+//
+// TRZY ŻYCIA to licznik trafień W TRYBIE, nie serca: cios odbiera życie i
+// ROZRZUCA hordę, ale nie tyka HP. Bez tego gracz ginąłby w nagrodzie, bo
+// z wysokości głowy nie widzi, co go otacza.
+const KARABIN_BAZA = 20;                  // sekundy; sklep dokłada +5 s za poziom
+const KARABIN_GAP = 0.075;                // ~13 strzałów/s
+const KARABIN_DMG = 30;                   // × dmgAll() — ma być mocniejszy od wszystkiego
+const KARABIN_V = 46;                     // j./s — dość wolno, żeby WIDZIEĆ ziarna w locie
+const KARABIN_ZYCIE = 1.5;                // s lotu → zasięg ~69 j.
+const KARABIN_R = 0.8;                    // promień trafienia ziarna
+const KARABIN_ROZRZUT = 0.014;            // rad — broń nie jest laserem, ale celowanie DECYDUJE
+const KARABIN_PRZEBICIE = 2;              // ilu wrogów przebija jedno ziarno
+const KARABIN_ODEPCHNIJ = 14;             // na tyle odlatuje horda przy utracie życia
+const karabinCzas = () => KARABIN_BAZA + 5 * (META.up.karabin || 0);
+// ZIARNO KUKURYDZY jako pocisk — magazynek na sprite'cie to słoik kukurydzy,
+// więc i amunicja musi być kukurydzą. Jasny rdzeń + kontur, żeby było widać na trawie.
+let karabinPocMat = null;
+function karabinPocTexture() {
+  const b = [];
+  const r = (x, y, w, h, kol) => b.push([x, y, w, h, kol]);
+  r(3, 1, 6, 2, '#ffe9a3'); r(2, 3, 8, 5, '#ffc93c');
+  r(3, 8, 6, 3, '#e8a521'); r(4, 4, 3, 3, '#fffdf0');
+  return pixTex(12, 13, b);
+}
+
+// ---- widok broni: pixel art rysowany rectami, kontur z „grubszej" warstwy pod spodem ----
+function gunTexture() {
+  const W = 46, H = 30;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const M1 = '#3b4048', M2 = '#5a616c', D1 = '#7a4a22', D2 = '#9c6533', Z = '#ffd75e';
+  const bryly = [];
+  const r = (x, y, w, h, kol) => bryly.push([x, y, w, h, kol]);
+  // LUFA: skos rysowany SCHODKAMI — tak wygląda przekątna w pixel-arcie,
+  // rotacja canvasu dałaby antyaliasing i rozmyte piksele.
+  for (let i = 0; i < 20; i++) r(2 + i, 4 + Math.floor(i * 0.42), 2, 4, i % 3 ? M1 : M2);
+  r(0, 3, 4, 6, M2);                                   // tłumik / osłona wylotu
+  r(8, 3, 2, 3, M2);                                   // muszka
+  r(21, 8, 11, 3, M1);                                 // szyna górna
+  r(20, 11, 15, 8, M1);                                // komora zamkowa
+  r(30, 13, 3, 2, Z);                                  // rączka zamka (złoty detal)
+  r(23, 18, 6, 10, M2);                                // magazynek
+  r(24, 19, 4, 2, Z);
+  for (let i = 0; i < 9; i++) r(32 + Math.floor(i * 0.45), 17 + i, 5, 1, i % 2 ? D1 : D2);  // chwyt
+  r(36, 12, 9, 7, D2);                                 // kolba
+  r(38, 13, 6, 4, D1);
+  // dwie warstwy: najpierw wszystko o piksel większe w czerni = darmowy kontur
+  g.fillStyle = '#1b1b22';
+  for (const [x, y, w, h] of bryly) g.fillRect(x - 1, y - 1, w + 2, h + 2);
+  for (const [x, y, w, h, kol] of bryly) { g.fillStyle = kol; g.fillRect(x, y, w, h); }
+  return c.toDataURL();
+}
+function gunFlashTexture() {
+  const S = 24;
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d');
+  const r = (x, y, w, h, kol) => { g.fillStyle = kol; g.fillRect(x, y, w, h); };
+  r(4, 10, 16, 4, '#ffb43c'); r(10, 4, 4, 16, '#ffb43c');       // krzyż
+  r(7, 7, 10, 10, '#ffdd7a');                                    // rdzeń
+  r(9, 9, 6, 6, '#fffbe8');
+  r(1, 11, 3, 2, '#ffdd7a'); r(20, 11, 3, 2, '#ffdd7a');
+  r(11, 1, 2, 3, '#ffdd7a'); r(11, 20, 2, 3, '#ffdd7a');
+  return c.toDataURL();
+}
+function crossTexture() {
+  const S = 13;
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d');
+  const r = (x, y, w, h, kol) => { g.fillStyle = kol; g.fillRect(x, y, w, h); };
+  for (const [x, y, w, h] of [[0, 6, 4, 1], [9, 6, 4, 1], [6, 0, 1, 4], [6, 9, 1, 4], [6, 6, 1, 1]]) {
+    r(x - 1, y - 1, w + 2, h + 2, '#1b1b22');
+    r(x, y, w, h, '#ffd75e');
+  }
+  return c.toDataURL();
+}
+// Sprite od właściciela: karabin ze SŁOIKIEM KUKURYDZY jako magazynkiem.
+// `gunTexture()` zostaje jako awaryjna zaślepka, gdyby pliku zabrakło —
+// ten sam wzorzec co `salata_czasza.png` / `lettuceTexture()`.
+const KARABIN_PNG = 'assets/karabin_fpp.png';
+function initKarabin() {
+  const el = document.getElementById('gunPix');
+  const img = new Image();
+  img.onload = () => { el.style.backgroundImage = `url(${KARABIN_PNG})`; };
+  img.onerror = () => { el.style.backgroundImage = `url(${gunTexture()})`; };
+  img.src = KARABIN_PNG;
+  document.getElementById('gunFlash').style.backgroundImage = `url(${gunFlashTexture()})`;
+  document.getElementById('fpsCross').style.backgroundImage = `url(${crossTexture()})`;
+}
+function fpsBlysk(moc) {
+  const el = document.getElementById('fpsFlash');
+  el.style.opacity = moc;
+  setTimeout(() => { el.style.opacity = 0; }, 90);
+}
+// ZNALEZIENIE karabinu ≠ odpalenie go. Power-up ląduje „w kieszeni", a przycisk
+// (dotyk) / klawisz R (PC) / X na padzie odpala go, gdy gracz uzna, że jest moment.
+const KARABIN_KLAWISZ = 'KeyR';
+function dajKarabin() {
+  P.karabinMa = true;
+  odswiezKarabinBtn();
+  AUDIO.sfx('zlota');
+  G.shake = Math.max(G.shake, 0.3);
+  toastBuff('ZNALAZŁEŚ KARABIN! Wciśnij R (albo przycisk KARABIN), gdy będzie gęsto', 'celownik');
+  setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 4200);
+}
+function odswiezKarabinBtn() {
+  const el = document.getElementById('karabinBtn');
+  if (!el) return;
+  el.classList.toggle('on', !!P.karabinMa && G.running && !G.paused && !G.fps.on && !G.dying);
+  const im = el.querySelector('.kimg');
+  if (im && !im.style.backgroundImage) im.style.backgroundImage = `url(${icon('celownik', 5)})`;
+}
+function startKarabin() {
+  const F = G.fps;
+  if (F.on) { F.t = Math.min(F.max, F.t + 8); toastBuff('KARABIN DOŁADOWANY'); return; }
+  if (!P.karabinMa) return;                          // nie ma czego odpalać
+  P.karabinMa = false;
+  odswiezKarabinBtn();
+  F.on = true;
+  F.max = karabinCzas(); F.t = F.max; F.zycia = 3;
+  F.fireT = 0; F.pitch = 0; F.wejscie = 0.5; F.wyjscie = 0;
+  playerBB.mesh.visible = false;                     // pierwsza osoba = własnego ciała nie widać
+  playerBB.shadow.visible = false;
+  if (hitFlash) hitFlash.visible = false;
+  document.getElementById('fpsView').classList.add('on');
+  przeliczWylot();                                   // #gunFlash ma już layout — teraz da się go zmierzyć
+  fpsBlysk(0.9);
+  G.shake = Math.max(G.shake, 0.45);
+  AUDIO.sfx('zlota');
+  toastBuff('KARABIN NONNY — ' + Math.round(F.max) + ' SEKUND RZEŹNI!');
+}
+function endKarabin(powod) {
+  const F = G.fps;
+  if (!F.on) return;
+  F.on = false;
+  F.wyjscie = 0.55;                                  // kamera wraca płynnie, nie skokiem
+  playerBB.mesh.visible = true;
+  playerBB.shadow.visible = true;
+  document.getElementById('fpsView').classList.remove('on');
+  document.getElementById('gunFlash').style.opacity = 0;
+  odswiezKarabinBtn();
+  AUDIO.sfx('zagrozenie');
+  toastBuff(powod === 'zycia' ? 'KARABIN WYBITY Z RĄK!' : 'MAGAZYNEK PUSTY');
+  setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2000);
+}
+// JEDNA BRAMKA na wszystkie trafienia gracza (kontakt, kamikaze, spadający regał).
+// Zwraca true = cios pochłonięty, wywołujący NIE odejmuje HP.
+function ciosPochloniety() {
+  if (G.buff.key === 'niet') {                       // NIETYKALNOŚĆ z garnka
+    P.iframes = 0.35;                                // przerwa, żeby dźwięk nie zamienił się w kakofonię
+    AUDIO.sfx('tarcza');
+    spark(P.pos.x, P.y + 1.2, P.pos.z);
+    return true;
+  }
+  return karabinZjadlCios();
+}
+// cios w trybie karabinu: zabiera ŻYCIE TRYBU (nie serce) i rozrzuca hordę.
+// Zwraca true, jeśli tryb zjadł trafienie — wtedy wywołujący NIE odejmuje HP.
+function karabinZjadlCios() {
+  const F = G.fps;
+  if (!F.on) return false;
+  F.zycia--;
+  P.iframes = 1.0;                                   // sekunda oddechu, żeby nie stracić dwóch żyć naraz
+  AUDIO.sfx('hurt');
+  AUDIO.sfx('wybuch');
+  G.shake = Math.max(G.shake, 0.55);
+  fpsBlysk(0.55);
+  novaRing(P.pos.x, P.pos.z, KARABIN_ODEPCHNIJ * 0.5);
+  // FALA ODEPCHNIĘCIA: wszyscy w promieniu lądują co najmniej KARABIN_ODEPCHNIJ od gracza.
+  // Ustawiamy pozycję WPROST (nie przez `kb`), bo Gummini mają `bezKb` i zostałyby na miejscu.
+  for (const e of G.enemies) {
+    if (e.dying) continue;
+    const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z;
+    const d = Math.hypot(dx, dz);
+    if (d > KARABIN_ODEPCHNIJ) continue;
+    const inv = 1 / Math.max(d, 0.001);
+    e.pos.x = P.pos.x + dx * inv * KARABIN_ODEPCHNIJ;
+    e.pos.z = P.pos.z + dz * inv * KARABIN_ODEPCHNIJ;
+    e.stun = Math.max(e.stun || 0, 0.35);
+  }
+  const v = document.getElementById('vign');
+  v.style.opacity = 1; setTimeout(() => v.style.opacity = 0, 200);
+  if (F.zycia <= 0) endKarabin('zycia');
+  return true;
+}
+// ---- gdzie na EKRANIE jest wylot lufy (żeby ziarna wylatywały Z LUFY, nie ze środka) ----
+// #gunFlash siedzi dokładnie na wylocie sprite'a, więc bierzemy jego środek i
+// przeliczamy na współrzędne znormalizowane kamery. Liczone raz (na wejściu w tryb
+// i przy zmianie rozmiaru okna) — `getBoundingClientRect` co strzał wymuszałby
+// przeliczanie stylów 13 razy na sekundę.
+const _wylotNdc = new THREE.Vector2(0.42, -0.45);
+function przeliczWylot() {
+  const r = document.getElementById('gunFlash').getBoundingClientRect();
+  if (!r.width) return;
+  _wylotNdc.set((r.left + r.width / 2) / innerWidth * 2 - 1,
+                -((r.top + r.height / 2) / innerHeight * 2 - 1));
+}
+const _pocOrig = new THREE.Vector3(), _pocCel = new THREE.Vector3();
+
+// ŻADNEGO AUTO-AIM: ziarno startuje Z WYLOTU LUFY i leci w punkt, na który patrzy
+// CELOWNIK — tor zbiega się ze środkiem ekranu, dokładnie jak w normalnym FPS-ie.
+// Celowanie ma decydować, inaczej pierwsza osoba jest tylko kostiumem.
+function karabinStrzal() {
+  const F = G.fps;
+  // lekki rozrzut: broń nie jest laserem, ale to nadal Ty decydujesz, gdzie pada seria
+  const yaw = camYaw + (Math.random() - 0.5) * KARABIN_ROZRZUT * 2;
+  const pit = F.pitch + (Math.random() - 0.5) * KARABIN_ROZRZUT * 2;
+  // START: punkt na promieniu przez wylot lufy, 1.9 j. od oka
+  _pocOrig.set(_wylotNdc.x, _wylotNdc.y, 0.5).unproject(camera)
+    .sub(camera.position).normalize().multiplyScalar(1.9).add(camera.position);
+  // CEL: 55 j. wprost w celownik — stąd zbieżność toru ze środkiem ekranu
+  _pocCel.set(-Math.sin(yaw) * Math.cos(pit), Math.sin(pit), -Math.cos(yaw) * Math.cos(pit))
+    .multiplyScalar(55).add(camera.position);
+  const dir = _pocCel.clone().sub(_pocOrig).normalize();
+  const m = new THREE.Mesh(unitGeo, karabinPocMat);
+  m.scale.set(0.17, 0.24, 1);                        // ziarno lekko wydłużone = czyta się jako lot
+  m.position.copy(_pocOrig);
+  scene.add(m);
+  G.karabinPoc.push({ mesh: m, dir, t: 0, pierce: KARABIN_PRZEBICIE, hit: new Set() });
+
+  const gf = document.getElementById('gunFlash');
+  gf.style.opacity = 1;
+  setTimeout(() => { gf.style.opacity = 0; }, 45);
+  F.kick = 1;                                        // odrzut broni na ekranie
+  G.shake = Math.max(G.shake, 0.07);
+  AUDIO.sfx('strzal');                               // throttle w audio.js pilnuje kakofonii
+}
+// lot ziaren + trafienia. Przy 46 j./s i dt 1/60 ziarno robi 0.77 j. na klatkę,
+// a promień trafienia to 0.8 — więc nie przelatuje przez wrogów i nie trzeba podkroków.
+function updateKarabinPoc(dt) {
+  for (let i = G.karabinPoc.length - 1; i >= 0; i--) {
+    const s = G.karabinPoc[i];
+    s.t += dt;
+    s.mesh.position.addScaledVector(s.dir, KARABIN_V * dt);
+    s.mesh.quaternion.copy(camera.quaternion);       // ziarno zawsze twarzą do kamery
+    const px = s.mesh.position.x, py = s.mesh.position.y, pz = s.mesh.position.z;
+    let dead = s.t > KARABIN_ZYCIE || py < terrainH(px, pz) - 0.2;
+    if (!dead) for (let j = G.enemies.length - 1; j >= 0; j--) {
+      const e = G.enemies[j];
+      if (e.dying || s.hit.has(e)) continue;
+      const rr = KARABIN_R + (e.T.boss ? 0.9 : 0);
+      const dx = px - e.pos.x, dz = pz - e.pos.z, dy = py - (e.ty + 0.8);
+      if (dx * dx + dz * dz + dy * dy > rr * rr) continue;
+      let dmg = KARABIN_DMG * dmgAll();
+      const crit = Math.random() < critC();
+      if (crit) dmg *= 3;
+      e.hp -= dmg; s.hit.add(e);
+      if (!e.T.bezKb) e.kb.copy(s.dir).setY(0).multiplyScalar(crit ? 1.6 : 1.0);
+      spark(e.pos.x, e.ty + 1.2, e.pos.z);
+      dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), crit ? '#ff9d3f' : '#fff3b0', crit ? 1.5 : 1);
+      AUDIO.sfx(crit ? 'kryt' : 'traf');
+      if (e.hp <= 0) killEnemy(e);
+      if (s.pierce-- <= 0) { dead = true; break; }
+    }
+    if (dead) { scene.remove(s.mesh); G.karabinPoc.splice(i, 1); }
+  }
+}
+function updateKarabin(dt) {
+  const F = G.fps;
+  if (F.wyjscie > 0) F.wyjscie = Math.max(0, F.wyjscie - dt);
+  if (!F.on) return;
+  if (F.wejscie > 0) F.wejscie = Math.max(0, F.wejscie - dt);
+  F.t -= dt;
+  const hud = document.getElementById('fpsHud');
+  hud.querySelector('.fpsT').textContent = Math.max(0, Math.ceil(F.t));
+  const lw = hud.querySelector('.fpsL');
+  if (lw.childElementCount !== 3) lw.innerHTML = '<i></i><i></i><i></i>';
+  for (let i = 0; i < 3; i++) lw.children[i].className = i < F.zycia ? '' : 'off';
+  // OGIEŃ CIĄGŁY. Domknięcie licznikiem, bo przy hitstopie albo długiej klatce
+  // `while` bez hamulca wyplułby kilkadziesiąt strzałów w jednej klatce.
+  F.fireT -= dt;
+  for (let n = 0; F.fireT <= 0 && n < 4; n++) { F.fireT += KARABIN_GAP; karabinStrzal(); }
+  // ODRZUT + KOŁYSANIE W MARSZU — dwie linie, a to one sprzedają „trzymam broń".
+  // Transform ustawiamy na #gunWrap, żeby błysk wylotowy jechał razem z lufą.
+  F.kick = Math.max(0, F.kick - dt * 9);
+  const bieg = Math.hypot(P.vx, P.vz) > 0.6 ? 1 : 0;
+  const bx = Math.sin(G.time * 8.5) * 7 * bieg, by = Math.abs(Math.cos(G.time * 8.5)) * 6 * bieg;
+  document.getElementById('gunWrap').style.transform =
+    `translate(${bx + F.kick * 9}px, ${by + F.kick * 24}px) rotate(${F.kick * 2.6}deg)`;
+  if (F.t <= 0) endKarabin('czas');
 }
 
 // ============================== FALA UDERZENIOWA (nova) ==============================
@@ -3993,7 +4592,7 @@ function updatePadajace(dt) {
       // gracz też dostanie, jeśli stoi w linii upadku — regały nie wybierają
       if (Math.abs(P.pos.x - s.x) < s.len / 2 + 0.6 && P.iframes <= 0 && !P.airborne) {
         const wzdluz = (P.pos.z - s.pivotZ) * s.kier;
-        if (wzdluz > -0.6 && wzdluz < SHELF_H + 0.6) {
+        if (wzdluz > -0.6 && wzdluz < SHELF_H + 0.6 && !ciosPochloniety()) {
           P.hp -= 1; P.iframes = 1.1; drawHearts(); AUDIO.sfx('hurt'); G.shake = 0.5;
           if (P.hp <= 0) startDeath();
         }
@@ -4042,6 +4641,7 @@ function updatePadajace(dt) {
 // ============================== PĘTLA ==============================
 let playerBB = null;
 const clock = new THREE.Clock();
+const _camCel = new THREE.Vector3();               // cel kamery — trwały, żeby nie alokować co klatkę
 
 function update(dt) {
   if (G.dying) { updateDeath(dt); return; }
@@ -4102,6 +4702,7 @@ function update(dt) {
   ensureChunks();
   updateSun(P.pos.x, P.pos.z);
   updateGrassField();
+  updateTrample(dt);                     // pole nacisku dla uginania trawy pod hordą
   water.position.set(P.pos.x, WATER_Y, P.pos.z);
   waterCamU.value.set(P.pos.x, P.pos.z);
   if (MAPS[mapKey].water && Math.hypot(P.pos.x - waterKol.x, P.pos.z - waterKol.y) > 8) {
@@ -4142,10 +4743,14 @@ function update(dt) {
   if (P.airborne) playerBB.play('jump', false);
   else playerBB.play(moving ? 'run' : 'idle');
   if (P.iframes > 0) P.iframes -= dt;
-  playerBB.mesh.visible = true;
+  playerBB.mesh.visible = !G.fps.on;               // w pierwszej osobie własnego ciała nie widać
   playerBB.update(dt, P.pos, P.y, ground);
   updateHitFlash();
   updateLettuce(dt);
+  updateKarabin(dt);
+  // ziarna lecą dalej NIEZALEŻNIE od trybu — wystrzelone w ostatniej sekundzie
+  // muszą dolecieć, a nie zniknąć w powietrzu
+  if (G.karabinPoc.length) updateKarabinPoc(dt);
 
   // ---- spawner: krzywa trudności (1 min ~lekko, 4 min = ~4× więcej naraz) ----
   const min = G.time / 60;
@@ -4252,6 +4857,7 @@ function update(dt) {
     if (e.stun > 0) { e.stun -= dt; es = 0; }        // ogluszenie z ewolucji "DZIS NIE WEJDZIESZ"
     if (e.ty < WATER_Y - 0.04) es *= 0.7;               // woda spowalnia też ich
     if (G.buff.key === 'slow') es *= 0.6;
+    if (G.buff.key === 'mroz') es = 0;                  // MROŻONKI: horda staje na kilka sekund
     // wspinaczka na mesę = powolutku (chwila oddechu dla gracza na górce)
     const wspin = terrainH(e.pos.x + to.x * 0.7, e.pos.z + to.z * 0.7) - e.ty;
     if (wspin > 0.18) es *= 0.35;
@@ -4281,7 +4887,7 @@ function update(dt) {
       e.bb.mesh.scale.setScalar(e.bb.h * (1 + Math.sin(G.time * 30) * 0.12));
       if (e.lont <= 0) {
         nova(e.pos.x, e.pos.z, 2.6, 0);                           // wybuch rani TYLKO gracza
-        if (e.pos.distanceTo(P.pos) < 2.6 && P.iframes <= 0 && P.y - e.ty < 1.2) {
+        if (e.pos.distanceTo(P.pos) < 2.6 && P.iframes <= 0 && P.y - e.ty < 1.2 && !ciosPochloniety()) {
           P.hp -= 1; P.iframes = 0.9; drawHearts(); G.shake = 0.4; AUDIO.sfx('hurt');
           if (P.hp <= 0) { startDeath(); }
         }
@@ -4322,7 +4928,7 @@ function update(dt) {
     e.orbCd -= dt;
     e.bb.update(dt, e.pos, e.ty);
     if (e.ring) e.ring.position.set(e.pos.x, e.ty + 0.06, e.pos.z);
-    if (d < 0.9 + (e.T.boss ? 0.8 : 0) && P.iframes <= 0 && P.y - e.ty < 1.0) {
+    if (d < 0.9 + (e.T.boss ? 0.8 : 0) && P.iframes <= 0 && P.y - e.ty < 1.0 && !ciosPochloniety()) {
       const tarczaLvl = P.passives.tarcza || 0;
       if (tarczaLvl > 0 && P.shieldCd <= 0) {           // 🛡️ tarcza zjada cios
         P.shieldCd = [30, 24, 18][tarczaLvl - 1];
@@ -4556,12 +5162,14 @@ function update(dt) {
     } else {
       t.ring.scale.setScalar(3 + Math.sin(G.time * 3) * 0.4);
       if (t.pos.distanceTo(P.pos) < 1.6) {
-        const b = BUFFS[Math.floor(Math.random() * BUFFS.length)];
+        const b = losujBuff();
         G.buff = { key: b.key, t: b.dur };
         AUDIO.sfx('totem');
-        toastBuff(b.label);
+        toastBuff(b.label, b.ico);
         t.cd = 45;
         novaRing(t.pos.x, t.pos.z, 4);
+        // mrożonki i nietykalność to momenty — zasługują na wstrząs i błysk
+        if (b.key === 'mroz' || b.key === 'niet') { G.shake = Math.max(G.shake, 0.35); fpsBlysk(0.4); }
       }
     }
   }
@@ -4644,17 +5252,26 @@ function update(dt) {
     if (p.t > 0.75) { scene.remove(p.mesh); p.mesh.material.dispose(); G.pops.splice(i, 1); }
   }
 
-  // ---- kamera (orbituje wg camYaw; nie wbija się w teren) ----
+  // ---- kamera: TRZECIA OSOBA (orbita) ⇄ PIERWSZA OSOBA (tryb karabinu) ----
+  // `kf` (0 = za plecami, 1 = z oczu) animuje się przez ~0.5 s, więc zjazd do
+  // pierwszej osoby i powrót są płynne bez osobnego kodu przejścia.
+  const F = G.fps;
+  const kf = F.on ? (F.wejscie > 0 ? 1 - F.wejscie / 0.5 : 1)
+                  : (F.wyjscie > 0 ? F.wyjscie / 0.55 : 0);
   const cx = P.pos.x + Math.sin(camYaw) * CAM_DIST, cz = P.pos.z + Math.cos(camYaw) * CAM_DIST;
-  let cy = P.y + CAM_H;
-  cy = Math.max(cy, terrainH(cx, cz) + 2.2);
-  camera.position.lerp(new THREE.Vector3(cx, cy, cz), Math.min(1, dt * 8));
+  const cy = Math.max(P.y + CAM_H, terrainH(cx, cz) + 2.2);
+  _camCel.set(cx + (P.pos.x - cx) * kf, cy + (P.y + 1.62 - cy) * kf, cz + (P.pos.z - cz) * kf);
+  // przy kf > 0 pozycja jest DOKŁADNIE celem: wygładza już samo `kf`, a dodatkowy
+  // lerp zostawiał kamerę w połowie drogi na cały tryb.
+  camera.position.lerp(_camCel, kf > 0 ? 1 : Math.min(1, dt * 8));
   if (G.shake > 0) {
     G.shake -= dt;
     camera.position.x += (Math.random() - .5) * G.shake * 0.7;
     camera.position.y += (Math.random() - .5) * G.shake * 0.7;
   }
-  camera.lookAt(P.pos.x + fx * 2.2, P.y + 1.3, P.pos.z + fz * 2.2);
+  const patrzD = 2.2 + kf * 18;                    // w pierwszej osobie patrzymy w dal, nie na siebie
+  camera.lookAt(P.pos.x + fx * patrzD, P.y + 1.3 + kf * (Math.tan(F.pitch) * patrzD + 0.32),
+                P.pos.z + fz * patrzD);
 
   // ---- kołysanie koron drzew ----
   for (const ch of chunkMap.values()) {
@@ -4684,7 +5301,9 @@ function update(dt) {
 // ŚMIERĆ: slow-motion, zbliżenie, postać pada — dopiero potem ekran końca
 function startDeath() {
   if (G.dying) return;
+  endKarabin('smierc');                              // inaczej kamera FPP walczy z kamerą śmierci
   G.dying = true; G.deathT = 0;
+  odswiezKarabinBtn();
   G.shake = 0.9;
   AUDIO.sfx('koniec');
   document.getElementById('vign').style.opacity = 1;
@@ -4824,6 +5443,7 @@ function togglePause(on) {
   if (!G.running) return;
   G.paused = on;
   document.getElementById('pauseOv').style.display = on ? 'flex' : 'none';
+  odswiezKarabinBtn();                             // przycisk karabinu nie może wisieć nad pauzą
   if (on) {
     document.getElementById('pauseStats').innerHTML =
       `<p>Czas: <b>${fmtTime(G.time)}</b> · Zabici: <b>${G.kills}</b> · Poziom: <b>${P.lvl}</b> · ${ico('moneta',15)} <b>${G.runCoins}</b></p>` +
@@ -4862,12 +5482,22 @@ function clearWorld() {
   for (const t of G.turrets) { scene.remove(t.mesh); if (t.pasTlo) { scene.remove(t.pasTlo); scene.remove(t.pasFill); } }
   for (const pe of G.pestki) pe.bb.dispose();
   for (const ki of G.kielki) scene.remove(ki.mesh);
+  for (const s of G.karabinPoc) scene.remove(s.mesh);
   for (const pl of plamy) if (pl) pl.mesh.visible = false;
   G.enemies = []; G.gems = []; G.coins = []; G.shots = []; G.orbs = []; G.sparks = []; G.rings = [];
   G.lobs = []; G.boomers = []; G.bolts = []; G.pops = []; G.hps = []; G.kury = []; G.okruchy = [];
   G.puffs = []; G.hitstop = 0; G.padajace = []; G.turrets = []; G.pestki = []; G.kielki = []; G.seria = [];
+  G.karabinPoc = [];
   G.streak = 0; G.streakT = -9;
   G.vacuum = 0; G.buff = { key: null, t: 0 };
+  // TRYB KARABINU: bez tego wyjście do menu w trakcie trybu zostawiało widok broni
+  // na ekranie menu, a gracz wracał do biegu bez własnego sprite'a.
+  if (G.fps.on) endKarabin('koniec');
+  Object.assign(G.fps, { on: false, t: 0, zycia: 0, fireT: 0, pitch: 0, wejscie: 0, wyjscie: 0, kick: 0 });
+  P.karabinMa = false;
+  odswiezKarabinBtn();
+  document.getElementById('fpsView').classList.remove('on');
+  document.getElementById('fpsFlash').style.opacity = 0;
   document.getElementById('buff').style.opacity = 0;
   for (const c of chests) placeChest(c);
   for (const t of totems) { t.cd = 0; t.mat.opacity = 1; t.ring.visible = true; }
@@ -4898,6 +5528,11 @@ function loop() {
   if (G.running && !G.paused) {
     try { update(dt); } catch (err) { console.error(err); }
   }
+  // kopuła nieba jeździ za kamerą — inaczej dojechałbyś do jej krawędzi
+  skyDome.position.copy(camera.position);
+  // wiatr i chmury muszą płynąć TEŻ w menu i na pauzie: `update()` wtedy nie chodzi,
+  // więc bez tego świat za overlayem stał jak zdjęcie.
+  if (!G.running || G.paused) windU.value = performance.now() / 1000;
   // render TEŻ w try/catch: wyjątek stąd leciałby co klatkę, obraz by zamarzł,
   // a symulacja szłaby dalej — najgorszy możliwy rodzaj awarii
   try { renderer.render(scene, camera); } catch (err) { console.error(err); }
@@ -4911,11 +5546,14 @@ const PORADY = [
   'Sodino syczy przed wybuchem — to Twoja sekunda na ucieczkę.',
   'Gummini odbija się i nie da się go odepchnąć. Nie licz na knockback.',
   'Lollini kręci się jak piła. Wolny, ale nie właź pod tarczę.',
-  'Liść sałaty: PRZYTRZYMAJ skok w locie, żeby szybować nad hordą.',
+  'Foliowa torba: PRZYTRZYMAJ skok w locie, żeby szybować nad hordą.',
   'Na regale w markecie horda wspina się powoli — to Twoja chwila oddechu.',
   'Woda spowalnia i Ciebie, i przekąski. Skokiem przeskoczysz zatoczkę.',
-  'Totem daje buff na 18 sekund. Warto po niego zboczyć z trasy.',
+  'Garnek Nonny daje buff na kilkanaście sekund. Warto po niego zboczyć z trasy.',
   'Monety zostają po śmierci — każdy przegrany bieg i tak coś daje.',
+  'KARABIN ze skrzyni = pierwsza osoba i 20 sekund rzezi. Masz 3 trafienia.',
+  'W trybie karabinu cios odrzuca całą hordę — ale trzeci kończy zabawę.',
+  'Magazynek Nonny w sklepie wydłuża tryb karabinu o 5 sekund za poziom.',
 ];
 const loadOv = document.getElementById('loadOv');
 const loadBar = document.getElementById('loadBar');
@@ -4966,7 +5604,7 @@ if (loadTip) {
   wchest.ring.scale.setScalar(3.4);
   wchest.ring.visible = false;
   scene.add(wchest.ring);
-  const colImg = await flatMat('assets/column1.png');
+  // (column1.png = dawna kolumna totemu; garnek/witryna są proceduralne, plik nie jest już wczytywany)
   bottleMat = (await flatMat('assets/bottle.png')).mat;
   radioMat = (await flatMat('assets/radio.png')).mat;
   kapecMat = new THREE.MeshBasicMaterial({ map: kapecTexture(), transparent: true,
@@ -5024,12 +5662,15 @@ if (loadTip) {
   playerBB = new Billboard(CHARS[charKey].char, CHARS[charKey].scale);
   initHitFlash();
   initLettuce();
+  initKarabin();         // widok broni do trybu pierwszej osoby (nakładka 2D)
+  karabinPocMat = new THREE.MeshBasicMaterial({ map: karabinPocTexture(), transparent: true,
+    alphaTest: 0.4, side: THREE.DoubleSide, depthWrite: false });
   resetStats();          // P.pos musi istnieć PRZED chunkami i skrzyniami
   setMap(mapKey);        // buduje świat + rozstawia skrzynie/totemy
   await ladowanie('Ukrywanie skrzyń…');
   spawnChests(9);
-  await ladowanie('Stawianie totemów…');
-  spawnTotems(3, colImg);
+  await ladowanie('Stawianie garnków Nonny…');
+  spawnTotems(3);
   drawHearts();
   await ladowanie('Otwieranie sklepu…');
   renderShop(); renderMaps(); renderChars(); renderStats(); renderBestiary(); renderPick();
@@ -5134,6 +5775,9 @@ if (loadTip) {
     przewrocRegaly, nova,
     get tilt() { return { SPRITE_TILT, kat: +(tiltKat * 180 / Math.PI).toFixed(1) }; },
     get grass() { return grassField; },
+    THREE, scene, camera, renderer,                        // do inspekcji w podglądzie
+    get tr() { return { trData, TR_RES, TR_SPAN, TR_ST, trCx, trCz }; },
+    render() { renderer.render(scene, camera); },
     PAD, pollPads, get camYaw() { return camYaw; }, get gpSel() { return gpSel; },
     step(n = 1, dt = 1 / 60) {
       for (let i = 0; i < n; i++) { pollPads(dt); if (G.running && !G.paused) update(dt); }

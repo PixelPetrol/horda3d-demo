@@ -74,6 +74,39 @@
   @media (max-height:520px){ #wArrow{transform:translate(-50%,-50%) translateY(-78px)} }
   #vign{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;
       background:radial-gradient(ellipse at center,transparent 55%,rgba(255,0,0,.55) 100%);transition:opacity .1s}
+  /* ================= TRYB KARABINU (pierwsza osoba) =================
+     Widok broni jest NAKŁADKĄ 2D, nie modelem 3D: przy pixel-artowych billboardach
+     wygląda spójnie, a przy okazji nie wchodzi w kolizję z shadow mapą ani mgłą.
+     Sprite od właściciela wejdzie później — wystarczy podmienić background-image
+     na #gunPix (JS ustawia go raz w initKarabin). */
+  #fpsView{position:fixed;inset:0;pointer-events:none;z-index:6;display:none}
+  #fpsView.on{display:block}
+  #gunWrap{position:absolute;right:-4%;bottom:-3%;width:min(92vw,820px);height:min(92vw,820px);
+      transform-origin:78% 88%}
+  #gunPix{position:absolute;inset:0;background-size:contain;background-repeat:no-repeat;
+      background-position:bottom right;image-rendering:pixelated;
+      filter:drop-shadow(-3px -3px 0 rgba(0,0,0,.35))}
+  /* błysk siedzi NA WYLOCIE LUFY sprite'a (górny-lewy obszar obrazka), więc jest
+     dzieckiem #gunWrap — dzięki temu jeździ razem z odrzutem i kołysaniem broni */
+  #gunFlash{position:absolute;left:27%;top:29%;width:min(11vw,96px);height:min(11vw,96px);
+      transform:translate(-50%,-50%);background-size:contain;background-repeat:no-repeat;
+      background-position:center;image-rendering:pixelated;opacity:0}
+  /* celownik: dwie kreski + kropka, twarde krawędzie (bez zaokrągleń, jak resztaUI) */
+  #fpsCross{position:absolute;left:50%;top:50%;width:26px;height:26px;transform:translate(-50%,-50%);
+      background-size:contain;background-repeat:no-repeat;image-rendering:pixelated;opacity:.85}
+  /* POD celownikiem, nie nad: nad nim siedzi już strzałka do złotej skrzyni (#wArrow)
+     i licznik trybu nachodził na nią co do piksela */
+  #fpsHud{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) translateY(96px);
+      display:flex;flex-direction:column;align-items:center;gap:3px;white-space:nowrap}
+  #fpsHud .fpsT{font-weight:800;font-size:26px;color:#ffd75e;text-shadow:0 2px 6px #000}
+  #fpsHud .fpsL{display:flex;gap:4px}
+  #fpsHud .fpsL i{width:13px;height:13px;background:#ff4a4a;display:block;
+      box-shadow:-2px 0 0 0 #1b1b22, 2px 0 0 0 #1b1b22, 0 -2px 0 0 #1b1b22, 0 2px 0 0 #1b1b22}
+  #fpsHud .fpsL i.off{background:#3a3a44}
+  /* błysk na wejściu w tryb i przy utracie życia */
+  #fpsFlash{position:fixed;inset:0;pointer-events:none;z-index:7;opacity:0;background:#fff;transition:opacity .12s}
+  @media (max-height:520px){ #fpsHud{transform:translate(-50%,-50%) translateY(62px)}
+      #fpsHud .fpsT{font-size:19px} #gunWrap{width:min(62vw,420px);height:min(62vw,420px)} }
   #pauseBtn{position:fixed;top:18px;left:50%;transform:translateX(-140px);z-index:7;width:34px;height:34px;
       border-radius:0;background:#2b3550;color:#fff;
       display:none;align-items:center;justify-content:center;pointer-events:auto;cursor:pointer;
@@ -274,6 +307,32 @@
       right:calc(30px + env(safe-area-inset-right,0px));
       bottom:calc(30px + env(safe-area-inset-bottom,0px))}
   }
+  /* ================= PRZYCISK KARABINU =================
+     Widoczny DOPIERO po znalezieniu karabinu w skrzyni — i na KAŻDEJ platformie,
+     bo to jednocześnie przycisk dotykowy i podpowiedź klawisza dla gracza na PC. */
+  #karabinBtn{position:fixed;
+      right:calc(38px + env(safe-area-inset-right,0px));
+      bottom:calc(166px + env(safe-area-inset-bottom,0px));
+      z-index:7;width:86px;height:86px;background:#3a2b18;color:#ffd75e;
+      font-family:inherit;font-size:10px;font-weight:700;letter-spacing:1px;
+      display:none;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+      pointer-events:auto;cursor:pointer;-webkit-tap-highlight-color:transparent;
+      box-shadow:inset 0 4px 0 0 #6b4f24, inset 0 -4px 0 0 #241a0e,
+        -4px 0 0 0 #1b1b22, 4px 0 0 0 #1b1b22, 0 -4px 0 0 #1b1b22, 0 4px 0 0 #1b1b22;
+      animation:karPuls .9s ease-in-out infinite}
+  #karabinBtn.on{display:flex}
+  #karabinBtn::after{content:'';position:absolute;inset:-18px}
+  #karabinBtn:active{background:#4d3a20}
+  #karabinBtn .kimg{width:38px;height:38px;background-size:contain;background-repeat:no-repeat;
+      background-position:center;image-rendering:pixelated}
+  #karabinBtn .klaw{background:#ffd75e;color:#241a0e;padding:0 4px;font-size:12px}
+  @keyframes karPuls{0%,100%{box-shadow:inset 0 4px 0 0 #6b4f24, inset 0 -4px 0 0 #241a0e,
+        -4px 0 0 0 #1b1b22, 4px 0 0 0 #1b1b22, 0 -4px 0 0 #1b1b22, 0 4px 0 0 #1b1b22}
+      50%{box-shadow:inset 0 4px 0 0 #6b4f24, inset 0 -4px 0 0 #241a0e,
+        -4px 0 0 0 #ffd75e, 4px 0 0 0 #ffd75e, 0 -4px 0 0 #ffd75e, 0 4px 0 0 #ffd75e}}
+  @media (max-height:520px){ #karabinBtn{width:70px;height:70px;
+      bottom:calc(124px + env(safe-area-inset-bottom,0px));
+      right:calc(30px + env(safe-area-inset-right,0px))} #karabinBtn .kimg{width:30px;height:30px} }
 </style>
 </head>
 <body>
@@ -302,8 +361,15 @@
   <div id="wArrow"><div class="ar"></div><div class="dist">0 m</div></div>
 </div>
 <div id="vign"></div>
+<div id="fpsView">
+  <div id="gunWrap"><div id="gunPix"></div><div id="gunFlash"></div></div>
+  <div id="fpsCross"></div>
+  <div id="fpsHud"><div class="fpsT">20</div><div class="fpsL"></div></div>
+</div>
+<div id="fpsFlash"></div>
 <div id="stick"><div id="knob"></div></div>
 <div id="jbtn">SKOK</div>
+<div id="karabinBtn"><div class="kimg"></div><div>KARABIN</div><div class="klaw">R</div></div>
 <div id="pauseBtn"></div>
 
 <!-- ================= MENU GŁÓWNE ================= -->
@@ -392,6 +458,6 @@
   addEventListener('error', e => window.__err.push(String(e.message) + ' @ ' + (e.filename || '') + ':' + e.lineno));
   addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
 </script>
-<script type="module" src="main.js?v=88"></script>
+<script type="module" src="main.js?v=94"></script>
 </body>
 </html>
