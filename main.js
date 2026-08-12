@@ -1229,7 +1229,31 @@ function lettuceTexture() {
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
-let lettuce = null;
+// SZNURKI: liść wisiał nad głową „sam z siebie" i wyglądał jak naklejka.
+// Rysujemy je jako osobny billboard rozciągnięty między barkami i czaszą —
+// odległość jest stała, ale sznurki muszą trzymać PION do kamery niezależnie
+// od przechyłu czaszy, dlatego to własny mesh, a nie część tekstury liścia.
+function sznurkiTexture() {
+  const S = 128;                                   // duża tekstura = CIENKIE linie po rozciągnięciu
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  // ciemna oliwka, nie krem: na jasnym tle marketu jasne linie czytały się
+  // jak promienie słońca. Dwa główne sznurki od krawędzi czaszy + dwa ledwo
+  // widoczne w środku, wszystkie prawie pionowe (fan pod 30° wyglądał jak gwiazda).
+  const linie = [[3, 60, '#3f5c22', 2], [124, 68, '#3f5c22', 2],
+                 [34, 62, '#4d6b2c', 1], [93, 66, '#4d6b2c', 1]];
+  for (const [gx, dx, kol, w] of linie) {
+    g.strokeStyle = kol; g.lineWidth = w;
+    g.beginPath(); g.moveTo(gx, 1); g.lineTo(dx, S - 2); g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+let lettuce = null, sznurki = null;
 function initLettuce() {
   const m = new THREE.MeshBasicMaterial({ map: lettuceTexture(), transparent: true,
     alphaTest: 0.4, side: THREE.DoubleSide, depthWrite: false });
@@ -1237,14 +1261,26 @@ function initLettuce() {
   lettuce.scale.set(2.2, 1.3, 1);
   lettuce.visible = false;
   scene.add(lettuce);
+  const ms = new THREE.MeshBasicMaterial({ map: sznurkiTexture(), transparent: true,
+    alphaTest: 0.35, side: THREE.DoubleSide, depthWrite: false });
+  sznurki = new THREE.Mesh(unitGeo, ms);       // pivot w dole = przy barkach
+  sznurki.visible = false;
+  scene.add(sznurki);
 }
 function updateLettuce(dt) {
   if (!lettuce) return;
-  lettuce.visible = !!P.gliding;
+  lettuce.visible = sznurki.visible = !!P.gliding;
   if (!P.gliding) return;
   const kolysanie = Math.sin(G.time * 5) * 0.12;
-  lettuce.position.set(P.pos.x, P.y + 2.5 + Math.sin(G.time * 3) * 0.07, P.pos.z);
+  const czaszaY = P.y + 2.5 + Math.sin(G.time * 3) * 0.07;
+  lettuce.position.set(P.pos.x, czaszaY, P.pos.z);
   lettuce.rotation.set(-0.9 + kolysanie * 0.4, camYaw, kolysanie);
+  // sznurki: od barków (P.y + 1.1) do dolnej krawędzi czaszy, kołyszą się z nią
+  const barki = P.y + 1.1;
+  sznurki.position.set(P.pos.x + kolysanie * 0.25, barki, P.pos.z);
+  // szerokość ~ czasza (2.2), inaczej sznurki wiszą w powietrzu obok jej krawędzi
+  sznurki.scale.set(2.0, Math.max(0.2, czaszaY - 0.30 - barki), 1);
+  billboardQuat(sznurki.quaternion, kolysanie * 0.8);
 }
 
 // czerwony błysk na postaci przy obrażeniach (nakładka z tą samą klatką sprite'a)

@@ -27,6 +27,23 @@ Rozmiary orientacyjne (obecne w grze: bone.png 56×28, bottle.png 25×50, radio.
 | `gorgonzola.png` | ~40×36 | kawałek pleśniowego sera — śmierdząca aura |
 | `mlynek.png` | ~28×48 | młynek do pieprzu — promień |
 | `mozzarella.png` | ~24×24 | kulka mozzarelli — pocisk podstawowy (opcjonalnie) |
+| `salata.png` | ~72×44 | czasza spadochronu z liścia sałaty — **bez sznurków** (patrz niżej) |
+
+### Gotowy prompt: czasza sałaty (spadochron)
+
+**Sznurki rysuje silnik**, nie generator — muszą sięgać dokładnie do barków postaci,
+a odległość zmienia się z wysokością lotu i kołysaniem. Sprite ma być SAMĄ CZASZĄ:
+
+```
+top-down 3/4 view pixel art sprite of a giant curly lettuce leaf used as a
+parachute canopy, seen slightly from below, billowing and dome-shaped, vibrant
+green with lighter lime ruffled edges and visible pale leaf veins, thick dark
+green outline, limited palette, crisp hard pixels, no anti-aliasing,
+transparent background, no strings, no shadow, no character, 72x44
+```
+
+Jeśli generator uprze się przy sznurkach — dorysowanie ich do tekstury nic nie
+zepsuje, ale i tak zostaną przykryte tymi z kodu.
 
 Wymagania techniczne rekwizytów: **przezroczyste tło** (nie białe), **bez cienia
 pod obiektem** (silnik rysuje własny), grube piksele i wyraźny kontur jak
