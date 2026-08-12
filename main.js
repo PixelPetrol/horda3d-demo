@@ -1233,7 +1233,12 @@ class Billboard {
     if (this.loop) f %= mats.length;
     else if (f >= mats.length) { f = mats.length - 1; this.done = true; }
     this.mesh.material = mats[f];
-    this.mesh.position.set(pos.x, ty + this.footY, pos.z);
+    // FOOTY MUSI BYĆ SKRÓCONE O `cos(pochylenia)`. Zsuwamy sprite'a w dół o tyle
+    // pustych pikseli, ile arkusz ma pod stopami — ale to przesunięcie było liczone
+    // dla PIONOWEGO billboardu. Po pochyleniu do kamery każdy odcinek wysokości
+    // skraca się o cos(kąt), więc stopy schodziły pod ziemię (u Carrotella 0.11 j.
+    // przy 32°). Na Łąkach zasłaniała to trawa, w markecie gładka podłoga ucinała nogi.
+    this.mesh.position.set(pos.x, ty + this.footY * Math.cos(tiltKat), pos.z);
     billboardQuat(this.mesh.quaternion);           // twarzą do kamery + pochylenie do jej osi
     this.shadow.position.set(pos.x, groundY + 0.04, pos.z);
   }
