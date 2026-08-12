@@ -2,7 +2,7 @@
 import * as THREE from './lib/three.module.js';
 import { SPRITEDATA } from './spritedata.js?v=6';
 import { icon, ico } from './icons.js?v=2';
-import { AUDIO } from './audio.js?v=3';            // muzyka wg fazy gry + kwestie głosowe + efekty
+import { AUDIO } from './audio.js?v=4';            // muzyka wg fazy gry + kwestie głosowe + efekty
 
 // ============================== USTAWIENIA ==============================
 const PX2U = 1 / 55;
@@ -946,7 +946,10 @@ function updateGrassField() {
   }
   grassCenterU.value.set(P.pos.x, P.pos.z);        // shader ściemnia/skraca źdźbła przy brzegu
   grassRU.value = GRASS_R;
-  if (Math.hypot(P.pos.x - grassCenter.x, P.pos.z - grassCenter.y) < 1.2) return;  // częściej = płynniej
+  // Przebudowa kosztuje ~9.6 ms (siatka 171x171). Przy progu 1.2 j. i predkosci
+  // 7.1 j./s wypadala SZESC RAZY NA SEKUNDE = 58 ms/s zjedzone i szesc zadlawien.
+  // Shader wtapia zdzbla w 22 j., wiec 6 j. progu nikomu nie wyskoczy przed nosem.
+  if (Math.hypot(P.pos.x - grassCenter.x, P.pos.z - grassCenter.y) < 6) return;
   grassCenter.set(P.pos.x, P.pos.z);
   const cx = Math.round(P.pos.x / GRASS_STEP), cz = Math.round(P.pos.z / GRASS_STEP);
   const cells = Math.ceil(GRASS_R / GRASS_STEP);
@@ -1604,7 +1607,7 @@ function resetStats() {
 // kartami, ktore wypadaja coraz rzadziej (kazdy poziom wymaga wiecej XP).
 // Ranga zamyka te luke: samo zabijanie podnosi obrazenia, wiec agresywna gra
 // nadaza za krzywa trudnosci. Prog rosnie liniowo, wiec ranga nie ucieka w gore.
-const RANGA_CAP = 40;
+const RANGA_CAP = 150;            // cap 40 wypadal w 8,5 min i od tego momentu hpScale rosl w pustke
 const rangaProg = r => 20 + 14 * r;               // ile zabojstw do NASTEPNEJ rangi
 const rangaDmg = () => 1 + 0.05 * G.ranga;        // +5% obrazen za range
 const rangaFire = () => 1 + 0.04 * Math.floor(G.ranga / 4);   // co 4. ranga tez +4% tempa
@@ -1869,7 +1872,9 @@ function spawnEnemy(type, angle = null, przy = null) {
     type, T, elite,
     pos: przy ? new THREE.Vector3(przy.x, 0, przy.z)
               : new THREE.Vector3(P.pos.x + Math.sin(a) * r, 0, P.pos.z + Math.cos(a) * r),
-    hp: T.hp * (T.boss ? 1 : hpMul) * (elite ? 6 : 1),
+    // Boss dotad NIE skalowal sie wcale: w 20. minucie mial 90 HP, gdy szeregowy
+    // mial 108, a elita 648. Teraz rosnie jak wszyscy (bez mnoznika elity).
+    hp: T.hp * hpMul * (elite ? 6 : 1),
     dying: false, hitCd: 0, kb: new THREE.Vector3(), orbCd: 0, climbing: false,
     ty: 0, vy: 0, jumpCd: 1 + Math.random() * 3, faza: Math.random() * 6.28,
     bb: new Billboard(T.char || type, T.scale * (elite ? 1.45 : 1)),
@@ -2291,10 +2296,19 @@ const GLIF = {
   '.': ['00000','00000','00000','00000','00000','00110','00110'],
   ' ': ['00000','00000','00000','00000','00000','00000','00000'],
 };
+const POP_CACHE_MAX = 200;
 function popMat(str, color) {
   const key = color + '|' + str;
   let m = popCache.get(key);
-  if (m) return m;
+  if (m) { popCache.delete(key); popCache.set(key, m); return m; }   // odswiez w LRU
+  // LRU: bez tego cache rosl w nieskonczonosc — zmierzone 2470 tekstur po 4:43
+  // gry i ZERO usuniec, czyli ~140 MB VRAM w 4 minuty. Na telefonie to zgon.
+  if (popCache.size >= POP_CACHE_MAX) {
+    const naj = popCache.keys().next().value;
+    const stary = popCache.get(naj);
+    popCache.delete(naj);
+    if (stary) { if (stary.map) stary.map.dispose(); stary.dispose(); }
+  }
   const txt = str.toUpperCase();
   const PX = 7, ODST = 1, MARG = 2;                 // wielkość piksela, odstęp, margines (w pikselach fontu)
   const znaki = [...txt].map(z => GLIF[z] || GLIF['?']);
@@ -2605,7 +2619,7 @@ const WEAPONS = {
   // mini-wieżyczek. Spirala (życzenie właściciela) siedzi w umiejętności
   // specjalnej: co kilkanaście sekund pestka rozpędza się w koło przez hordę.
   pipsini: {
-    ico: 'kura', nm: 'Pipsini Nipotini', ds: 'Pestka biega, tłucze i sadzi kiełki', max: 5, locked: true,
+    ico: 'pestka', nm: 'Pipsini Nipotini', ds: 'Pestka biega, tłucze i sadzi kiełki', max: 5, locked: true,
     lvlDs: l => `${PIPS_ILE(l)} pestka(i), kiełek co ${PIPS_SADZ(l).toFixed(1)} s`
       + (l === 5 ? ' (→ ewolucja!)' : ''),
     evoKey: 'jablon', evoIco: 'pestka', evoNm: 'JABŁOŃ',
@@ -2804,7 +2818,7 @@ function updateTurrets(dt) {
     if (t.zycie - t.t < 3) t.mesh.visible = Math.sin(t.t * 16) > -0.45;   // miga przed końcem
     t.cd -= dt;
     if (t.cd <= 0) {
-      let cel = null, najl = 13 * rangeF();
+      let cel = null, najl = 13 * (rangeF() / 14);   // rangeF() jest ABSOLUTNY (14 * 1.2^lvl)
       for (const e of G.enemies) {
         if (e.dying) continue;
         const d = e.pos.distanceTo(t.pos);
@@ -2881,7 +2895,11 @@ function usunCzosnki() {
 function updateCzosnki(dt, lvl) {
   const evo = P.evo.kosci;
   const omega = evo ? 4.6 : 2.7;                       // prędkość kątowa napędu
-  const zasieg = (evo ? 2.7 : 2.1);
+  // SOKOLI WZROK (+20% zasięgu broni) wydłuża CAŁĄ LINKĘ, nie tylko punkt
+  // docelowy: gdyby rosnął sam cel, lina napięłaby się na swojej stałej długości
+  // i zasięg by stanął. Segment liczymy więc z żądanego zasięgu.
+  const zasieg = (evo ? 2.7 : 2.1) * rangeF();
+  const segDl = zasieg / LINKA_SEG * 1.04;             // ciut luzu, żeby linka mogła się wygiąć
   const rr = evo ? 1.5 : 1.0;                          // promień rażenia czosnku
   const oDmg = 2 * (evo ? 2 : 1) * dmgAll();
   const anchorY = P.y + 0.95;                          // linka wisi na wysokości pasa
@@ -2912,7 +2930,7 @@ function updateCzosnki(dt, lvl) {
         const a = pkt[i], b = pkt[i + 1];
         let dx = b.x - a.x, dz = b.z - a.z;
         const d = Math.hypot(dx, dz) || 1e-6;
-        const korekta = (d - LINKA_DL) / d;
+        const korekta = (d - segDl) / d;
         const w0 = i === 0 ? 0 : 0.5, w1 = i === 0 ? 1 : 0.5;   // punkt 0 przypięty
         a.x += dx * korekta * w0; a.z += dz * korekta * w0;
         b.x -= dx * korekta * w1; b.z -= dz * korekta * w1;
@@ -3493,6 +3511,9 @@ function setMap(key) {
   scene.fog.color.setHex(M.sky);
   scene.fog.near = M.fog[0]; scene.fog.far = M.fog[1];
   water.visible = M.water;
+  // W markecie ZADEN obiekt nie ma castShadow, wiec cala shadow mapa (PCFSoft
+  // 2048^2) liczyla sie po nic. Zmierzone: 6.68 -> 4.82 ms renderu przy 500 wrogach.
+  sun.castShadow = !M.indoor;
   for (const c of clouds) c.m.visible = !M.indoor;
   rebuildWorld();
   grassCenter.set(1e9, 1e9);
@@ -3932,7 +3953,14 @@ function update(dt) {
       const mocno = P.vy < -4;                           // z byle stopnia nie ma co dudnić
       P.y = ground; P.vy = 0; P.airborne = false; P.usedDouble = false; P.gliding = false;
       if (mocno) AUDIO.sfx('ladowanie');
-      if (stompLvl() > 0) nova(P.pos.x, P.pos.z, stompRad(stompLvl()), stompDmg(stompLvl()));
+      // Fala z LADOWANIA dzieli cooldown z bronia — bez tego skakanie w kolko
+      // dawalo fale co 0.75 s zamiast co 3.2 s, czyli 791 DPS (3x wiecej niz
+      // druga najlepsza bron w grze).
+      const wT = hasWeapon('tupniecie');
+      if (stompLvl() > 0 && (!wT || wT.t < 1.2)) {
+        nova(P.pos.x, P.pos.z, stompRad(stompLvl()), stompDmg(stompLvl()));
+        if (wT) wT.t = Math.max(wT.t, 1.2);
+      }
     }
   } else {
     P.gliding = false;
@@ -4036,6 +4064,7 @@ function update(dt) {
     const to = P.pos.clone().sub(e.pos).setY(0);
     const d = to.length(); to.normalize();
     let es = e.T.speed * (e.elite ? 0.85 : 1) * spdScale();
+    if (e.stun > 0) { e.stun -= dt; es = 0; }        // ogluszenie z ewolucji "DZIS NIE WEJDZIESZ"
     if (e.ty < WATER_Y - 0.04) es *= 0.7;               // woda spowalnia też ich
     if (G.buff.key === 'slow') es *= 0.6;
     // wspinaczka na mesę = powolutku (chwila oddechu dla gracza na górce)
@@ -4117,7 +4146,7 @@ function update(dt) {
         setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 1500);
         novaRing(P.pos.x, P.pos.z, 2);
       } else {
-        P.hp -= e.T.dmg * (e.T.boss ? 1 : dmgScale()); P.iframes = 0.9;
+        P.hp -= e.T.dmg * dmgScale(); P.iframes = 0.9;      // boss tez bije mocniej z czasem
         drawHearts();
         AUDIO.sfx('hurt');
         G.shake = 0.35;
@@ -4356,6 +4385,9 @@ function update(dt) {
     if (d < mag) g.pos.addScaledVector(P.pos.clone().sub(g.pos).normalize(), Math.max(14 - d, 8) * dt);
     g.mesh.position.set(g.pos.x, terrainH(g.pos.x, g.pos.z) + 0.25 + Math.sin(g.t * 4) * 0.12, g.pos.z);
     g.mesh.rotation.set(0, camYaw, g.t * 2);
+    // porzucone dropy znikaja: mapa jest nieskonczona, wiec bez tego wszystko
+    // zostawione za plecami zostaje na zawsze (zmierzone: 299 pigulek po 4:43)
+    if (g.t > 45 && d > mag * 3) { scene.remove(g.mesh); G.gems.splice(i, 1); continue; }
     if (d < 0.7) {
       P.xp += g.val;
       AUDIO.sfx('xp');
@@ -4377,6 +4409,7 @@ function update(dt) {
     if (d < mag) c.pos.addScaledVector(P.pos.clone().sub(c.pos).normalize(), Math.max(14 - d, 8) * dt);
     c.mesh.position.set(c.pos.x, terrainH(c.pos.x, c.pos.z) + 0.3 + Math.sin(c.t * 5) * 0.1, c.pos.z);
     c.mesh.rotation.y = camYaw;
+    if (c.t > 60 && d > mag * 3) { scene.remove(c.mesh); G.coins.splice(i, 1); continue; }
     if (d < 0.7) {
       G.runCoins += Math.round((c.val || 1) * monetyMul()); drawCoins();   // Klątwa płaci
       AUDIO.sfx('moneta');
