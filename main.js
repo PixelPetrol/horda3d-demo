@@ -1423,7 +1423,8 @@ const G = {
   running: false, over: false, paused: false,
   time: 0, kills: 0, runCoins: 0,
   enemies: [], gems: [], coins: [], shots: [], orbs: [], sparks: [], rings: [],
-  lobs: [], boomers: [], bolts: [], pops: [], hps: [], kury: [],
+  lobs: [], boomers: [], bolts: [], pops: [], hps: [], kury: [], okruchy: [], puffs: [],
+  hitstop: 0,                                      // krótkie zatrzymanie czasu przy grubym zabójstwie
   spawnT: 0, shake: 0, bossAt: 120, ringAt: 60, tier: 0,
   vacuum: 0, buff: { key: null, t: 0 },
   streak: 0, streakT: -9,
@@ -1635,32 +1636,32 @@ function pollPads(dt) {
 // nm/ds = wpis do BESTIARIUSZA (odblokowywany po pierwszym zabiciu danego typu)
 const ENEMY_TYPES = {
   // ===== LA FAMIGLIA SNACKONI (wg biblii v1.1; HP/3.5, speed×2.5) =====
-  chipsetti: { hp: 3, speed: 2.75, dmg: 1, scale: 0.85, xp: 1, walk: 'run', char: 'chipsetti_soldatetti',
+  chipsetti: { hp: 3, okrKol: 0xf2c14a, speed: 2.75, dmg: 1, scale: 0.85, xp: 1, walk: 'run', char: 'chipsetti_soldatetti',
     nm: 'Chipsetti Soldatetti',
     ds: 'Szeregowy Famiglii — wymięty chips z ambicjami. Atakuje wyłącznie w rojach, bo w pojedynkę jest tylko okruchem. Łamie się efektownie i to jego jedyny talent.' },
-  marshmallini: { hp: 8, speed: 1.75, dmg: 1, scale: 1.0, xp: 2, walk: 'run', char: 'marshmallini_fluffini',
+  marshmallini: { hp: 8, okrKol: 0xfff2f6, speed: 1.75, dmg: 1, scale: 1.0, xp: 2, walk: 'run', char: 'marshmallini_fluffini',
     dzieli: true, bigXp: true,
     nm: 'Marshmallini Fluffini',
     ds: 'Gąbczasty bandzior o konsystencji poduszki. Powolny i miękki, ale gdy go rozwalisz, robią się z niego DWA mniejsze problemy. Fizyka pianki, logika hydry.' },
-  gummini: { hp: 4, speed: 3.0, dmg: 1, scale: 0.9, xp: 1, walk: 'run', char: 'gummini_bouncini',
+  gummini: { hp: 4, okrKol: 0xe04a3c, speed: 3.0, dmg: 1, scale: 0.9, xp: 1, walk: 'run', char: 'gummini_bouncini',
     skacze: true, bezKb: true,
     nm: 'Gummini Bouncini',
     ds: 'Żelkowy miś, który nie chodzi — on się odbija. Nie da się go odepchnąć, bo cała jego istota to sprężyna. Galaretowaty, uparty i lepki jak wyrzut sumienia.' },
-  friesetti: { hp: 4, speed: 4.0, dmg: 1, scale: 0.95, xp: 2, walk: 'run', char: 'friesetti_spearetti',
+  friesetti: { hp: 4, okrKol: 0xf6cd51, speed: 4.0, dmg: 1, scale: 0.95, xp: 2, walk: 'run', char: 'friesetti_spearetti',
     bigXp: true,
     nm: 'Friesetti Spearetti',
     ds: 'Frytka-włócznik, szarżuje w porcjach po pięć. Chuda, długa i boleśnie szybka. Zostawia za sobą smugę soli i poczucie, że to była zła decyzja.' },
-  sodino: { hp: 6, speed: 2.5, dmg: 1, scale: 0.95, xp: 2, walk: 'run', char: 'sodino_explodino',
+  sodino: { hp: 6, okrKol: 0x7a4426, speed: 2.5, dmg: 1, scale: 0.95, xp: 2, walk: 'run', char: 'sodino_explodino',
     kamikaze: true, bigXp: true,
     nm: 'Sodino Explodino',
     ds: 'Wstrząśnięta puszka z zapłonem zamiast rozumu. Syczy, biegnie i wybucha — w tej kolejności, zawsze. Po nim zostaje kałuża coli i cisza.' },
-  lollini: { hp: 17, speed: 1.25, dmg: 2, scale: 1.35, xp: 4, walk: 'run', char: 'lollini_spinnini',
+  lollini: { hp: 17, okrKol: 0xff6fa5, speed: 1.25, dmg: 2, scale: 1.35, xp: 4, walk: 'run', char: 'lollini_spinnini',
     wiruje: true, bigXp: true,
     nm: 'Lollini Spinnini',
     ds: 'Wielki lizak na patyku, który obraca się jak tarcza pilarska. Wolny jak niedziela, ale kto podejdzie za blisko, ten poznaje smak wiśniowej przemocy.' },
   // ===== BOSS: DON CHIPSO (wg biblii — torba chipsów; do czasu własnego sprite'a
   //          używamy powiększonego Chipsettiego, bo to ten sam „materiał") =====
-  boss: { hp: 90, speed: 2.2, dmg: 2, scale: 2.7, xp: 25, walk: 'run',
+  boss: { hp: 90, okrKol: 0xf2c14a, speed: 2.2, dmg: 2, scale: 2.7, xp: 25, walk: 'run',
     char: 'chipsetti_soldatetti', boss: true,
     nm: 'Don Chipso',
     ds: 'Głowa Famiglii. Mówi szeptem, bo kto ma sól, nie musi krzyczeć. Wymięty jak jego sumienie, tłusty jak jego interesy. Osiedle traktuje jak talerz: co na nim leży, uważa za swoje.' },
@@ -1750,7 +1751,7 @@ function killEnemy(e, i) {
   if (e.T.death && LIB[e.T.char || e.type].anims[e.T.death]) {
     e.dying = true; e.bb.play(e.T.death, false);
   } else {
-    e.bb.dispose(); G.enemies.splice(i, 1);
+    startRozpad(e);                                // brak arkusza `death` → śmierć z kodu
   }
 }
 
@@ -1806,6 +1807,123 @@ function spark(x, y, z) {
   m.position.set(x, y, z);
   scene.add(m);
   G.sparks.push({ mesh: m, t: 0 });
+}
+
+// ============================== OKRUCHY (cząstki po śmierci) ==============================
+// Materiał per KOLOR, nie per okruch: przy 200 zabójstwach na minutę klonowanie
+// materiału na każdą cząstkę byłoby czystą stratą (dlatego gasną skalą, nie alfą).
+const okruchGeo = new THREE.PlaneGeometry(0.17, 0.17);
+const okruchMats = new Map();
+function okruchMat(kol) {
+  let m = okruchMats.get(kol);
+  if (!m) { m = new THREE.MeshBasicMaterial({ color: kol, side: THREE.DoubleSide }); okruchMats.set(kol, m); }
+  return m;
+}
+function okruchy(x, y, z, kol, ile) {
+  if (G.okruchy.length > 140) return;              // hamulec na wypadek rzezi
+  const mat = okruchMat(kol);
+  for (let i = 0; i < ile; i++) {
+    const m = new THREE.Mesh(okruchGeo, mat);
+    m.position.set(x, y, z);
+    scene.add(m);
+    const a = Math.random() * Math.PI * 2, s = 1.5 + Math.random() * 2.5;
+    G.okruchy.push({ mesh: m, t: 0, vx: Math.cos(a) * s, vz: Math.sin(a) * s,
+                     vy: 2.4 + Math.random() * 2.8, spin: (Math.random() - 0.5) * 16 });
+  }
+}
+
+// ============================== PUFF (świetlny obłok, blending additive) ==============================
+function glowTexture() {
+  const S = 64;
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d');
+  const gr = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  gr.addColorStop(0, 'rgba(255,255,255,1)');
+  gr.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+  gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, S, S);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+let glowMat = null;
+function puff(x, y, z, kol, skala = 1) {
+  if (!glowMat || G.puffs.length > 40) return;
+  const m = new THREE.Mesh(unitGeo, glowMat.clone());   // klon = ten sam program, inny kolor
+  m.material.color.setHex(kol);
+  m.position.set(x, y, z);
+  m.quaternion.copy(camera.quaternion);
+  scene.add(m);
+  G.puffs.push({ mesh: m, t: 0, skala });
+}
+
+// ============================== PROCEDURALNA ŚMIERĆ WROGA ==============================
+// Snackoni nie mają arkusza `death` (patrz POSTACIE-DO-ZROBIENIA.md), a znikanie
+// pstryknięciem zabijało całą satysfakcję z zabójstwa. Zamiast czekać na grafikę:
+// sprite przewraca się, spłaszcza, blaknie i zostawia obłoczek okruchów.
+const ROZPAD_T = 0.46;
+const FLASH_T = 0.09;                              // biały błysk na starcie (klasyk juice'u)
+// Łatka shadera dla UMIERAJĄCEGO sprite'a: pixelowy DISSOLVE (bloki UV znikają
+// losowo, nie gładkie blaknięcie) + wybielenie na błysk.
+// Uniformy trzymamy w `userData`, bo `onBeforeCompile` jest wołane jako METODA
+// materiału — `this` to materiał, więc każdy klon dostaje swoje wartości.
+// Źródło shadera jest identyczne dla wszystkich klonów, więc three.js kompiluje
+// program RAZ i potem go cache'uje — inaczej każde zabójstwo dawałoby zadyszkę.
+function rozpadShader(sh) {
+  sh.uniforms.uProg = this.userData.uProg;
+  sh.uniforms.uFlash = this.userData.uFlash;
+  sh.fragmentShader = 'uniform float uProg;uniform float uFlash;\n' + sh.fragmentShader
+    .replace('#include <map_fragment>', `
+      #ifdef USE_MAP
+        vec2 _blk = floor(vMapUv * 26.0);
+        float _h = fract(sin(_blk.x * 12.9898 + _blk.y * 78.233) * 43758.5453);
+        if (_h < uProg) discard;                    // kwadratowe piksele wypadają po kolei
+      #endif
+      #include <map_fragment>
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), uFlash);`);
+}
+function startRozpad(e) {
+  e.dying = true;
+  e.rozpad = 0;
+  e.rozpadBase = e.bb.mesh.scale.clone();          // mini-Marshmallini ma inną skalę
+  e.rozpadY = e.bb.mesh.position.y;
+  e.rozpadObrot = (Math.random() < 0.5 ? -1 : 1) * (1.0 + Math.random() * 0.6);
+  // UWAGA: materiał klatki jest WSPÓLNY dla wszystkich wrogów tego typu
+  // (`LIB[postać][anim].dirs[kier][klatka]`). Bez klona zgasłby cały rój naraz.
+  const m = e.bb.mesh.material;
+  if (m) {
+    const k = m.clone();
+    k.userData = { uProg: { value: 0 }, uFlash: { value: 1 } };
+    k.onBeforeCompile = rozpadShader;
+    k.needsUpdate = true;
+    e.rozpadMat = k;
+    e.bb.mesh.material = k;
+  }
+  const kol = e.T.okrKol || 0xffffff;
+  const duzy = e.T.boss || e.elite;
+  okruchy(e.pos.x, e.ty + e.bb.h * 0.45, e.pos.z, kol,
+          e.T.boss ? 12 : (e.T.dzieli && !e.mini ? 7 : 4));
+  puff(e.pos.x, e.ty + e.bb.h * 0.5, e.pos.z, kol, e.bb.h * (duzy ? 1.5 : 0.9));
+  if (e.T.dzieli && !e.mini) novaRing(e.pos.x, e.pos.z, 1.3);   // widoczne PĘKNIĘCIE na dwa
+  if (duzy) G.hitstop = Math.max(G.hitstop, e.T.boss ? 0.12 : 0.05);  // ciężar dużego zabójstwa
+}
+function updateRozpad(e, dt) {
+  e.rozpad += dt;
+  const k = Math.min(1, e.rozpad / ROZPAD_T);
+  const b = e.rozpadBase;
+  // POP: przez pierwsze klatki sprite PUCHNIE (anticipation), potem się spłaszcza
+  const pop = e.rozpad < FLASH_T ? 1 + 0.28 * (1 - e.rozpad / FLASH_T) : 1;
+  const sy = (1 - 0.72 * k) * pop, sx = (1 + 0.4 * k) * pop;
+  e.bb.mesh.scale.set(b.x * sx, b.y * sy, b.z);
+  e.bb.mesh.rotation.z = e.rozpadObrot * k * k;    // przewraca się z przyspieszeniem
+  e.bb.mesh.rotation.y = camYaw;                   // dalej twarzą do kamery, gdy ta się obraca
+  e.bb.mesh.position.y = e.rozpadY - b.y * (1 - sy) * 0.5;   // osiada na ziemi, nie wisi
+  if (e.rozpadMat) {
+    e.rozpadMat.userData.uFlash.value = Math.max(0, 1 - e.rozpad / FLASH_T);
+    e.rozpadMat.userData.uProg.value = Math.max(0, (k - 0.18) / 0.82);   // dissolve po błysku
+  }
+  e.bb.shadow.scale.set(b.x * 0.5 * (1 + k * 0.5), 1, b.x * 0.3 * (1 + k * 0.5));
+  return k >= 1;
 }
 
 // ---- wyskakujące napisy (obrażenia, KILL) — tekstury cache'owane per napis ----
@@ -2826,6 +2944,10 @@ const clock = new THREE.Clock();
 
 function update(dt) {
   if (G.dying) { updateDeath(dt); return; }
+  // HITSTOP: zabicie elity/bossa na moment prawie zatrzymuje świat. Kosztuje
+  // jedną linijkę, a robi połowę „ciężaru" ciosu — czas realny odejmujemy
+  // PRZED spowolnieniem, żeby hitstop nie przedłużał się sam.
+  if (G.hitstop > 0) { G.hitstop -= dt; dt *= 0.14; }
   G.time += dt;
   document.getElementById('timer').textContent = fmtTime(G.time);
   // komunikat o wzroście poziomu zagrożenia
@@ -2987,8 +3109,15 @@ function update(dt) {
   for (let i = G.enemies.length - 1; i >= 0; i--) {
     const e = G.enemies[i];
     if (e.dying) {
-      e.bb.update(dt, e.pos, e.ty);
-      if (e.bb.done) { e.bb.dispose(); if (e.ring) scene.remove(e.ring); G.enemies.splice(i, 1); }
+      let koniec;
+      if (e.rozpad !== undefined) koniec = updateRozpad(e, dt);   // śmierć z kodu (bez arkusza)
+      else { e.bb.update(dt, e.pos, e.ty); koniec = e.bb.done; }
+      if (koniec) {
+        e.bb.dispose();
+        if (e.rozpadMat) e.rozpadMat.dispose();      // klon materiału trzeba oddać
+        if (e.ring) scene.remove(e.ring);
+        G.enemies.splice(i, 1);
+      }
       continue;
     }
     const to = P.pos.clone().sub(e.pos).setY(0);
@@ -3195,6 +3324,34 @@ function update(dt) {
     s.mesh.scale.setScalar(1 + s.t * 6);
     s.mesh.material.opacity = Math.max(0, 1 - s.t * 5);
     if (s.t > 0.2) { scene.remove(s.mesh); G.sparks.splice(i, 1); }
+  }
+
+  // ---- okruchy po zabitych (odbijają się od terenu i gasną skalą) ----
+  for (let i = G.okruchy.length - 1; i >= 0; i--) {
+    const o = G.okruchy[i]; o.t += dt;
+    o.vy -= 16 * dt;
+    o.mesh.position.x += o.vx * dt;
+    o.mesh.position.z += o.vz * dt;
+    o.mesh.position.y += o.vy * dt;
+    o.mesh.rotation.z += o.spin * dt;
+    o.mesh.rotation.y = camYaw;
+    const ziemia = terrainH(o.mesh.position.x, o.mesh.position.z) + 0.06;
+    if (o.mesh.position.y < ziemia) {               // jedno odbicie i leży
+      o.mesh.position.y = ziemia;
+      o.vy *= -0.34; o.vx *= 0.55; o.vz *= 0.55;
+    }
+    if (o.t > 0.95) { scene.remove(o.mesh); G.okruchy.splice(i, 1); }
+    else if (o.t > 0.62) o.mesh.scale.setScalar(Math.max(0, 1 - (o.t - 0.62) / 0.33));
+  }
+
+  // ---- świetlne puffy (rozszerzają się i gasną) ----
+  for (let i = G.puffs.length - 1; i >= 0; i--) {
+    const p = G.puffs[i]; p.t += dt;
+    const k = p.t / 0.3;
+    p.mesh.scale.setScalar(p.skala * (0.7 + k * 1.8));
+    p.mesh.quaternion.copy(camera.quaternion);
+    p.mesh.material.opacity = Math.max(0, 0.85 * (1 - k));
+    if (k >= 1) { scene.remove(p.mesh); p.mesh.material.dispose(); G.puffs.splice(i, 1); }
   }
 
   // ---- skrzynie ----
@@ -3434,7 +3591,11 @@ function setPlayerChar(key) {
 }
 
 function clearWorld() {
-  for (const e of G.enemies) { e.bb.dispose(); if (e.ring) scene.remove(e.ring); }
+  for (const e of G.enemies) {
+    e.bb.dispose();
+    if (e.rozpadMat) e.rozpadMat.dispose();
+    if (e.ring) scene.remove(e.ring);
+  }
   for (const g of G.gems) scene.remove(g.mesh);
   for (const c of G.coins) scene.remove(c.mesh);
   for (const s of G.shots) scene.remove(s.mesh);
@@ -3447,8 +3608,11 @@ function clearWorld() {
   for (const p of G.pops) { scene.remove(p.mesh); p.mesh.material.dispose(); }
   for (const h of G.hps) scene.remove(h.mesh);
   for (const k of G.kury) k.bb.dispose();
+  for (const o of G.okruchy) scene.remove(o.mesh);
+  for (const p of G.puffs) { scene.remove(p.mesh); p.mesh.material.dispose(); }
   G.enemies = []; G.gems = []; G.coins = []; G.shots = []; G.orbs = []; G.sparks = []; G.rings = [];
-  G.lobs = []; G.boomers = []; G.bolts = []; G.pops = []; G.hps = []; G.kury = [];
+  G.lobs = []; G.boomers = []; G.bolts = []; G.pops = []; G.hps = []; G.kury = []; G.okruchy = [];
+  G.puffs = []; G.hitstop = 0;
   G.streak = 0; G.streakT = -9;
   G.vacuum = 0; G.buff = { key: null, t: 0 };
   document.getElementById('buff').style.opacity = 0;
@@ -3574,6 +3738,8 @@ if (loadTip) {
   bladeMat = makeBladeMaterial();
   flowerMat = makeBladeMaterial(flowerTexture());
   stalkMat = makeBladeMaterial(stalkTexture());
+  glowMat = new THREE.MeshBasicMaterial({ map: glowTexture(), transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.85 });
   initLeafCards();
   initLeafSolids();
   initGrassField();
