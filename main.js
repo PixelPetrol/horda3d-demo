@@ -3064,7 +3064,10 @@ function updateCzosnki(dt, lvl) {
   // SOKOLI WZROK (+20% zasięgu broni) wydłuża CAŁĄ LINKĘ, nie tylko punkt
   // docelowy: gdyby rosnął sam cel, lina napięłaby się na swojej stałej długości
   // i zasięg by stanął. Segment liczymy więc z żądanego zasięgu.
-  const zasieg = (evo ? 2.7 : 2.1) * rangeF();
+  // UWAGA NA `rangeF()`: zwraca wartosc ABSOLUTNA (14 * 1.2^poziom), a nie mnoznik.
+  // Pomnozenie 2.1 * rangeF() dalo linke na 29 jednostek — konca nie bylo widac.
+  // Dzielimy przez baze 14, zeby wyszedl czysty mnoznik (1.0 bez pasywu).
+  const zasieg = (evo ? 2.7 : 2.1) * (rangeF() / 14);
   const segDl = zasieg / LINKA_SEG * 1.04;             // ciut luzu, żeby linka mogła się wygiąć
   const rr = evo ? 1.5 : 1.0;                          // promień rażenia czosnku
   const oDmg = 2 * (evo ? 2 : 1) * dmgAll();
@@ -3302,10 +3305,15 @@ function closeSwap() {
 
 // ============================== HUD ==============================
 function drawHearts() {
-  const hp = Math.max(0, P.hp);
-  document.getElementById('hearts').innerHTML = P.maxHp > 12
+  // HP przycinamy do maksimum: `repeat()` z liczba ujemna rzuca RangeError i zabija
+  // cala klatke, a wystarczy jedno leczenie ponad max (albo hak debugowy), zeby to
+  // wywolac. Prog licznika nizszy na waskich ekranach — rzad 11 serc wchodzil
+  // w licznik ZAGROZENIA.
+  const hp = Math.max(0, Math.min(P.hp, P.maxHp));
+  const prog = innerWidth < 520 ? 8 : 12;
+  document.getElementById('hearts').innerHTML = P.maxHp > prog
     ? ico('serce', 18) + ` ${hp} / ${P.maxHp}`      // dużo serc = licznik zamiast rzędu
-    : ico('serce', 18).repeat(hp) + ico('sercePuste', 18).repeat(P.maxHp - hp);
+    : ico('serce', 18).repeat(hp) + ico('sercePuste', 18).repeat(Math.max(0, P.maxHp - hp));
 }
 const fmtTime = t => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
 const drawCoins = () => document.getElementById('coins').innerHTML = ico('moneta', 15) + ' ' + G.runCoins;
