@@ -1,7 +1,7 @@
 // HORDA 3D v4 — teren 3D + kamera za plecami + meta-progresja (monety/sklep)
 import * as THREE from './lib/three.module.js';
 import { SPRITEDATA } from './spritedata.js?v=6';
-import { icon, ico } from './icons.js?v=1';
+import { icon, ico } from './icons.js?v=2';
 import { AUDIO } from './audio.js?v=3';            // muzyka wg fazy gry + kwestie głosowe + efekty
 
 // ============================== USTAWIENIA ==============================
@@ -40,13 +40,13 @@ const CHARS = {
   // bieg 2 ≈ 150, bieg 3 ≈ 250 → łącznie ~460. Nagroda ma przyjść, GDY GRACZ
   // JESZCZE NIE WIE, czy zostaje — nie po ośmiu biegach.
   beetino:    { nm: 'Beetino Bouncerino', ds: 'Buraczino Betonino — czołg z bramki. Wolny, ale twardy.',
-                char: 'beetino_bouncerino', price: 0, killGoal: 450,
+                char: 'beetino_bouncerino', price: 0, killGoal: 450, startWpn: 'wypad',
                 spd: 0.85, hp: 3, dmg: 1.1, mag: 0.9, scale: 1.32 },
   // Statystyki wprost z biblii postaci (HP 110 · Speed 0.9 · Might 1.0 · Pickup 1.1).
   // Postac DO KUPIENIA: przy nowej ekonomii 700 monet wypada na ~6. biegu, czyli
   // dokladnie tam, gdzie mial byc drugi przystanek progresji.
-  granny:     { nm: 'Granny Smithella', ds: 'Babuszkina Jabłuszkina — wolna, twarda, zbiera szerzej.',
-                char: 'granny_smithella', price: 700,
+  granny:     { nm: 'Granny Smithella', ds: 'Babuszkina Jabłuszkina — kapeć wraca jak bumerang.',
+                char: 'granny_smithella', price: 700, startWpn: 'ciabatta',
                 spd: 0.9, hp: 1, dmg: 1.0, mag: 1.1, scale: 1.28 },
 };
 // portret postaci = pierwsza klatka jej arkusza (pixel art zamiast emoji)
@@ -1097,11 +1097,26 @@ const texLoader = new THREE.ImageLoader();
 const LIB = {};
 const loadImage = src => new Promise((res, rej) => texLoader.load(src, res, undefined, rej));
 
+// ile PUSTYCH pikseli jest pod stopami w pierwszej klatce arkusza
+function dolnaKrawedz(img, size) {
+  const cv = document.createElement('canvas'); cv.width = cv.height = size;
+  const g = cv.getContext('2d');
+  g.drawImage(img, 0, 0, size, size, 0, 0, size, size);
+  const d = g.getImageData(0, 0, size, size).data;
+  for (let y = size - 1; y >= 0; y--) {
+    for (let x = 0; x < size; x++) if (d[(y * size + x) * 4 + 3] > 8) return size - 1 - y;
+  }
+  return 0;
+}
 async function buildChar(name, anims) {
   const def = SPRITEDATA[name];
   const img = await loadImage(def.img);
   const size = def.size;
-  LIB[name] = { size, footOff: def.footOff || 0, anims: {}, img };
+  // FOOTOFF LICZONY Z ALFY, a nie brany z pliku: packer wpisuje tam zero na
+  // sztywno, wiec kazda nowo zapakowana postac unosila sie nad trawa o tyle
+  // pustego miejsca, ile arkusz ma pod stopami (Carrotello mial 23 wpisane
+  // recznie, przepakowany Beetino dostal 0 i zaczal lewitowac).
+  LIB[name] = { size, footOff: dolnaKrawedz(img, size), anims: {}, img };
   for (const an of anims) {
     const a = def.anims[an]; if (!a) continue;
     const entry = { fps: a.fps, dirs: {} };
@@ -1392,8 +1407,9 @@ const SHOP_UNLOCKS = [
   { key: 'glide',    ico: 'skok', nm: 'Liść sałaty',            ds: 'PRZYTRZYMAJ skok w locie = szybujesz i uciekasz hordzie', price: 250 },
   { key: 'skarpeta', ico: 'skarpeta', nm: 'Skarpeta', ds: 'Śmierdząca aura truje wokół', price: 180 },
   { key: 'wiatrowka', ico: 'wiatr', nm: 'Wiatrówka',      ds: 'Promień przeszywa całą linię', price: 220 },
-  { key: 'kura',     ico: 'kura', nm: 'Kura-kamikaze',   ds: 'Biegnie i wybucha. Kura.', price: 350 },
-  { key: 'sokowirowka', ico: 'wiatr', nm: 'Sokowirówka', ds: 'STAWIASZ ją i sama miele wrogów — ustaw ją w alejce', price: 280 },
+  { key: 'kura',     ico: 'kukurydza', nm: 'Kernello Boomello', ds: 'Ziarno biegnie do wroga i strzela jak popcorn', price: 350 },
+  { key: 'pipsini', ico: 'pestka', nm: 'Pipsini Nipotini', ds: 'Pestka-towarzysz: biega, tłucze i sadzi kiełki', price: 320 },
+  { key: 'sokowirowka', ico: 'sokowirowka', nm: 'Sokowirówka', ds: 'STAWIASZ ją i sama miele wrogów — ustaw ją w alejce', price: 280 },
 ];
 // Cena rośnie nie tylko z poziomem POZYCJI, ale i z liczbą WSZYSTKICH zakupów
 // (+10% każdy). U Vampire Survivors 91% pełnego kosztu maksowania meta-sklepu to
@@ -1558,6 +1574,7 @@ const G = {
   lobs: [], boomers: [], bolts: [], pops: [], hps: [], kury: [], okruchy: [], puffs: [],
   padajace: [],                                    // regały w trakcie przewracania (market)
   turrets: [],                                     // postawione sokowirówki (TD-lite)
+  pestki: [], kielki: [],                          // Pipsini i jego kiełki
   hitstop: 0,                                      // krótkie zatrzymanie czasu przy grubym zabójstwie
   spawnT: 0, shake: 0, bossAt: 120, ringAt: 60, tier: 0,
   vacuum: 0, buff: { key: null, t: 0 },
@@ -1575,7 +1592,7 @@ function resetStats() {
     iframes: 0, y: 1.55, vy: 0, airborne: false, usedDouble: false, runDjump: false, shieldCd: 0,
     gliding: false, runGlide: false,
     vx: 0, vz: 0,
-    weapons: [{ key: 'kule', lvl: 1, t: 0 }],   // max 3 sloty
+    weapons: [{ key: CHARS[charKey].startWpn || 'kule', lvl: 1, t: 0 }],   // max 3 sloty (broń z biblii)
     passives: {},                                // key -> poziom
     evo: {},                                     // key -> true
     xp: 0, lvl: 1, xpNeed: 5,
@@ -1993,6 +2010,28 @@ function makeCoin(x, z, val = 1) {
 
 // materiały nowych broni + efekt pioruna
 let bottleMat = null, radioMat = null;
+let kapecMat = null, kapecAspect = 1.4;
+// KAPEĆ w kratkę — rysowany w kodzie, dopóki nie przyjdzie sprite z generatora
+function kapecTexture() {
+  const W = 56, H = 40;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.fillStyle = '#3f5c8a';                                   // podeszwa
+  g.beginPath(); g.ellipse(28, 24, 25, 13, 0, 0, 7); g.fill();
+  g.fillStyle = '#6f8fc4';                                   // wierzch
+  g.beginPath(); g.ellipse(20, 20, 17, 11, 0, 0, 7); g.fill();
+  g.fillStyle = '#8fb0e0';                                   // krata
+  for (let x = 6; x < 34; x += 6) g.fillRect(x, 11, 2, 18);
+  for (let y = 12; y < 28; y += 6) g.fillRect(5, y, 30, 2);
+  g.fillStyle = '#2a3b5c';                                   // kontur pięty
+  g.fillRect(44, 16, 8, 3); g.fillRect(46, 19, 6, 3);
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
 const boltGeo = new THREE.CylinderGeometry(0.07, 0.16, 14, 5);
 const boltMat = new THREE.MeshBasicMaterial({ color: 0xcfeaff, transparent: true, fog: false });
 function boltFx(x, ty, z) {
@@ -2348,9 +2387,9 @@ const WEAPONS = {
     },
   },
   kosc: {
-    ico: 'kosc', nm: 'Czosnek na lince', ds: 'Kręci się na giętkiej lince i odpycha hordę', max: 5,
+    ico: 'czosnek', nm: 'Czosnek na lince', ds: 'Kręci się na giętkiej lince i odpycha hordę', max: 5,
     lvlDs: l => l + (l === 1 ? ' czosnek' : ' czosnki') + (l === 5 ? ' (→ ewolucja!)' : ''),
-    evoKey: 'kosci', evoIco: 'kosc', evoNm: 'CZOSNKOWY MŁYN', evoDs: 'EWOLUCJA: dłuższa linka, szybszy obrót i 2× mocniejsze',
+    evoKey: 'kosci', evoIco: 'czosnek', evoNm: 'CZOSNKOWY MŁYN', evoDs: 'EWOLUCJA: dłuższa linka, szybszy obrót i 2× mocniejsze',
     tick(w, dt) {
       while (G.orbs.length < w.lvl) G.orbs.push(nowyCzosnek(G.orbs.length));
       updateCzosnki(dt, w.lvl);
@@ -2478,10 +2517,10 @@ const WEAPONS = {
     },
   },
   kura: {
-    ico: 'kura', nm: 'Kernello Boomello', ds: 'Ziarno kukurydzy biegnie do wroga i STRZELA', max: 5, locked: true,
+    ico: 'kukurydza', nm: 'Kernello Boomello', ds: 'Ziarno kukurydzy biegnie do wroga i STRZELA', max: 5, locked: true,
     lvlDs: l => `wybuch r=${(2.5 + 0.3 * l).toFixed(1)}, co ${(4.5 - 0.35 * l).toFixed(1)} s`
       + (l === 5 ? ' (→ ewolucja!)' : ''),
-    evoKey: 'kaseta', evoIco: 'kura', evoNm: 'BOMBA KASETOWA',
+    evoKey: 'kaseta', evoIco: 'kukurydza', evoNm: 'BOMBA KASETOWA',
     evoDs: 'EWOLUCJA: wybuch rozsypuje 6 mniejszych ziaren, każde z własnym lontem',
     tick(w, dt) {
       w.t -= dt;
@@ -2494,12 +2533,94 @@ const WEAPONS = {
       G.kury.push({ bb, pos: P.pos.clone(), t: 0, lvl: w.lvl });
     },
   },
+  // ===== LA CIABATTA (startowa broń Granny, wg biblii) =====
+  // Kapeć-bumerang: leci, przebija WSZYSTKO i wraca, bijąc drugi raz w drodze
+  // powrotnej. Korzysta z tej samej maszynerii co radio-bumerang (`G.boomers`),
+  // ale rzuca DWA kapcie w wachlarzu i celuje w najbliższego wroga, nie w przód.
+  ciabatta: {
+    ico: 'kapec', nm: 'La Ciabatta', ds: 'Kapeć leci, przebija wszystko i WRACA', max: 5,
+    lvlDs: l => `${l >= 3 ? 2 : 1} kapeć(cie), zasięg ${(6 + 0.5 * l).toFixed(0)}, co ${(1.9 - 0.12 * l).toFixed(1)} s`
+      + (l === 5 ? ' (→ ewolucja!)' : ''),
+    evoKey: 'doppia', evoIco: 'kapec', evoNm: 'CIABATTA DOPPIA',
+    evoDs: 'EWOLUCJA: kapcie krążą wokół Ciebie bez przerwy',
+    tick(w, dt) {
+      w.t -= dt;
+      if (w.t > 0) return;
+      w.t = 1.9 - 0.12 * w.lvl;
+      // celujemy w najbliższego wroga — babcia nie pudłuje (biblia: „celność samonaprowadzająca")
+      let cel = null, najl = 1e9;
+      for (const e of G.enemies) { if (e.dying) continue;
+        const d = e.pos.distanceTo(P.pos); if (d < najl) { najl = d; cel = e; } }
+      const baza = cel ? Math.atan2(cel.pos.x - P.pos.x, cel.pos.z - P.pos.z) : playerBB.facing;
+      const ile = (w.lvl >= 3 ? 2 : 1) * (P.evo.doppia ? 2 : 1);
+      for (let i = 0; i < ile; i++) {
+        const a = baza + (i - (ile - 1) / 2) * 0.34;
+        const m = new THREE.Mesh(unitGeo, kapecMat);
+        m.scale.set(0.85 * kapecAspect, 0.85, 1);
+        scene.add(m);
+        G.boomers.push({ mesh: m, dir: new THREE.Vector3(Math.sin(a), 0, Math.cos(a)),
+                         t: 0, dur: 1.5, dist: 6 + 0.5 * w.lvl, lvl: w.lvl + 1, hit: new Set() });
+      }
+    },
+  },
+  // ===== WYPAD! (startowa broń Beetina, wg biblii) =====
+  // Pchnięcie falą w stożku 60° przed sobą: mały zasięg, ale OGROMNY knockback —
+  // bramkarz nie zabija, on odprowadza. Skalowanie: zasięg → knockback → obrażenia.
+  wypad: {
+    ico: 'fala', nm: 'Wypad!', ds: 'Pchnięcie w stożku — ogromny knockback', max: 5,
+    lvlDs: l => `stożek ${(3.4 + 0.4 * l).toFixed(1)} j., odrzut ${(5 + l).toFixed(0)}, co ${(1.5 - 0.08 * l).toFixed(2)} s`
+      + (l === 5 ? ' (→ ewolucja!)' : ''),
+    evoKey: 'selekcja', evoIco: 'tarcza', evoNm: 'DZIŚ NIE WEJDZIESZ',
+    evoDs: 'EWOLUCJA: pchnięcie ogłusza i zadaje podwójne obrażenia',
+    tick(w, dt) {
+      w.t -= dt;
+      if (w.t > 0) return;
+      w.t = 1.5 - 0.08 * w.lvl;
+      const zasieg = 3.4 + 0.4 * w.lvl, odrzut = 5 + w.lvl;
+      const fx = Math.sin(playerBB.facing), fz = Math.cos(playerBB.facing);
+      const dmg = (2.5 + 0.8 * w.lvl) * (P.evo.selekcja ? 2 : 1) * dmgAll();
+      let trafil = 0;
+      for (let j = G.enemies.length - 1; j >= 0; j--) {
+        const e = G.enemies[j];
+        if (e.dying) continue;
+        const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z;
+        const d = Math.hypot(dx, dz);
+        if (d > zasieg || d < 1e-3) continue;
+        if ((dx / d) * fx + (dz / d) * fz < 0.5) continue;      // stożek ~60°
+        e.hp -= dmg;
+        e.kb.set(dx / d, 0, dz / d).multiplyScalar(odrzut);
+        if (P.evo.selekcja) e.stun = Math.max(e.stun || 0, 0.6);
+        dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), '#ff9d7a', 1.1);
+        trafil++;
+        if (e.hp <= 0) killEnemy(e, j);
+      }
+      novaRing(P.pos.x + fx * zasieg * 0.5, P.pos.z + fz * zasieg * 0.5, zasieg * 0.55);
+      if (trafil) { AUDIO.sfx('wybuch'); G.shake = Math.max(G.shake, 0.12); }
+    },
+  },
+  // ===== PIPSINI NIPOTINI: TOWARZYSZ, nie pocisk =====
+  // Jedyna broń, na którą gracz ma wpływ POZYCJĄ: pestka goni najbliższego wroga
+  // w swoim promieniu, a gdy nikogo nie ma, wraca do gracza. Co chwilę wbija
+  // KIEŁEK, który tłucze wszystko wokół siebie — czyli zostawia ścieżkę
+  // mini-wieżyczek. Spirala (życzenie właściciela) siedzi w umiejętności
+  // specjalnej: co kilkanaście sekund pestka rozpędza się w koło przez hordę.
+  pipsini: {
+    ico: 'kura', nm: 'Pipsini Nipotini', ds: 'Pestka biega, tłucze i sadzi kiełki', max: 5, locked: true,
+    lvlDs: l => `${PIPS_ILE(l)} pestka(i), kiełek co ${PIPS_SADZ(l).toFixed(1)} s`
+      + (l === 5 ? ' (→ ewolucja!)' : ''),
+    evoKey: 'jablon', evoIco: 'pestka', evoNm: 'JABŁOŃ',
+    evoDs: 'EWOLUCJA: kiełki żyją 2× dłużej i biją 2× mocniej',
+    tick(w, dt) {
+      while (G.pestki.length < PIPS_ILE(w.lvl)) G.pestki.push(nowaPestka());
+      updatePestki(dt, w.lvl);
+    },
+  },
   // ===== WIEŻYCZKA: jedyny element „tower defense", jaki pasuje do survivorsa =====
   // Pełny TD bije się z rdzeniem gatunku (ciągły ruch), ale POSTAWIENIE czegoś,
   // co strzela samo przez chwilę, dodaje decyzję „gdzie", nie odbierając ruchu.
   // W markecie zaczyna grać z alejkami i przewróconymi regałami jako lejem.
   sokowirowka: {
-    ico: 'wiatr', nm: 'Sokowirówka', ds: 'Stawiasz ją i sama miele wrogów w miejscu', max: 5, locked: true,
+    ico: 'sokowirowka', nm: 'Sokowirówka', ds: 'Stawiasz ją i sama miele wrogów w miejscu', max: 5, locked: true,
     lvlDs: l => `${SOKO_ILE(l)} naraz, ${SOKO_ZYCIE(l).toFixed(0)} s, co ${(6.5 - 0.5 * l).toFixed(1)} s`,
     tick(w, dt) {
       w.t -= dt;
@@ -2510,6 +2631,124 @@ const WEAPONS = {
     },
   },
 };
+// ============================== PIPSINI: TOWARZYSZ I KIEŁKI ==============================
+const PIPS_ILE = l => 1 + Math.floor(l / 2);      // 1 / 1 / 2 / 2 / 3 pestki
+const PIPS_SADZ = l => 1.8 - 0.16 * l;            // kiełek co 1.64 → 1.0 s
+const PIPS_ZASIEG = 7.5;                          // jak daleko od gracza pestka poluje
+const KIELEK_ZYCIE = () => (P.evo.jablon ? 8 : 4);
+const KIELEK_DMG = () => (P.evo.jablon ? 1.6 : 0.8) * dmgAll();
+let kielekMat = null;
+function kielekTexture() {
+  const S = 32;
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.fillStyle = '#6b4a24'; g.fillRect(13, 24, 6, 8);            // ziemia/łupina
+  g.fillStyle = '#4e8f2e'; g.fillRect(15, 12, 2, 13);           // łodyżka
+  g.fillStyle = '#7cc94f';                                       // dwa listki
+  g.beginPath(); g.ellipse(11, 14, 5, 3, -0.5, 0, 7); g.fill();
+  g.beginPath(); g.ellipse(21, 12, 5, 3, 0.5, 0, 7); g.fill();
+  g.fillStyle = '#a8e06a'; g.fillRect(15, 8, 2, 4);
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function nowaPestka() {
+  const bb = new Billboard('pipsini_nipotini', 0.8);
+  bb.play('run');
+  return { bb, pos: P.pos.clone(), cel: null, sadzT: 0, spiralaCd: 12, spirala: 0, kat: Math.random() * 7 };
+}
+function usunPestki() {
+  for (const p of G.pestki) p.bb.dispose();
+  G.pestki = [];
+  for (const k of G.kielki) scene.remove(k.mesh);
+  G.kielki = [];
+}
+function sadzKielek(x, z) {
+  if (G.kielki.length > 40) return;                // hamulec: przy 3 pestkach sypie się gęsto
+  if (!kielekMat) kielekMat = new THREE.MeshBasicMaterial({ map: kielekTexture(),
+    transparent: true, alphaTest: 0.4, side: THREE.DoubleSide });
+  const m = new THREE.Mesh(unitGeo, kielekMat);
+  m.scale.set(0.55, 0.55, 1);
+  m.position.set(x, terrainH(x, z), z);
+  scene.add(m);
+  G.kielki.push({ mesh: m, pos: new THREE.Vector3(x, 0, z), t: 0, cd: 0 });
+}
+function updatePestki(dt, lvl) {
+  for (const p of G.pestki) {
+    // ---- cel: najbliższy wróg w promieniu, inaczej wracamy do gracza ----
+    let cel = null, najl = PIPS_ZASIEG;
+    for (const e of G.enemies) {
+      if (e.dying) continue;
+      const d = e.pos.distanceTo(p.pos);
+      if (d < najl) { najl = d; cel = e; }
+    }
+    p.spiralaCd -= dt;
+    if (p.spiralaCd <= 0 && G.enemies.length > 6) { p.spirala = 2.2; p.spiralaCd = 12; p.kat = 0; }
+    let doX, doZ, spd = 6.4;
+    if (p.spirala > 0) {
+      // SPIRALA: rozkręcający się łuk wokół gracza — przelot przez hordę
+      p.spirala -= dt;
+      p.kat += dt * 5.5;
+      const r = 1.4 + (2.2 - p.spirala) * 2.6;
+      doX = P.pos.x + Math.cos(p.kat) * r;
+      doZ = P.pos.z + Math.sin(p.kat) * r;
+      spd = 11;
+    } else if (cel) { doX = cel.pos.x; doZ = cel.pos.z; }
+    else {                                          // trzyma się przy nodze gracza
+      p.kat += dt * 1.6;
+      doX = P.pos.x + Math.cos(p.kat) * 1.6;
+      doZ = P.pos.z + Math.sin(p.kat) * 1.6;
+      spd = 5.2;
+    }
+    const dx = doX - p.pos.x, dz = doZ - p.pos.z;
+    const dl = Math.hypot(dx, dz) || 1e-6;
+    p.pos.x += (dx / dl) * spd * dt;
+    p.pos.z += (dz / dl) * spd * dt;
+    p.bb.facing = faceAngle(dx / dl, dz / dl);
+    p.bb.update(dt, p.pos, terrainH(p.pos.x, p.pos.z));
+    // ---- kontakt: rani i odpycha ----
+    for (let j = G.enemies.length - 1; j >= 0; j--) {
+      const e = G.enemies[j];
+      if (e.dying || e.orbCd > 0) continue;
+      if (e.pos.distanceTo(p.pos) > 0.85) continue;
+      const dmg = 1.2 * dmgAll();
+      e.hp -= dmg; e.orbCd = 0.4;
+      e.kb.copy(e.pos).sub(p.pos).setY(0).normalize().multiplyScalar(1.8);
+      dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), '#c9f07a', 0.85);
+      if (e.hp <= 0) killEnemy(e, j);
+    }
+    // ---- sadzenie ----
+    p.sadzT -= dt;
+    if (p.sadzT <= 0) { p.sadzT = PIPS_SADZ(lvl); sadzKielek(p.pos.x, p.pos.z); }
+  }
+  // ---- kiełki: tłuką wokół siebie i więdną ----
+  for (let i = G.kielki.length - 1; i >= 0; i--) {
+    const k = G.kielki[i];
+    k.t += dt;
+    const zycie = KIELEK_ZYCIE();
+    k.mesh.rotation.y = camYaw;
+    const rosnie = Math.min(1, k.t * 4);            // wyrasta w 0.25 s
+    k.mesh.scale.set(0.55 * rosnie, 0.55 * rosnie * (1 + Math.sin(k.t * 6) * 0.05), 1);
+    k.cd -= dt;
+    if (k.cd <= 0) {
+      k.cd = 0.5;
+      const dmg = KIELEK_DMG();
+      for (let j = G.enemies.length - 1; j >= 0; j--) {
+        const e = G.enemies[j];
+        if (e.dying) continue;
+        if (e.pos.distanceTo(k.pos) > (P.evo.jablon ? 1.9 : 1.4)) continue;
+        e.hp -= dmg;
+        dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), '#a8e05f', 0.7);
+        if (e.hp <= 0) killEnemy(e, j);
+      }
+    }
+    if (k.t > zycie) { scene.remove(k.mesh); G.kielki.splice(i, 1); }
+  }
+}
+
 const SOKO_ILE = l => 1 + Math.floor(l / 2);      // 1 / 1 / 2 / 2 / 3
 const SOKO_ZYCIE = l => 14 + l * 2;               // 16 → 24 s
 const SOKO_CD = l => 0.55 - 0.05 * l;             // strzał co 0.5 → 0.3 s
@@ -2864,6 +3103,7 @@ function pickNewWeapon(oldW) {
     d.innerHTML = `<div class="ico">${ico(W.ico, 42)}</div><div class="nm">${W.nm}</div><div class="ds">${W.ds}</div>`;
     d.onclick = () => {
       if (oldW.key === 'kosc') usunCzosnki();                 // razem z segmentami linki
+      if (oldW.key === 'pipsini') usunPestki();               // razem z kiełkami
       Object.assign(oldW, { key, lvl: 1, t: 0 });
       renderWpns();
       closeSwap();
@@ -4382,10 +4622,12 @@ function clearWorld() {
   for (const o of G.okruchy) scene.remove(o.mesh);
   for (const p of G.puffs) { scene.remove(p.mesh); p.mesh.material.dispose(); }
   for (const t of G.turrets) scene.remove(t.mesh);
+  for (const pe of G.pestki) pe.bb.dispose();
+  for (const ki of G.kielki) scene.remove(ki.mesh);
   for (const pl of plamy) if (pl) pl.mesh.visible = false;
   G.enemies = []; G.gems = []; G.coins = []; G.shots = []; G.orbs = []; G.sparks = []; G.rings = [];
   G.lobs = []; G.boomers = []; G.bolts = []; G.pops = []; G.hps = []; G.kury = []; G.okruchy = [];
-  G.puffs = []; G.hitstop = 0; G.padajace = []; G.turrets = [];
+  G.puffs = []; G.hitstop = 0; G.padajace = []; G.turrets = []; G.pestki = []; G.kielki = [];
   G.streak = 0; G.streakT = -9;
   G.vacuum = 0; G.buff = { key: null, t: 0 };
   document.getElementById('buff').style.opacity = 0;
@@ -4489,6 +4731,8 @@ if (loadTip) {
   const colImg = await flatMat('assets/column1.png');
   bottleMat = (await flatMat('assets/bottle.png')).mat;
   radioMat = (await flatMat('assets/radio.png')).mat;
+  kapecMat = new THREE.MeshBasicMaterial({ map: kapecTexture(), transparent: true,
+    alphaTest: 0.4, side: THREE.DoubleSide });
   heartMat = emojiMat('❤️');
   await buildChar('kura_braz', ['walk']);
   // postacie grywalne (potrzebne też do portretów w menu)
