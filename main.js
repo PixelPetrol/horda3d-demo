@@ -1379,8 +1379,12 @@ function makeGrass(cx, cz, rng) {
 function blobTexture() {
   const c = document.createElement('canvas'); c.width = c.height = 64;
   const g = c.getContext('2d');
-  const gr = g.createRadialGradient(32, 32, 4, 32, 32, 30);
-  gr.addColorStop(0, 'rgba(0,0,0,0.40)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  // CIEŃ KONTAKTOWY. Miękka plama 0.40 z rozmyciem od 4 px ginęła w trawie i cała
+  // horda wyglądała, jakby unosiła się nad łąką. Mocniejszy rdzeń + krótszy zanik
+  // = postać jest OSADZONA, a przy 500 wrogach to jedyne, co daje im głębię.
+  const gr = g.createRadialGradient(32, 32, 10, 32, 32, 30);
+  gr.addColorStop(0, 'rgba(0,0,0,0.58)'); gr.addColorStop(0.55, 'rgba(0,0,0,0.26)');
+  gr.addColorStop(1, 'rgba(0,0,0,0)');
   g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
   return new THREE.CanvasTexture(c);
 }
@@ -1484,8 +1488,31 @@ function billboardQuat(q, roll = 0) {
 }
 
 // ============================== BILLBOARD ==============================
+// WIDOCZNOŚĆ GRACZA PRZEZ HORDĘ. Zmierzone w 3. minucie: w promieniu 70 px od
+// postaci stoją 32 wrogi, z czego **18 rysuje się PRZED nią** — gracza po prostu
+// nie ma na ekranie. Stąd dwie kopie sprite'a z `depthTest: false`: ciemny obrys
+// (renderOrder 899) i kolorowa kopia (900). Są DZIEĆMI głównego mesha, więc
+// dziedziczą pozycję, obrót, skalę i widoczność — `playerBB.mesh.visible = false`
+// przy trybie karabinu chowa je razem z ciałem, bez ani jednej linii synchronizacji.
+const _przezMaty = new Map();                    // materiał klatki + kolor → materiał „na wierzchu"
+function matNaWierzchu(src, kolor) {
+  const klucz = src.uuid + '|' + kolor;
+  let m = _przezMaty.get(klucz);
+  if (!m) {
+    // ta sama TEKSTURA co oryginał (dzielona instancja = zero dodatkowego VRAM-u)
+    m = new THREE.MeshBasicMaterial({
+      map: src.map, color: kolor, alphaTest: 0.5, side: THREE.DoubleSide,
+      depthTest: false, depthWrite: false, transparent: true, fog: false,
+    });
+    _przezMaty.set(klucz, m);
+  }
+  return m;
+}
+const OBRYS_SKALA = 1.10;                        // grubość obrysu (10% sylwetki)
+const OBRYS_KOLOR = 0x1b1b22;                    // ten sam kontur, co w całym pixel-arcie gry
+
 class Billboard {
-  constructor(char, scaleMul = 1) {
+  constructor(char, scaleMul = 1, naWierzchu = false) {
     this.char = char;
     const L = LIB[char];
     this.h = L.size * PX2U * scaleMul;
@@ -1497,6 +1524,18 @@ class Billboard {
     this.shadow = new THREE.Mesh(blobGeo, blobMat);
     this.shadow.scale.set(this.h * 0.5, 1, this.h * 0.3);
     scene.add(this.mesh); scene.add(this.shadow);
+    if (naWierzchu) {
+      this.obrys = new THREE.Mesh(unitGeo, null);
+      // pivot geometrii siedzi w STOPACH (unitGeo.translate(0, 0.5, 0)), więc samo
+      // powiększenie rozlałoby obrys w górę i na boki, ale nie pod stopy — zsuwamy go
+      // o połowę przyrostu, żeby otoczka była równa dookoła
+      this.obrys.scale.setScalar(OBRYS_SKALA);
+      this.obrys.position.y = -(OBRYS_SKALA - 1) / 2;
+      this.obrys.renderOrder = 899;
+      this.kopia = new THREE.Mesh(unitGeo, null);
+      this.kopia.renderOrder = 900;
+      this.mesh.add(this.obrys); this.mesh.add(this.kopia);
+    }
     this.play('idle');
     // MATERIAŁ MUSI BYĆ OD RAZU. Mesh powstaje z `null`, a materiał dostaje
     // dopiero w `update()` — jeśli cokolwiek zrenderuje scenę PRZED pierwszym
@@ -1534,6 +1573,10 @@ class Billboard {
     if (this.loop) f %= mats.length;
     else if (f >= mats.length) { f = mats.length - 1; this.done = true; }
     this.mesh.material = mats[f];
+    if (this.kopia) {
+      this.kopia.material = matNaWierzchu(mats[f], 0xffffff);
+      this.obrys.material = matNaWierzchu(mats[f], OBRYS_KOLOR);
+    }
     // FOOTY MUSI BYĆ SKRÓCONE O `cos(pochylenia)`. Zsuwamy sprite'a w dół o tyle
     // pustych pikseli, ile arkusz ma pod stopami — ale to przesunięcie było liczone
     // dla PIONOWEGO billboardu. Po pochyleniu do kamery każdy odcinek wysokości
@@ -1686,20 +1729,78 @@ function initHitFlash() {
 }
 function updateHitFlash() {
   if (!hitFlash) return;
-  // Ta sama nakładka obsługuje DWA stany: czerwony błysk po ciosie i złotą
-  // poświatę NIETYKALNOŚCI. Zero nowych obiektów w scenie.
-  const niet = G.buff.key === 'niet';
-  const on = (P.iframes > 0 || niet) && !G.dying && !G.fps.on;
+  // PODZIAŁ RÓL: czerwony błysk = „OBERWAŁEM" (zdarzenie), złota aura niżej =
+  // „NIE MOŻNA MNIE TKNĄĆ" (stan). Wcześniej ta sama nakładka robiła oba i okno
+  // nietykalności czytało się jak zwykłe migotanie po ciosie.
+  const on = P.iframes > 0 && !G.dying && !G.fps.on;
   hitFlash.visible = on;
+  if (on) {
+    hitFlashMat.color.setHex(0xff2a2a);
+    hitFlashMat.map = playerBB.mesh.material.map;        // ta sama klatka co postać
+    hitFlashMat.opacity = 0.35 + 0.45 * Math.abs(Math.sin(P.iframes * 22));
+    hitFlashMat.needsUpdate = true;
+    hitFlash.scale.copy(playerBB.mesh.scale);
+    hitFlash.position.copy(playerBB.mesh.position);
+    hitFlash.quaternion.copy(playerBB.mesh.quaternion); // billboardy chodzą na kwaternionach
+  }
+  updateAura();
+}
+
+// ============================== AURA NIETYKALNOŚCI ==============================
+// Życzenie właściciela („jak SSJ"). Do 13.08 nietykalność była WYŁĄCZNIE migotaniem
+// sprite'a — w hordzie na 500 wrogów nie do wypatrzenia, a to jest informacja
+// „teraz możesz wejść w tłum". Dwa elementy: poświata za postacią i pierścień
+// na ziemi (ten drugi widać nawet wtedy, gdy postać zasłaniają wrogowie).
+// Poświata jest KWANTOWANA NA PASY, jak gradient nieba — gładka wyglądałaby
+// jak z innej gry niż reszta pixel-artu.
+function auraTexture() {
+  const S = 64, c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d'), im = g.createImageData(S, S);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const dx = (x - S / 2 + 0.5) / (S / 2), dy = (y - S / 2 + 0.5) / (S / 2);
+    const d = Math.sqrt(dx * dx + dy * dy);
+    let a = Math.max(0, 1 - d);
+    a = Math.floor(a * 6) / 6;                          // 6 pasów zamiast gładkiego zaniku
+    const i = (y * S + x) * 4;
+    im.data[i] = 255; im.data[i + 1] = 226; im.data[i + 2] = 120;
+    im.data[i + 3] = Math.round(a * 230);
+  }
+  g.putImageData(im, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false;
+  return t;
+}
+let aura = null, auraRing = null;
+function initAura() {
+  const m = new THREE.MeshBasicMaterial({ map: auraTexture(), transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false, fog: false, opacity: 0 });
+  aura = new THREE.Mesh(unitGeo, m);
+  aura.renderOrder = 4;                                  // pod kopią gracza (899/900)
+  aura.visible = false;
+  const rm = new THREE.MeshBasicMaterial({ map: ringTexture('#ffe07a'), transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false, fog: false, opacity: 0 });
+  auraRing = new THREE.Mesh(blobGeo, rm);
+  auraRing.visible = false;
+  scene.add(aura); scene.add(auraRing);
+}
+function updateAura() {
+  if (!aura) return;
+  const niet = G.buff.key === 'niet';
+  // aura chodzi też przez zwykłe okno po ciosie — to ten sam stan gry
+  const on = (niet || P.iframes > 0) && !G.dying && !G.fps.on;
+  aura.visible = auraRing.visible = on;
   if (!on) return;
-  hitFlashMat.color.setHex(niet ? 0xffd75e : 0xff2a2a);
-  hitFlashMat.map = playerBB.mesh.material.map;          // ta sama klatka co postać
-  hitFlashMat.opacity = niet ? 0.28 + 0.22 * Math.abs(Math.sin(G.time * 7))
-                             : 0.35 + 0.45 * Math.abs(Math.sin(P.iframes * 22));
-  hitFlashMat.needsUpdate = true;
-  hitFlash.scale.copy(playerBB.mesh.scale);
-  hitFlash.position.copy(playerBB.mesh.position);
-  hitFlash.quaternion.copy(playerBB.mesh.quaternion);   // billboardy chodzą na kwaternionach
+  const puls = 0.5 + 0.5 * Math.sin(G.time * (niet ? 7 : 13));
+  const h = playerBB.h;
+  aura.material.opacity = (niet ? 0.55 : 0.40) + 0.25 * puls;
+  aura.scale.set(h * (1.55 + 0.10 * puls), h * (1.55 + 0.10 * puls), 1);
+  // pivot sprite'a siedzi w stopach, więc poświatę środkujemy na tułowiu
+  aura.position.set(playerBB.mesh.position.x, playerBB.mesh.position.y + h * 0.46, playerBB.mesh.position.z);
+  aura.quaternion.copy(playerBB.mesh.quaternion);
+  auraRing.material.opacity = (niet ? 0.75 : 0.5) + 0.25 * puls;
+  const r = h * (0.95 + 0.12 * puls);
+  auraRing.scale.set(r, 1, r);
+  auraRing.position.set(P.pos.x, P.y + 0.06, P.pos.z);
 }
 
 // ============================== META (localStorage) ==============================
@@ -1948,6 +2049,8 @@ const G = {
   seria: [],                                       // kolejka rzutów scyzorykiem
   hitstop: 0,                                      // krótkie zatrzymanie czasu przy grubym zabójstwie
   spawnT: 0, shake: 0, bossAt: 120, ringAt: 60, tier: 0,
+  tlok: 0,                                         // 0-1: jak gesto jest wokol gracza (kamera odjezdza)
+  kino: 0,                                         // s pozostalej oprawy filmowej (wejscie bossa)
   vacuum: 0, buff: { key: null, t: 0 },
   streak: 0, streakT: -9,
   dying: false, deathT: 0,
@@ -2253,23 +2356,66 @@ function pollPads(dt) {
 // wrogach na ekranie gracz czesto w ogole nie wiedzial, ze walczy z bossem. Teraz:
 // przyciemnienie + imie na caly ekran na wejsciu, a potem pasek HP u gory, ktory
 // pokazuje NAJMOCNIEJ RANNEGO bossa (przy kilku naraz to on jest celem gracza).
+// ============================== OPRAWA FILMOWA ==============================
+// Elementy tworzone Z KODU, nie w index.html — to jedna nakładka na cały ekran
+// i dwa pasy; trzymanie ich przy kodzie, który je odpala, jest czytelniejsze niż
+// trzy martwe divy w HTML-u. Wszystko `pointer-events:none`, więc nic nie łyka wejścia.
+let _blyskEl = null, _pasyEl = null;
+function initKino() {
+  _blyskEl = document.createElement('div');
+  _blyskEl.style.cssText = 'position:fixed;inset:0;z-index:8;pointer-events:none;opacity:0;' +
+    'background:#fff;transition:opacity .28s ease-out';
+  document.body.appendChild(_blyskEl);
+  _pasyEl = document.createElement('div');
+  _pasyEl.style.cssText = 'position:fixed;inset:0;z-index:8;pointer-events:none;opacity:0;' +
+    'transition:opacity .3s;background:linear-gradient(#000 0 8%,transparent 8% 92%,#000 92% 100%)';
+  document.body.appendChild(_pasyEl);
+}
+// krótki błysk na cały ekran: „coś się właśnie stało" bez ani jednej linii tekstu
+function blysk(kolor = '#fff', moc = 0.35) {
+  if (!_blyskEl) return;
+  _blyskEl.style.background = kolor;
+  _blyskEl.style.transition = 'none';
+  _blyskEl.style.opacity = moc;
+  requestAnimationFrame(() => {
+    _blyskEl.style.transition = 'opacity .3s ease-out';
+    _blyskEl.style.opacity = 0;
+  });
+}
+const pasy = on => { if (_pasyEl) _pasyEl.style.opacity = on ? 1 : 0; };
+
 function wejscieBossa() {
   const ov = document.getElementById('bossOv'), nm = document.getElementById('bossNm');
   nm.innerHTML = 'DON CHIPSO<small>GLOWA FAMIGLII</small>';
   ov.classList.add('on'); nm.classList.add('on');
+  pasy(true);
   G.shake = Math.max(G.shake, 0.5);
   G.hitstop = Math.max(G.hitstop, 0.18);           // swiat na moment przystaje
+  // KINO: kamera odjezdza i czas zwalnia na ~1.2 s. Dotad boss dostawal tylko
+  // przyciemnienie i napis, wiec „wejscie" bylo informacja, a nie wydarzeniem.
+  G.kino = 1.2;
   AUDIO.sfx('boss');
   AUDIO.event('boss');
-  setTimeout(() => { ov.classList.remove('on'); nm.classList.remove('on'); }, 1500);
+  setTimeout(() => { ov.classList.remove('on'); nm.classList.remove('on'); pasy(false); }, 1500);
 }
 function updateBossHp() {
   const el = document.getElementById('bossHp');
   let naj = null;
   for (const e of G.enemies) if (e.T.boss && !e.dying)
     if (!naj || e.hp / e.maxHp < naj.hp / naj.maxHp) naj = e;
-  if (!naj) { if (el.classList.contains('on')) el.classList.remove('on'); return; }
+  if (!naj) {
+    if (el.classList.contains('on')) { el.classList.remove('on'); document.getElementById('buff').style.top = ''; }
+    return;
+  }
+  const bylo = el.classList.contains('on');
   el.classList.add('on');
+  // TOAST SPOD PASKA BOSSA. `#buff` (top 68) i nazwa bossa (top 78) nachodziły na
+  // siebie — „SERIA x12 — MONETY x2" drukowało się NA „DON CHIPSO". Pozycję liczymy
+  // z realnego prostokąta, bo pasek ma własną regułę @media dla niskich ekranów.
+  if (!bylo) {
+    const r = el.getBoundingClientRect();
+    document.getElementById('buff').style.top = Math.round(r.bottom + 8) + 'px';
+  }
   const k = Math.max(0, naj.hp / naj.maxHp);
   el.querySelector('.bf').style.width = (k * 100) + '%';
   const ile = G.enemies.filter(e => e.T.boss && !e.dying).length;
@@ -2508,8 +2654,9 @@ function killEnemy(e, i) {
     if (!G.enemies.some(o => o !== e && o.T.boss && !o.dying)) AUDIO.bossOff();
   }
   else if (e.elite) dmgPop(e.pos.x, e.ty + 0.8, e.pos.z, 'ELITA!', '#ffd75e', 1.9);
-  else dmgPop(e.pos.x, e.ty + 0.5, e.pos.z, G.streak > 1 ? 'KILL x' + G.streak : 'KILL',
-    '#ff6a5e', Math.min(1.1 + G.streak * 0.12, 2.2));
+  // przy serii sam mnożnik wystarcza — słowo „KILL" tylko rozciągało napis na pół ekranu
+  else dmgPop(e.pos.x, e.ty + 0.5, e.pos.z, G.streak > 1 ? 'x' + G.streak : 'KILL',
+    '#ff6a5e', Math.min(1.0 + G.streak * 0.08, 1.6));
   // XP: nie każdy dropi — duzi zawsze, mali 65% (za to szybciej ich kosisz)
   const dropXp = e.T.boss || e.elite || e.T.bigXp || Math.random() < 0.65;
   if (dropXp) {
@@ -2996,10 +3143,19 @@ function popMat(str, color) {
 }
 function dmgPop(x, ty, z, str, color = '#ffe066', scale = 1) {
   if (G.pops.length > 70) return;                 // bezpiecznik przy hordach
+  // ZATŁOCZONY KADR. Napis rósł WPROST ze skali, a szerokość dodatkowo z długości
+  // tekstu: „KILL X34" przy serii 34 miało 1.87 j. wysokości i **7.6 j. szerokości**,
+  // czyli zasłaniało pół ekranu razem z postacią (zrzut z 13.08). Teraz:
+  //  • drobne liczby ustępują, gdy w kadrze i tak jest tłok (krytyki, elity i boss
+  //    mają scale >= 1, więc zostają),
+  //  • szerokość jest ograniczona, a długie napisy zjeżdżają z wysokością.
+  if (scale < 1 && G.pops.length > 24) return;
   const mat = popMat(str, color);
   const mesh = new THREE.Mesh(unitGeo, mat.clone());
   const asp = mat.userData.aspect || 2.9;
-  const wys = 0.85 * scale;
+  let wys = 0.72 * scale;
+  const maxSzer = Math.min(3.4, 2.2 + 0.45 * scale);
+  if (wys * asp > maxSzer) wys = maxSzer / asp;
   mesh.scale.set(wys * asp, wys, 1);
   mesh.position.set(x + (Math.random() - .5) * 0.7, ty + 1.7, z);
   scene.add(mesh);
@@ -3849,7 +4005,7 @@ function cardPool() {
     });
     else if (W.evoKey && !P.evo[W.evoKey]) pool.push({
       gold: true, ico: W.evoIco, nm: W.evoNm, ds: W.evoDs,
-      do: () => { P.evo[W.evoKey] = true; renderWpns(); },
+      do: () => { P.evo[W.evoKey] = true; renderWpns(); blysk('#ffd75e', 0.55); },
     });
   }
   // NOWE BRONIE NIE MA W KARTACH — znajduje się je w złotych skrzyniach 🎁
@@ -5156,7 +5312,11 @@ function update(dt) {
   // HITSTOP: zabicie elity/bossa na moment prawie zatrzymuje świat. Kosztuje
   // jedną linijkę, a robi połowę „ciężaru" ciosu — czas realny odejmujemy
   // PRZED spowolnieniem, żeby hitstop nie przedłużał się sam.
-  if (G.hitstop > 0) { G.hitstop -= dt; dt *= 0.14; }
+  const dtReal = dt;
+  if (G.hitstop > 0) { G.hitstop -= dtReal; dt *= 0.14; }
+  // KINO (wejscie bossa): czas na ~1.2 s zwalnia do 55%. Odliczamy REALNYM dt,
+  // inaczej hitstop w tej samej klatce rozciagnalby oprawe kilkukrotnie.
+  if (G.kino > 0) { G.kino -= dtReal; dt *= 0.55; }
   refreshSpriteTilt();                             // pochylenie billboardów liczymy raz na klatkę
   G.time += dt;
   document.getElementById('timer').textContent = fmtTime(G.time);
@@ -5762,6 +5922,7 @@ function update(dt) {
         document.getElementById('lvl').textContent = 'POZIOM ' + P.lvl;
         AUDIO.sfx('awans');
         AUDIO.event('awans');
+        blysk('#ffffff', 0.20);                    // awans ma byc ODCZUWALNY, nie tylko widoczny
         pchnijOverlay(showCards);
       }
       document.getElementById('xpbar').style.width = (P.xp / P.xpNeed * 100) + '%';
@@ -5809,8 +5970,20 @@ function update(dt) {
   const F = G.fps;
   const kf = F.on ? (F.wejscie > 0 ? 1 - F.wejscie / 0.5 : 1)
                   : (F.wyjscie > 0 ? F.wyjscie / 0.55 : 0);
-  const cx = P.pos.x + Math.sin(camYaw) * CAM_DIST, cz = P.pos.z + Math.cos(camYaw) * CAM_DIST;
-  const cy = Math.max(P.y + CAM_H, terrainH(cx, cz) + 2.2);
+  // KAMERA ODJEŻDŻA OD TŁOKU. Gęsta horda zasłania nie tylko gracza, ale i to,
+  // dokąd biegnie — a odjazd czyta się przy okazji jako „robi się gorąco".
+  // Dojście jest WOLNE (dt * 1.2) i wraca tak samo: skokowa kamera przy każdym
+  // przebiegniętym wrogu byłaby gorsza niż zasłonięty kadr.
+  let bliskoIle = 0;
+  for (const e of G.enemies) {
+    const ex = e.pos.x - P.pos.x, ez = e.pos.z - P.pos.z;
+    if (ex * ex + ez * ez < 49) bliskoIle++;      // promień 7 j. = to, co realnie wchodzi w kadr
+  }
+  G.tlok += (Math.min(1, bliskoIle / 26) - G.tlok) * Math.min(1, dt * 1.2);
+  const kk = Math.min(1, Math.max(0, G.kino / 1.2));      // oprawa bossa: dodatkowy odjazd
+  const dystK = CAM_DIST * (1 + 0.22 * G.tlok + 0.30 * kk), wysK = CAM_H * (1 + 0.14 * G.tlok + 0.18 * kk);
+  const cx = P.pos.x + Math.sin(camYaw) * dystK, cz = P.pos.z + Math.cos(camYaw) * dystK;
+  const cy = Math.max(P.y + wysK, terrainH(cx, cz) + 2.2);
   _camCel.set(cx + (P.pos.x - cx) * kf, cy + (P.y + 1.62 - cy) * kf, cz + (P.pos.z - cz) * kf);
   // przy kf > 0 pozycja jest DOKŁADNIE celem: wygładza już samo `kf`, a dodatkowy
   // lerp zostawiał kamerę w połowie drogi na cały tryb.
@@ -6008,7 +6181,7 @@ function setPlayerChar(key) {
   charKey = key;
   const C = CHARS[key];
   if (playerBB) playerBB.dispose();
-  playerBB = new Billboard(C.char, C.scale);
+  playerBB = new Billboard(C.char, C.scale, true);   // gracz zawsze widoczny nad hordą
   playerBB.update(0, P.pos, P.y || terrainH(0, 0), P.y || terrainH(0, 0));
 }
 
@@ -6072,7 +6245,7 @@ function clearWorld() {
 function newGame() {
   clearWorld();
   resetStats();
-  Object.assign(G, { running: true, over: false, paused: false, dying: false, deathT: 0, time: 0, kills: 0, runCoins: 0, zebrane: 0, ranga: 0, rangaKille: 0, spawnT: 0.5, bossAt: 120, ringAt: 60, tier: 0, shake: 0 });
+  Object.assign(G, { running: true, over: false, paused: false, dying: false, deathT: 0, time: 0, kills: 0, runCoins: 0, zebrane: 0, ranga: 0, rangaKille: 0, spawnT: 0.5, bossAt: 120, ringAt: 60, tier: 0, shake: 0, tlok: 0, kino: 0 });
   P.pos.set(0, 0, 0);
   P.y = terrainH(0, 0);
   // ODBUDOWA ŚWIATA. `clearWorld()` czyści `G.padajace`, ale NIE dotyka `ch.shelves`:
@@ -6249,8 +6422,10 @@ if (loadTip) {
   mapKey = MAPS[META.lastMap] ? META.lastMap : 'laki';
   P.pos = new THREE.Vector3(0, 0, 0);
   P.y = terrainH(0, 0);
-  playerBB = new Billboard(CHARS[charKey].char, CHARS[charKey].scale);
+  playerBB = new Billboard(CHARS[charKey].char, CHARS[charKey].scale, true);
   initHitFlash();
+  initAura();
+  initKino();
   initLettuce();
   initKarabin();         // widok broni do trybu pierwszej osoby (nakładka 2D)
   karabinPocMat = new THREE.MeshBasicMaterial({ map: karabinPocTexture(), transparent: true,
