@@ -1,7 +1,7 @@
 // HORDA 3D v4 — teren 3D + kamera za plecami + meta-progresja (monety/sklep)
 import * as THREE from './lib/three.module.js';
-import { SPRITEDATA } from './spritedata.js?v=10';
-import { icon, ico } from './icons.js?v=4';
+import { SPRITEDATA } from './spritedata.js?v=11';
+import { icon, ico } from './icons.js?v=5';
 import { AUDIO } from './audio.js?v=4';            // muzyka wg fazy gry + kwestie głosowe + efekty
 
 // ============================== USTAWIENIA ==============================
@@ -1790,86 +1790,200 @@ function auraTexture() {
   return t;
 }
 // ============================== ŚMIERDZĄCY DYM (skarpeta) ==============================
-// Trzecie podejście, po dwóch odrzuconych przez właściciela: „to mają być KŁĘBY
-// SMRODLIWEGO DYMU, a nie okrągi". Więc:
-//  • ZERO plamy na ziemi i ZERO rantu — nic, co rysuje okrąg,
-//  • cały efekt to pula kłębów dymu, każdy z własnym życiem (rośnie, unosi się,
-//    dryfuje na zewnątrz i gaśnie), rozsypanych po CAŁYM obszarze działania,
-//  • kształt kłębu z fBm (`pnoise`, 4 oktawy) — tego samego, co cienie chmur,
-//    więc dym ma poszarpaną fakturę, a nie sylwetkę kółka.
-// Granicę zasięgu widać z GĘSTOŚCI dymu, nie z linii: kłęby są rozłożone
-// równomiernie po POWIERZCHNI (stąd sqrt przy losowaniu promienia) i wygasają
-// przy krawędzi. Gotowy sprite 2D byłby tu błędem — promień rośnie z 2.05 na 8.05,
-// więc trzeba by go rozciągać ×4 i piksele zrobiłyby się cztery razy większe niż
-// wszystko obok (dokładnie problem arkusza Dona Chipso).
+// CZWARTE podejście. Trzy poprzednie właściciel odrzucił („okrągi", potem
+// „jakoś kiepsko"). Diagnoza tego, co było źle w v137:
+//  1. Rozmiar kłębu był mnożony przez promień (`s = r * ...`), więc na poz. 5
+//     jeden kłąb miał ~4 j. szerokości: tekstura 128 px rozciągana na 4 jednostki
+//     = piksel dymu 4× większy od piksela sprite'a → mleczna maź, nie pixel art.
+//     Teraz ROZMIAR KŁĘBU JEST STAŁY (~1.3 j. ≈ 55 px/j., dokładnie jak sprite'y),
+//     a z poziomem rośnie ICH LICZBA — proporcjonalnie do POWIERZCHNI.
+//  2. Kształt z samego fBm + 6 pasów alfy = miękka wata bez sylwetki. Teraz kłąb
+//     jest RYSOWANY jak pixel art: twarda sylwetka z kilku garbów, ciemny kontur,
+//     3 pasy waloru (jasna góra, ciemniejszy spód) i dithering na rancie.
+//  3. `novaRing` w `tick()` rysował rozchodzącą się OBRĘCZ co 0.7 s — czyli
+//     dokładnie ten okrąg, którego właściciel nie chce. Wyleciał; tempo trucia
+//     pokazuje teraz „oddech" dymu (`uPuls`: kłęby na moment puchną i jaśnieją).
+// Zasięg czyta się WYŁĄCZNIE z gęstości: poz. 1 to garść dymu u stóp (6 kłębów),
+// poz. 5 to 71 kłębów, czyli ściana smrodu. Nic nie rysuje granicy.
 const SKARPETA_R = l => 1.8 + 0.25 * l * l;
-function dymTexture() {
-  const S = 128, c = document.createElement('canvas'); c.width = c.height = S;
+
+// --- ATLAS 2×2 KŁĘBÓW (jedna tekstura 144², kafel 72 px ≈ 1.3 j. świata) ---
+// Cztery różne sylwetki, żeby dym nie był powtórzoną naklejką. Kształt = suma
+// garbów (koła o różnych promieniach zsunięte ku górze) + poszarpanie `pnoise`,
+// więc nawet pojedynczy kłąb nie ma obrysu koła.
+let DYM_PAL = { jasny: [242, 250, 178], sredni: [198, 226, 102], ciemny: [146, 184, 62], kontur: [66, 88, 36] };
+function dymAtlas() {
+  const T = 72, S = T * 2;
+  const c = document.createElement('canvas'); c.width = c.height = S;
   const g = c.getContext('2d'), im = g.createImageData(S, S);
-  const OKT = [[3, 0.52], [6, 0.26], [12, 0.14], [24, 0.08]];
-  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-    const dx = (x - S / 2 + 0.5) / (S / 2), dy = (y - S / 2 + 0.5) / (S / 2);
-    const d = Math.sqrt(dx * dx + dy * dy);
-    let v = 0;
-    for (const [per, waga] of OKT) v += pnoise(x / S * per, y / S * per, per) * waga;
-    // szum daje kształt, dystans tylko gasi ku brzegowi (bez ostrej krawędzi!)
-    let a = (v - 0.38) * 2.4 + 0.72 - d * 1.15;
-    a = Math.max(0, Math.min(1, a));
-    a = Math.floor(a * 6) / 6;                         // pasy zamiast gładkiego zaniku
-    const i = (y * S + x) * 4;
-    // DYM MUSI BYĆ JAŚNIEJSZY OD TRAWY. Pierwsza wersja miała ciemny, brudnozielony
-    // rdzeń i po prostu znikała na łące — dym czyta się walorem, nie odcieniem.
-    // Rdzeń gęsty i chorobliwie żółtozielony, obrzeże jeszcze jaśniejsze = objętość.
-    const j = 1 - 0.30 * a;
-    im.data[i] = Math.round(176 * j + 40);
-    im.data[i + 1] = Math.round(206 * j + 30);
-    im.data[i + 2] = Math.round(88 * j + 10);
-    im.data[i + 3] = Math.round(a * 245);
+  const P4 = DYM_PAL;
+  for (let ti = 0; ti < 4; ti++) {
+    const ox = (ti % 2) * T, oy = (ti >> 1) * T;
+    let sd = ti * 9781 + 17;
+    const rnd = () => { sd = (sd * 1664525 + 1013904223) | 0; return ((sd >>> 8) & 0xffffff) / 0xffffff; };
+    // garby: jeden duży u dołu + 3-4 mniejsze na górze = kalafior, nie kółko
+    const garby = [{ x: 0.50, y: 0.62, r: 0.30 + 0.03 * rnd() }];
+    const ile = 3 + (ti & 1);
+    for (let k = 0; k < ile; k++) {
+      const a = Math.PI * (0.15 + 0.75 * (k + rnd() * 0.7) / ile);
+      const d = 0.20 + 0.10 * rnd();
+      garby.push({ x: 0.5 - Math.cos(a) * d * 1.25, y: 0.50 - Math.sin(a) * d * 0.85, r: 0.13 + 0.09 * rnd() });
+    }
+    const pole = new Float32Array(T * T);
+    for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) {
+      const nx = (x + 0.5) / T, ny = (y + 0.5) / T;
+      let f = -1;
+      for (const b of garby) {
+        const dx = nx - b.x, dy = ny - b.y;
+        f = Math.max(f, 1 - Math.sqrt(dx * dx + dy * dy) / b.r);
+      }
+      f += (pnoise(nx * 5 + ti * 3.7, ny * 5 + ti * 2.3, 5) - 0.5) * 0.40
+         + (pnoise(nx * 11 + ti * 5.1, ny * 11 + ti * 1.9, 11) - 0.5) * 0.18;
+      pole[y * T + x] = f;
+    }
+    for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) {
+      const f = pole[y * T + x];
+      const i = ((oy + y) * S + ox + x) * 4;
+      if (f <= 0) continue;                                   // poza sylwetką
+      // rant: dithering szachownicą — klasyczna pixel-artowa „rozsypka" dymu
+      if (f < 0.055 && ((x + y) & 1)) continue;
+      // kontur = piksel sylwetki, który ma sąsiada na zewnątrz
+      const brzeg = x === 0 || y === 0 || x === T - 1 || y === T - 1
+        || pole[y * T + x - 1] <= 0 || pole[y * T + x + 1] <= 0
+        || pole[(y - 1) * T + x] <= 0 || pole[(y + 1) * T + x] <= 0;
+      let kol;
+      if (brzeg) kol = P4.kontur;
+      else {
+        // walor zależy od WYSOKOŚCI w kłębie (światło z góry) + głębi garbu,
+        // kwantowany na 3 pasy — objętość bez gradientu
+        const v = (0.74 - (y + 0.5) / T) * 1.45 + f * 0.55 + 0.34;
+        kol = v > 0.68 ? P4.jasny : v > 0.36 ? P4.sredni : P4.ciemny;
+      }
+      im.data[i] = kol[0]; im.data[i + 1] = kol[1]; im.data[i + 2] = kol[2]; im.data[i + 3] = 255;
+    }
   }
   g.putImageData(im, 0, 0);
   const t = new THREE.CanvasTexture(c);
   t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
-const DYM_ILE = 26;                                    // pula kłębów (stała, zero alokacji w pętli)
-let dymy = [];
+
+// JEDEN InstancedMesh = jeden draw call na cały dym, zero alokacji w pętli klatki
+// i pełna swoboda per kłąb (własna alfa, odcień, kafel atlasu, obrót) — czego
+// pula 26 zwykłych meshy z jednym materiałem dać nie mogła (wspólne `opacity`).
+// Cała animacja siedzi w vertex shaderze: na klatkę lecą 4 uniformy, CPU nie
+// liczy nic. Dlatego stać nas na 96 kłębów przy 500 wrogach.
+const DYM_ILE = 96;
+const dymCfg = {
+  opac: 0.62,      // krycie kłębu (przez dym MUSI być widać wrogów)
+  pasy: 5,         // kwantyzacja alfy — zanik skokami, nie gradientem
+  dur: 2.4,        // życie kłębu [s]
+  wys: 1.5,        // ile jednostek unosi się przez życie
+  roz: 1.30,       // rozmiar kłębu w jednostkach świata (STAŁY, nie od promienia)
+  gest: 1.15,      // kłębów na jednostkę² powierzchni aury
+  wir: 0.11,       // prędkość krążenia wokół gracza
+  blend: 'normal',
+};
+let dymMesh = null, dymMat = null, dymPulsT = -9;
 function initSmrod() {
-  // JEDEN materiał na wszystkie kłęby = jedna tekstura w VRAM. Krycie idzie
-  // przez `material.opacity`, więc pojedynczy kłąb nie może gasnąć osobno —
-  // dlatego zanikanie robimy SKALĄ (kłąb kurczy się i puchnie), a nie alfą.
-  const mat = new THREE.MeshBasicMaterial({ map: dymTexture(), transparent: true,
-    depthWrite: false, opacity: 0.82, fog: true });
-  dymy = [];
+  const base = new THREE.PlaneGeometry(1, 1);
+  const geo = new THREE.InstancedBufferGeometry();
+  geo.index = base.index;
+  geo.setAttribute('position', base.getAttribute('position'));
+  geo.setAttribute('uv', base.getAttribute('uv'));
+  const seed = new Float32Array(DYM_ILE * 4), tile = new Float32Array(DYM_ILE * 2);
+  const tint = new Float32Array(DYM_ILE * 3), idx = new Float32Array(DYM_ILE);
   for (let i = 0; i < DYM_ILE; i++) {
-    const m = new THREE.Mesh(unitGeo, mat);
-    m.visible = false;
-    scene.add(m);
-    // faza rozłożona równomiernie, żeby dym nie pulsował całą chmurą naraz
-    dymy.push({ mesh: m, faza: i / DYM_ILE, kat: Math.random() * Math.PI * 2,
-                pr: Math.sqrt((i + 0.5) / DYM_ILE), obr: (i % 2 ? 1 : -1) * (0.12 + 0.05 * (i % 3)) });
+    const wysoki = i % 5 !== 0 ? 1 : 0;              // 4/5 unosi się, 1/5 wałęsa się nisko
+    seed[i * 4] = Math.random() * Math.PI * 2;                       // kąt startowy
+    // promień z sqrt = równa gęstość po POWIERZCHNI (bez zbicia w środku).
+    // Losowany, nie po indeksie, żeby każdy podzbiór (poz. 1-4) też był równy.
+    seed[i * 4 + 1] = Math.sqrt(Math.random());
+    seed[i * 4 + 2] = Math.random();                                  // faza życia
+    seed[i * 4 + 3] = wysoki;
+    tile[i * 2] = (i % 2) * 0.5; tile[i * 2 + 1] = ((i >> 1) % 2) * 0.5;
+    // odcień: część kłębów żółtawa, część zielona — warstwy zamiast jednej mazi
+    const z = 0.90 + 0.16 * Math.random();
+    tint[i * 3] = z * (1.00 + 0.06 * Math.random());
+    tint[i * 3 + 1] = z;
+    tint[i * 3 + 2] = z * (0.86 + 0.22 * Math.random());
+    idx[i] = i / DYM_ILE;
   }
+  geo.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seed, 4));
+  geo.setAttribute('aTile', new THREE.InstancedBufferAttribute(tile, 2));
+  geo.setAttribute('aTint', new THREE.InstancedBufferAttribute(tint, 3));
+  geo.setAttribute('aI', new THREE.InstancedBufferAttribute(idx, 1));
+  geo.instanceCount = DYM_ILE;
+  dymMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, depthTest: true,
+    uniforms: {
+      uMap: { value: dymAtlas() }, uTime: { value: 0 }, uR: { value: 2 },
+      uCenter: { value: new THREE.Vector3() }, uRight: { value: new THREE.Vector3(1, 0, 0) },
+      uUp: { value: new THREE.Vector3(0, 1, 0) }, uFrac: { value: 0.2 }, uPuls: { value: 0 },
+      uOpac: { value: dymCfg.opac }, uPasy: { value: dymCfg.pasy }, uDur: { value: dymCfg.dur },
+      uWys: { value: dymCfg.wys }, uRoz: { value: dymCfg.roz }, uWir: { value: dymCfg.wir },
+    },
+    vertexShader: `
+      attribute vec4 aSeed; attribute vec2 aTile; attribute vec3 aTint; attribute float aI;
+      uniform float uTime, uR, uOpac, uPuls, uFrac, uDur, uWys, uRoz, uWir;
+      uniform vec3 uCenter, uRight, uUp;
+      varying vec2 vUv; varying float vA; varying vec3 vTint;
+      void main() {
+        // aI > uFrac = kłąb wyłączony (zerowy quad) — tak rośnie GĘSTOŚĆ z poziomem
+        float on = step(aI, uFrac);
+        float dur = uDur * (0.72 + 0.55 * aSeed.z);
+        float life = fract(uTime / dur + aSeed.z * 3.17);
+        float hi = aSeed.w;
+        float rad = uR * (aSeed.y * 0.84 + 0.14 * life);
+        float kat = aSeed.x + uTime * uWir * (hi > 0.5 ? 1.0 : -1.0) * (0.55 + aSeed.y);
+        vec3 p = uCenter + vec3(sin(kat), 0.0, cos(kat)) * rad;
+        p.y += 0.16 + uWys * life * mix(0.30, 1.0, hi);
+        float sz = uRoz * mix(1.45, 0.86, hi) * (0.60 + 0.55 * life) * (1.0 + 0.12 * uPuls) * on;
+        float env = smoothstep(0.0, 0.13, life) * (1.0 - smoothstep(0.52, 1.0, life));
+        vA = uOpac * env * (0.84 + 0.32 * aSeed.z) * on;
+        vTint = aTint * (1.0 + 0.22 * uPuls);
+        vUv = uv * 0.5 + aTile;
+        vec3 wp = p + uRight * (position.x * sz) + uUp * ((position.y + 0.18) * sz);
+        gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
+      }`,
+    fragmentShader: `
+      uniform sampler2D uMap; uniform float uPasy;
+      varying vec2 vUv; varying float vA; varying vec3 vTint;
+      void main() {
+        vec4 t = texture2D(uMap, vUv);
+        if (t.a < 0.5) discard;                       // twarda sylwetka: zero rozmycia
+        float a = floor(vA * uPasy + 0.5) / uPasy;    // ALFA W PASACH (jak gradient nieba)
+        if (a < 0.02) discard;
+        gl_FragColor = vec4(t.rgb * vTint, a);
+        #include <colorspace_fragment>
+      }`,
+  });
+  dymMesh = new THREE.Mesh(geo, dymMat);
+  dymMesh.frustumCulled = false;                     // pozycje liczy shader, bbox kłamie
+  dymMesh.renderOrder = 3;                           // pod kopią gracza (899/900)
+  dymMesh.visible = false;
+  scene.add(dymMesh);
 }
+const _dymX = new THREE.Vector3(), _dymY = new THREE.Vector3(), _dymZ = new THREE.Vector3();
 function updateSmrod() {
-  if (!dymy.length) return;
+  if (!dymMesh) return;
   const w = hasWeapon('skarpeta');
   const on = !!w && !G.fps.on && G.running;
-  if (!on) { for (const d of dymy) d.mesh.visible = false; return; }
-  const r = SKARPETA_R(w.lvl);
-  for (const d of dymy) {
-    // życie kłębu: 2.6 s, liczone z zegara gry + fazy — bez własnych licznikóww
-    const zycie = ((G.time / 2.6) + d.faza) % 1;
-    // im starszy, tym dalej od gracza i wyżej — dym „wypływa" z postaci
-    const pr = r * (0.18 + 0.82 * d.pr) * (0.72 + 0.34 * zycie);
-    const kat = d.kat + G.time * d.obr;
-    const x = P.pos.x + Math.sin(kat) * pr, z = P.pos.z + Math.cos(kat) * pr;
-    // skala: puchnie i kurczy się (0 na końcach życia = kłąb znika bez ciachnięcia)
-    const koperta = Math.sin(zycie * Math.PI);
-    const s = r * (0.30 + 0.22 * d.pr) * (0.45 + 0.75 * koperta);
-    d.mesh.scale.set(s, s, 1);
-    d.mesh.position.set(x, terrainH(x, z) + 0.35 + 1.15 * zycie, z);
-    billboardQuat(d.mesh.quaternion);
-    d.mesh.visible = s > 0.05;
-  }
+  dymMesh.visible = on;
+  if (!on) return;
+  const r = SKARPETA_R(w.lvl), u = dymMat.uniforms;
+  u.uTime.value = G.time;
+  u.uR.value = r;
+  u.uCenter.value.set(P.pos.x, terrainH(P.pos.x, P.pos.z) + 0.05, P.pos.z);
+  // LICZBA kłębów rośnie z POWIERZCHNIĄ (r²), rozmiar kłębu zostaje stały:
+  // poz. 1 → 6 kłębów u stóp, poz. 5 → 71 = ściana. Piksele nigdy nie puchną.
+  u.uFrac.value = Math.min(1, Math.max(6, dymCfg.gest * r * r) / DYM_ILE);
+  u.uPuls.value = Math.max(0, 1 - (G.time - dymPulsT) / 0.30);
+  camera.matrixWorld.extractBasis(_dymX, _dymY, _dymZ);
+  u.uRight.value.copy(_dymX); u.uUp.value.copy(_dymY);
+  u.uOpac.value = dymCfg.opac; u.uPasy.value = dymCfg.pasy; u.uDur.value = dymCfg.dur;
+  u.uWys.value = dymCfg.wys; u.uRoz.value = dymCfg.roz; u.uWir.value = dymCfg.wir;
 }
 
 let aura = null, auraRing = null;
@@ -1981,6 +2095,7 @@ const SHOP_UNLOCKS = [
   { key: 'kura',     ico: 'kukurydza', nm: 'Kernello Boomello', ds: 'Ziarno biegnie do wroga i strzela jak popcorn', price: 350 },
   { key: 'pipsini', ico: 'pestka', nm: 'Pipsini Nipotini', ds: 'Pestka-towarzysz: biega, tłucze i sadzi kiełki', price: 320 },
   { key: 'sokowirowka', ico: 'sokowirowka', nm: 'Sokowirówka', ds: 'STAWIASZ ją i sama miele wrogów — ustaw ją w alejce', price: 280 },
+  { key: 'krzak', ico: 'krzak', nm: 'Krzak pomidorowy', ds: 'Sadzi się sam za Tobą i ostrzeliwuje pomidorami PO ŁUKU — bije ponad hordą', price: 300 },
 ];
 // Cena rośnie nie tylko z poziomem POZYCJI, ale i z liczbą WSZYSTKICH zakupów
 // (+10% każdy). U Vampire Survivors 91% pełnego kosztu maksowania meta-sklepu to
@@ -2145,6 +2260,7 @@ const G = {
   lobs: [], boomers: [], bolts: [], pops: [], hps: [], kury: [], okruchy: [], puffs: [],
   padajace: [],                                    // regały w trakcie przewracania (market)
   turrets: [],                                     // postawione sokowirówki (TD-lite)
+  krzaki: [],                                      // krzaki pomidorowe (sadza sie same)
   pestki: [], kielki: [],                          // Pipsini i jego kiełki
   karabinPoc: [],                                  // ziarna kukurydzy z karabinu (tryb FPP)
   gluty: [], kaluze: [],                           // globy ketchupu w locie + kałuże po nich
@@ -3409,6 +3525,26 @@ const WEAPONS = {
       G.lobs.push({ mesh: m, from: P.pos.clone(), to: e.pos.clone(), t: 0, dur: 0.7, lvl: w.lvl });
     },
   },
+  // ============ KRZAK POMIDOROWY (broń „totemowa", życzenie właściciela) ============
+  // Trzeci typ czegoś, co stoi na mapie, i CELOWO różny od dwóch poprzednich:
+  //   • Garnek Nonny (tablica `totems`) — buff dla gracza, nie strzela,
+  //   • Sokowirówka (`turrets`) — gracz stawia ją SAM klawiszem F, miele w zwarciu,
+  //   • Krzak pomidorowy — **sadzi się SAM** pod nogami gracza i bombarduje z dystansu
+  //     po łuku, czyli jako jedyny bije PONAD hordą i za przeszkodami.
+  // Stąd fantazja tej broni: biegniesz, zostawiasz za sobą ogród, a ogród ostrzeliwuje
+  // to, co Cię goni. Krzaki nie mają HP (wrogowie ich nie tłuką) — mają za to KRÓTKIE
+  // ŻYCIE, więc trzeba się ruszać, żeby ostrzał w ogóle istniał.
+  krzak: {
+    ico: 'krzak', nm: 'Krzak pomidorowy', ds: 'Sadzi się sam i OSTRZELIWUJE pomidorami po łuku', max: 5, locked: true,
+    lvlDs: l => `${KRZAK_ILE(l)} krzaki, rzut co ${KRZAK_RZUT(l).toFixed(2)} s, plaśnięcie r=${KRZAK_R(l).toFixed(1)}`,
+    tick(w, dt) {
+      w.t -= dt;
+      if (w.t > 0) return;
+      w.t = KRZAK_SADZ(w.lvl) / fireMul();
+      if (G.krzaki.length >= KRZAK_ILE(w.lvl)) return;   // pełny ogród — czekamy na uschnięcie
+      posadzKrzak(w.lvl);
+    },
+  },
   bumerang: {
     ico: 'pizza', nm: 'Pizza Volante', ds: 'Koło pizzy leci i WRACA, kosząc po drodze', max: 5, locked: true,
     lvlDs: l => `zasięg ${(8 + 0.6 * l).toFixed(0)}, co ${(2.8 - 0.2 * l).toFixed(1)} s`,
@@ -3438,7 +3574,10 @@ const WEAPONS = {
       if (w.t > 0) return;
       w.t = 0.7 / fireMul();
       const r = SKARPETA_R(w.lvl), ad = (0.7 + 0.28 * w.lvl) * dmgAll();
-      novaRing(P.pos.x, P.pos.z, r * 0.9);
+      // ŻADNEJ OBRĘCZY. `novaRing` rysował tu rozchodzące się koło co 0.7 s —
+      // to był ten „okrąg", który właściciel odrzucił. Tempo trucia pokazuje
+      // teraz „oddech" dymu: kłęby na 0.3 s puchną i jaśnieją (`uPuls`).
+      dymPulsT = G.time;
       for (let j = G.enemies.length - 1; j >= 0; j--) {
         const e = G.enemies[j];
         if (e.dying) continue;
@@ -3887,6 +4026,73 @@ function stawSokowirowke(lvl) {
   puff(P.pos.x, y + 0.6, P.pos.z, 0xa8e05f, 1.4);
   dmgPop(P.pos.x, y + 1.6, P.pos.z, 'MIELE!', '#a8e05f', 1.2);
 }
+// ============================== KRZAK POMIDOROWY ==============================
+const KRZAK_ILE  = l => 1 + Math.floor(l / 2);        // 1,1,2,2,3 stojących naraz
+const KRZAK_SADZ = l => 5.5 - 0.5 * l;                // co ile sadzi kolejny
+const KRZAK_ZYCIE = l => 11 + 2 * l;                  // ile sekund żyje krzak
+const KRZAK_RZUT = l => 1.7 - 0.12 * l;               // co ile rzuca pomidorem
+const KRZAK_R    = l => 1.7 + 0.22 * l;               // promień plaśnięcia
+const KRZAK_DMG  = l => (1.5 + 0.55 * l);             // mnożone przez dmgAll()
+const KRZAK_ZASIEG = l => 9 + l;                      // jak daleko widzi cel
+let krzakMat = null, pomidorMat = null;
+function initKrzak() {
+  // proceduralny pixel art (`pixTex` = prostokąty + darmowy kontur), bo krzak musi
+  // pasować gęstością pikseli do reszty, a nie być kolejnym arkuszem w innej skali
+  krzakMat = new THREE.MeshBasicMaterial({ map: pixTex(24, 26, [
+    [10, 20, 4, 6, '#6b4a26'],                                     // pieniek
+    [4, 10, 16, 11, '#3f7a2e'], [7, 5, 10, 8, '#4e9138'],          // gałęzie
+    [2, 13, 6, 7, '#468433'], [16, 13, 6, 7, '#468433'],
+    [6, 15, 4, 4, '#d93b2b'], [14, 12, 4, 4, '#e8492f'],           // pomidory
+    [10, 19, 4, 4, '#c9331f'],
+  ]), transparent: true, alphaTest: 0.5, side: THREE.DoubleSide });
+  pomidorMat = new THREE.MeshBasicMaterial({ map: pixTex(8, 8, [
+    [1, 1, 6, 6, '#e8492f'], [2, 2, 2, 2, '#ff8a6b'],              // owoc + błyk
+    [3, 0, 2, 2, '#3f7a2e'],                                        // szypułka
+  ]), transparent: true, alphaTest: 0.5, side: THREE.DoubleSide });
+}
+function posadzKrzak(lvl) {
+  const m = new THREE.Mesh(unitGeo, krzakMat);
+  const h = 1.15;
+  m.scale.set(h * (24 / 26), h, 1);
+  // sadzimy TUŻ ZA graczem, nie pod nim: krzak pod stopami zasłaniałby postać,
+  // a przy okazji „zostawiony za sobą ogród" czyta się właśnie wtedy, gdy zostaje w tyle
+  const kat = playerBB ? playerBB.facing + Math.PI : 0;
+  const x = P.pos.x + Math.sin(kat) * 1.4, z = P.pos.z + Math.cos(kat) * 1.4;
+  m.position.set(x, terrainH(x, z), z);
+  billboardQuat(m.quaternion);
+  scene.add(m);
+  G.krzaki.push({ mesh: m, pos: new THREE.Vector3(x, terrainH(x, z), z),
+                  t: 0, cd: 0.5, zycie: KRZAK_ZYCIE(lvl), lvl });
+  AUDIO.sfx('kosc');
+}
+function updateKrzaki(dt) {
+  for (let i = G.krzaki.length - 1; i >= 0; i--) {
+    const k = G.krzaki[i];
+    k.t += dt;
+    billboardQuat(k.mesh.quaternion, Math.sin(k.t * 3.4) * 0.05);   // kołysze się
+    if (k.zycie - k.t < 2.5) k.mesh.visible = Math.sin(k.t * 14) > -0.4;   // usycha
+    if (k.t >= k.zycie) { scene.remove(k.mesh); G.krzaki.splice(i, 1); continue; }
+    k.cd -= dt;
+    if (k.cd > 0) continue;
+    // cel: najbliższy wróg w zasięgu krzaka (nie gracza — krzak walczy sam za siebie)
+    let cel = null, naj = KRZAK_ZASIEG(k.lvl);
+    for (const e of G.enemies) {
+      if (e.dying) continue;
+      const d = e.pos.distanceTo(k.pos);
+      if (d < naj) { naj = d; cel = e; }
+    }
+    if (!cel) continue;
+    k.cd = KRZAK_RZUT(k.lvl) / fireMul();
+    const m = new THREE.Mesh(unitGeo, pomidorMat);
+    m.scale.set(0.42, 0.42, 1);
+    scene.add(m);
+    // ten sam mechanizm łuku, co butelka żula (`G.lobs`), ale z WŁASNYM promieniem
+    // i obrażeniami — dlatego lobs dostały opcjonalne pola `r`/`dmg`
+    G.lobs.push({ mesh: m, from: k.pos.clone(), to: cel.pos.clone(), t: 0, dur: 0.62,
+                  lvl: k.lvl, r: KRZAK_R(k.lvl), dmg: KRZAK_DMG(k.lvl), wys: 2.2 });
+  }
+}
+
 function updateTurrets(dt) {
   for (let i = G.turrets.length - 1; i >= 0; i--) {
     const t = G.turrets[i];
@@ -5826,12 +6032,14 @@ function update(dt) {
     const L = G.lobs[i]; L.t += dt;
     const k = Math.min(1, L.t / L.dur);
     const x = L.from.x + (L.to.x - L.from.x) * k, z = L.from.z + (L.to.z - L.from.z) * k;
-    L.mesh.position.set(x, terrainH(x, z) + 1 + Math.sin(k * Math.PI) * 3.2, z);
+    L.mesh.position.set(x, terrainH(x, z) + 1 + Math.sin(k * Math.PI) * (L.wys || 3.2), z);
     L.mesh.rotation.set(0, camYaw, L.t * 9);
     if (k >= 1) {
       scene.remove(L.mesh); G.lobs.splice(i, 1);
-      nova(x, z, 2 + 0.3 * L.lvl, (2 + 0.6 * L.lvl) * dmgAll());
-      G.shake = Math.max(G.shake, 0.1);
+      // `r`/`dmg` sa OPCJONALNE — butelka zula liczy je po staremu ze swojego poziomu,
+      // krzak pomidorowy podaje wlasne, bo to inna bron o innej krzywej
+      nova(x, z, L.r || (2 + 0.3 * L.lvl), (L.dmg || (2 + 0.6 * L.lvl)) * dmgAll());
+      G.shake = Math.max(G.shake, L.dmg ? 0.05 : 0.1);
     }
   }
 
@@ -5966,6 +6174,7 @@ function update(dt) {
   if (G.padajace.length) updatePadajace(dt);
   if (MAPS[mapKey].indoor) updateRestock(dt);
   if (G.turrets.length) updateTurrets(dt);
+  if (G.krzaki.length) updateKrzaki(dt);
   // SERIA SCYZORYKÓW: rzuty wychodzą jeden po drugim, więc słychać i widać „ta-ta-ta"
   for (let i = G.seria.length - 1; i >= 0; i--) {
     const r = G.seria[i];
@@ -6335,6 +6544,7 @@ function clearWorld() {
   for (const s of G.sparks) { scene.remove(s.mesh); s.mesh.material.dispose(); }
   for (const r of G.rings) { scene.remove(r.mesh); r.mesh.material.dispose(); }
   for (const l of G.lobs) scene.remove(l.mesh);
+  for (const k of G.krzaki) scene.remove(k.mesh);
   for (const b of G.boomers) scene.remove(b.mesh);
   for (const b of G.bolts) { scene.remove(b.mesh); b.mesh.material.dispose(); }
   for (const p of G.pops) { scene.remove(p.mesh); p.mesh.material.dispose(); }
@@ -6351,6 +6561,7 @@ function clearWorld() {
   for (const pl of plamy) if (pl) pl.mesh.visible = false;
   G.enemies = []; G.gems = []; G.coins = []; G.shots = []; G.orbs = []; G.sparks = []; G.rings = [];
   G.lobs = []; G.boomers = []; G.bolts = []; G.pops = []; G.hps = []; G.kury = []; G.okruchy = [];
+  G.krzaki = [];
   G.puffs = []; G.hitstop = 0; G.padajace = []; G.turrets = []; G.pestki = []; G.kielki = []; G.seria = [];
   G.karabinPoc = []; G.gluty = []; G.kaluze = [];
   G.streak = 0; G.streakT = -9;
@@ -6564,6 +6775,7 @@ if (loadTip) {
   initHitFlash();
   initAura();
   initSmrod();
+  initKrzak();
   initKino();
   initLettuce();
   initKarabin();         // widok broni do trybu pierwszej osoby (nakładka 2D)
@@ -6716,6 +6928,23 @@ if (loadTip) {
         playerBB.obrys.position.y = -(skala - 1) / 2;
       }
       return { OBRYS_SKALA, OBRYS_KOLOR };
+    },
+    // strojenie smrodu na żywo: HORDA.dymSet({opac:0.5, roz:1.1}), HORDA.dymPal({...})
+    dym: dymCfg,
+    dymSet(o = {}) {
+      Object.assign(dymCfg, o);
+      if (o.blend && dymMat) {
+        dymMat.blending = o.blend === 'add' ? THREE.AdditiveBlending : THREE.NormalBlending;
+        dymMat.needsUpdate = true;
+      }
+      return { ...dymCfg };
+    },
+    pnoise,
+    dymMap(t) { if (t) { dymMat.uniforms.uMap.value = t; } return dymMat.uniforms.uMap.value; },
+    dymPal(o = {}) {
+      Object.assign(DYM_PAL, o);
+      if (dymMat) { dymMat.uniforms.uMap.value.dispose(); dymMat.uniforms.uMap.value = dymAtlas(); }
+      return { ...DYM_PAL };
     },
     step(n = 1, dt = 1 / 60) {
       for (let i = 0; i < n; i++) { pollPads(dt); if (G.running && !G.paused) update(dt); }

@@ -45,6 +45,19 @@ const ART = {
     '..bbbb..',
     '........',
   ],
+  // KRZAK POMIDOROWY (broń „totemowa"): zieleń + trzy czerwone owoce.
+  // Ikona musi czytać się przy 13 px w slocie broni, więc owoce są po 2x2 piksele
+  // sztuki — jeden piksel zginąłby przy skalowaniu.
+  krzak: [
+    '...NN...',
+    '..NnnN..',
+    '.NnrrnN.',
+    'NnrrrrnN',
+    'nnrrrrnn',
+    '.nnrrnn.',
+    '..nkkn..',
+    '...ok...',
+  ],
   czosnek: [
     '...N....',
     '..wNw...',
