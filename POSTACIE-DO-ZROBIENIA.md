@@ -147,3 +147,32 @@ wywala Billboard na `SPRITEDATA[char]`, więc nie dopisuję go „na zapas".
 Do zaprojektowania przy wdrożeniu: czym dokładnie jest jego aura — czy to
 darmowa Skarpeta biologiczna od 1. poziomu, czy osobny, słabszy efekt obszarowy,
 żeby nie zdublować istniejącej broni.
+
+## ⚠️ GĘSTOŚĆ PIKSELI SIĘ NIE ZGADZA (zmierzone 13.08)
+
+`PX2U = 1/55`, wysokość sprite'a w świecie = `klatka × PX2U × scale`. Z tego wychodzi,
+ile pikseli arkusza wypada na jednostkę świata — i **ta liczba różni się 2,5×**:
+
+| postać | klatka | scale | px na jednostkę |
+|---|---|---|---|
+| Chipsetti Soldatetti | 120 | 0.85 | **64.7** |
+| Gummini Bouncini | 116 | 0.90 | 61.1 |
+| Friesetti / Sodino | 120 | 0.95 | 57.9 |
+| Marshmallini / Kernello / Pipsini | 116-92 | 1.00 | 55.0 |
+| Carrotello / Razoretta / Granny / Beetino | 124 | 1.2-1.32 | 41-46 |
+| Ketchupino Splatterino | 92 | 1.70 | **32.4** |
+| Don Chipso | 92 | 2.10 | **26.2** |
+
+**Wniosek:** piksel Dona Chipso jest na ekranie ~2,5× większy niż piksel Chipsettiego,
+bo jego arkusz ma tylko 92 px, a w grze jest rozciągany ×2.1. Obok drobnych wrogów
+czyta się jako rozmyty/„z innej gry". Ketchupino ma ten sam problem, słabszy.
+
+**Do zrobienia w PixelLabie (najpilniejsze braki graficzne):**
+1. **Don Chipso — arkusz ≥176 px** (do pełnej zgodności z Chipsettim trzeba by 227 px).
+2. **Ketchupino Splatterino — arkusz ≥150 px.**
+3. Postacie grywalne (124 px, 41-46 px/j.) są nieco „grubsze" pikselowo niż szeregowi
+   (55-65). To mieści się w tolerancji i **nie wymaga przerysowania** — dałoby się
+   wyrównać samą `scale`, ale to zmienia sylwetkę, czyli rozgrywkę. Zostawić.
+
+Skalowanie w packerze NIE POMOŻE: powiększenie 92 px nearest-neighbourem daje
+te same wielkie piksele. Arkusz musi być wygenerowany od nowa w docelowym rozmiarze.
