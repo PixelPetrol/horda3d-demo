@@ -513,13 +513,17 @@
 <script>
   // Łapacz błędów TYLKO lokalnie (ta sama zasada co flaga DEV w main.js): tablica
   // rosła bez granic, a scenariusze `tester-gry` chodzą po localhoście, więc nic nie tracą.
-  if (location.hostname === 'localhost' || location.hostname === '127.0.0.1'
-      || location.hostname === '' || location.search.indexOf('dev=1') >= 0) {
+  // Ten sam warunek co flaga DEV w main.js — PORT, nie sama nazwa hosta.
+  // Capacitor serwuje z localhost BEZ portu, a Electron z file:// (hostname ''),
+  // wiec poprzednia wersja wlaczala lapacz dokladnie w wydaniach.
+  if (location.search.indexOf('dev=1') >= 0
+      || ((location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+          && location.port === '8123')) {
     window.__err = [];
     addEventListener('error', e => window.__err.push(String(e.message) + ' @ ' + (e.filename || '') + ':' + e.lineno));
     addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
   }
 </script>
-<script type="module" src="main.js?v=103"></script>
+<script type="module" src="main.js?v=104"></script>
 </body>
 </html>

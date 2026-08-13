@@ -123,8 +123,16 @@ const biome = (x, z) => vnoise(x / 62 + 7.7, z / 62 + 3.3);  // 0=las, 1=sucha �
 // Podglad i agenci chodza po localhoscie, wiec na localhoscie DEV jest wlaczony,
 // a GitHub Pages / Capacitor / Steam dostaja wersje bez `window.HORDA`, bez lapacza
 // bledow i bez pola na kody. `?dev=1` wlacza go recznie do diagnostyki na telefonie.
-const DEV = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
-         || location.hostname === '' || location.search.includes('dev=1');
+// ⚠️ PORT JEST TU KLUCZOWY, nie sama nazwa hosta. Pierwsza wersja tej flagi
+// (13.08) sprawdzala `hostname === 'localhost' || hostname === ''` i przez to
+// WLACZALA DEV DOKLADNIE TAM, GDZIE MIALA GO WYLACZYC:
+//   • Capacitor na Androidzie serwuje z `http://localhost` (bez portu),
+//   • Electron / webview Steama laduje z `file://`, czyli `hostname === ''`.
+// Czyli `window.HORDA` z edytowalnym `META.coins` i pole na kod jechalyby na
+// telefony i na Steama. Nasz podglad chodzi na porcie 8123 — to on rozstrzyga.
+const DEV = location.search.includes('dev=1')
+  || ((location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+      && location.port === '8123');
 
 // ============================== SCENA ==============================
 const canvas = document.getElementById('c');
@@ -3093,7 +3101,8 @@ const WEAPONS = {
 };
 // ============================== PIPSINI: TOWARZYSZ I KIEŁKI ==============================
 const PIPS_ILE = l => 1 + Math.floor(l / 2);      // 1 / 1 / 2 / 2 / 3 pestki
-const PIPS_SADZ = l => 1.8 - 0.16 * l;            // kiełek co 1.64 → 1.0 s
+// dzielone przez fireMul() jak kazdy inny cooldown — inaczej Pipsini ignoruje Tempo
+const PIPS_SADZ = l => (1.8 - 0.16 * l) / fireMul();   // kiełek co 1.64 → 1.0 s
 const PIPS_ZASIEG = 7.5;                          // jak daleko od gracza pestka poluje
 const KIELEK_ZYCIE = () => (P.evo.jablon ? 8 : 4);
 const KIELEK_DMG = () => (P.evo.jablon ? 1.6 : 0.8) * dmgAll();
@@ -3175,7 +3184,7 @@ function updatePestki(dt, lvl) {
       if (e.dying || e.orbCd > 0) continue;
       if (e.pos.distanceTo(p.pos) > 0.85) continue;
       const dmg = 1.2 * dmgAll();
-      e.hp -= dmg; e.orbCd = 0.4;
+      e.hp -= dmg; e.orbCd = 0.4 / fireMul();          // Pipsini tez slucha Tempa
       e.kb.copy(e.pos).sub(p.pos).setY(0).normalize().multiplyScalar(1.8);
       dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), '#c9f07a', 0.85);
       if (e.hp <= 0) killEnemy(e, j);
@@ -3486,7 +3495,7 @@ function updateCzosnki(dt, lvl) {
       if (e.dying) continue;
       const dx = czubek.x - e.pos.x, dz = czubek.z - e.pos.z;
       if (dx * dx + dz * dz < rr && e.orbCd <= 0) {
-        e.hp -= oDmg; e.orbCd = 0.5;
+        e.hp -= oDmg; e.orbCd = 0.5 / fireMul();       // czosnek tez slucha Tempa
         e.kb.copy(e.pos).sub(P.pos).setY(0).normalize().multiplyScalar(2.6);
         spark(e.pos.x, e.ty + 1.0, e.pos.z);
         dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(oDmg), '#eaffd0', 0.9);
@@ -3586,6 +3595,10 @@ const ovWidoczny = () =>
   document.getElementById('cardsOv').style.display === 'flex' ||
   document.getElementById('swapOv').style.display === 'flex';
 function pchnijOverlay(fn) {
+  // TRUP NIE AWANSUJE: obrazenia od spadajacego regalu i od Sodina wolaja `startDeath()`
+  // BEZ `return`, wiec ta sama klatka leciala dalej do petli pigulek i mogla otworzyc
+  // karty POD ekranem smierci (dwa `.ov` naraz = prawie czarny ekran).
+  if (G.dying || G.over || !G.running) return;
   if (ovWidoczny()) { OV_Q.push(fn); return; }
   G.paused = true;
   fn();
@@ -4469,7 +4482,8 @@ function dajKarabin() {
   odswiezKarabinBtn();
   AUDIO.sfx('zlota');
   G.shake = Math.max(G.shake, 0.3);
-  toastBuff('ZNALAZŁEŚ KARABIN! Wciśnij R (albo przycisk KARABIN), gdy będzie gęsto', 'celownik');
+  // krotko: pelne zdanie mialo 382 px przy ekranie 375 px i wychodzilo za oba brzegi
+  toastBuff('KARABIN! Wciśnij R, gdy będzie gęsto', 'celownik');
   setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 4200);
 }
 function odswiezKarabinBtn() {

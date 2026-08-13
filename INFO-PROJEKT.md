@@ -593,6 +593,59 @@ kamienie milowe co `killGoal/3`.
 
 ## ═══════════ STAN NA 13.08.2026: KARABIN FPP, GARNEK NONNY, CZCIONKA ═══════════
 
+### ═══ PEŁNY AUDYT W PRZEGLĄDARCE (13.08, ~50 tys. krokowanych klatek) ═══
+`window.__err` pusty przez całą sesję, ~15 startów biegu, 4 zmiany postaci/mapy.
+
+**⚠️ FLAGA DEV BYŁA WŁĄCZONA W WYDANIACH — naprawione tego samego dnia.**
+Pierwsza wersja sprawdzała `hostname === 'localhost' || hostname === ''`, a to włącza
+DEV **dokładnie tam, gdzie miała go wyłączyć**: Capacitor na Androidzie serwuje z
+`http://localhost` (bez portu), a Electron/webview Steama z `file://` (`hostname === ''`).
+Czyli `window.HORDA` z edytowalnym `META.coins` i pole na kod jechałyby na telefony
+i na Steama. **Teraz rozstrzyga PORT 8123** (+ awaryjne `?dev=1`). Zweryfikowane:
+podgląd ✅ ON · Capacitor ❌ · Electron/file:// ❌ · GitHub Pages ❌ · `?dev=1` ✅.
+
+**Naprawione po audycie:** ekran śmierci nakładał się na karty awansu (obrażenia od
+spadającego regału i od Sodina wołają `startDeath()` bez `return`, więc ta sama klatka
+otwierała karty pod ekranem końca) → `pchnijOverlay` odrzuca teraz zgłoszenia przy
+`G.dying/G.over`. Toast karabinu miał 382 px przy ekranie 375 px → skrócony.
+`fireMul()` obejmuje teraz **14 z 14 broni** — czosnek (`e.orbCd`) i Pipsini
+(`PIPS_SADZ`, `e.orbCd`) go nie tykały, bo ich tempo nie siedzi w `w.t`.
+
+**ZOSTAŁO Z AUDYTU (nienaprawione):**
+1. **Carrotello praktycznie nie zabija.** Pomiar identyczny dla 4 postaci (20 Chipsettich
+   w pierścieniu 2,2 j., 10 s, poziom 1): **carrotello 1 zabity**, beetino 18,
+   razoretta 20, granny 20. Kule mają `dmg` zaszyte jako `1` × 0.9 postaci = 0.9 przy
+   3.01 HP wroga → 4 trafienia na zabicie co 0,87 s. To postać na pierwsze trzy biegi.
+2. **Wyciek GPU między biegami.** Jeden bieg 5 min: tekstury **349 → 551**, geometrie
+   **15 → 60**, monotonicznie. Po wyjściu do menu z pustą scenę: **552 / 60** i następny
+   bieg startuje od 552. `clearWorld()` woła `dispose()` tylko na `pops`/`puffs`/`bb`.
+3. **Drzewo ulepszeń wysycha ok. 4. minuty.** W 5:00 poziom **55** i WSZYSTKIE osiem
+   pasywów zmaksowanych → karty degenerują się do jednej. Test: 33 awanse w jednej
+   klatce dały 33 ekrany, z czego **29 pod rząd to „Znaleźne +20 monet"**.
+4. **Przycisk pauzy nadal nachodzi na HUD w pionie**: 7×15 px na `#lvl`, 14×13 px na
+   `#ranga` — HUD czyta się jako „POZIOM ▮▮" i „RAN".
+5. **W 5. minucie horda jest poza kadrem**: 359 żywych, **9 w polu widzenia kamery**,
+   mediana odległości 36 j. Presja kontaktowa jest (10 najbliższych 5-9 j.), ale
+   „ściany wrogów" nie widać.
+6. `touch-action` — reguła nadal na `html,body`, `.ov` bez nadpisania. **Nie da się tego
+   udowodnić w tej przeglądarce** (brak dotyku) — do sprawdzenia na telefonie.
+7. Kosmetyka: panel Dźwięk o 11 px szerszy od ekranu przy 375; opisy postaci
+   zapisane bez polskich znaków (`piornikiem`, `scyzorykow`, `skora` — `main.js:50`);
+   liczby obrażeń zajmują 15-25% wysokości ekranu; `landSpot` po wyczerpaniu 60 prób
+   stawia byty w jednym punkcie (złapane 4 skrzynie na `(229,267)`).
+
+**POTWIERDZONE JAKO DZIAŁAJĄCE** (pomiary, nie lektura kodu): kolejka overlayów
+(33 awanse w jednej klatce → 33 ekrany, zero zgubionych, zero „pauza off przy widocznym
+overlayu" na 19 830 klatek) · `rozliczBieg` na wyjściu z pauzy (+5991 monet co do sztuki)
+· karabin FPP w całości (ziarna zbiegają się w celowniku, 3 życia odrzucają na dokładnie
+14,0 j. i **HP zostaje 4/4**, oba wyjścia z trybu wracają kamerę) · wszystkie 6 buffów
+garnka (mrożonki: ruch hordy 0,38 → **0** j.) · `broniDostepna` (320 ofert ze skrzyń,
+bronie postaci u obcych **0 razy**) · `rebuildWorld` w markecie (852/852 `stoi`, restart
+31,8 ms) · wspinaczka wrogów po przewróconym regale (8/8 na górze po 4 s) · poślizg
+(2,67 → 1,76 j./s, 1,24 j. wybiegu) · Tempo w realnej walce (**59 → 107 zabójstw
+w 10 s = +81%**) · symulacja **1,217 ms/klatkę** średnio przy 359 wrogach · ceremonia
+końca nigdy nie zostawiła zer · Jersey 10 bez przelewania się tekstu w 7 zakładkach.
+
 ### AUDYT CZTERECH AGENTÓW (12.08) — najważniejsze, jeszcze NIENAPRAWIONE
 Zlecony przez właściciela. Trzy raporty gotowe, `tester-gry` padł na błędzie 529
 (**do powtórzenia — pełny przebieg w przeglądarce nie został wykonany**).
