@@ -1836,34 +1836,41 @@ const SKARPETA_R = l => 1.8 + 0.25 * l * l;
 // Cztery różne sylwetki, żeby dym nie był powtórzoną naklejką. Kształt = suma
 // garbów (koła o różnych promieniach zsunięte ku górze) + poszarpanie `pnoise`,
 // więc nawet pojedynczy kłąb nie ma obrysu koła.
-let DYM_PAL = { jasny: [250, 253, 226], sredni: [214, 236, 162], ciemny: [172, 204, 114], kontur: [62, 82, 46] };
-// Kafle 0-1 = gęste kalafiory (kłęby przyziemne), kafle 2-3 = poszarpane strzępy
-// (to, co się unosi i rozwiewa). Rodzaj kłębu wybiera kafel — patrz `initSmrod`.
+let DYM_PAL = { jasny: [244, 252, 202], sredni: [190, 220, 108], ciemny: [126, 166, 62], kontur: [48, 66, 32], gr: 2 };
+// Kafle 0-1 = zwarte kłęby (świeży dym), kafle 2-3 = przewiane strzępy (to, co
+// się unosi i rozwiewa). Który kafel dostaje kłąb, decyduje jego WIEK — patrz
+// vertex shader (`step(0.55, life)`), czyli dym strzępi się w trakcie wznoszenia.
+// `garby` trzymam MAŁE liczby i DUŻE promienie: 3-4 bąble dają czytelny obrys
+// kalafiora, a 6 małych zlewało się w amebę z kolcami.
 const DYM_KAFLE = [
-  { garby: 5, jag: 0.26, jag2: 0.14, dziury: 0.00, rr: 1.00 },
-  { garby: 4, jag: 0.30, jag2: 0.16, dziury: 0.00, rr: 1.00 },
-  { garby: 3, jag: 0.40, jag2: 0.26, dziury: 0.55, rr: 0.88 },
-  { garby: 3, jag: 0.46, jag2: 0.30, dziury: 0.62, rr: 0.82 },
+  { garby: 3, r0: 0.235, r1: 0.075, jag: 0.13, jag2: 0.07, dziury: 0.00, roz: 0.30 },
+  { garby: 4, r0: 0.215, r1: 0.070, jag: 0.15, jag2: 0.08, dziury: 0.00, roz: 0.31 },
+  { garby: 3, r0: 0.215, r1: 0.065, jag: 0.19, jag2: 0.11, dziury: 0.30, roz: 0.30 },
+  { garby: 3, r0: 0.195, r1: 0.060, jag: 0.22, jag2: 0.13, dziury: 0.38, roz: 0.29 },
 ];
 function dymAtlas() {
-  const T = 72, S = T * 2;
+  const T = 112, S = T * 2;
   const c = document.createElement('canvas'); c.width = c.height = S;
   const g = c.getContext('2d'), im = g.createImageData(S, S);
   const P4 = DYM_PAL;
   // światło z góry-lewej (jak na arkuszach PixelLaba), z komponentą Z, żeby
   // terminator na garbie był ŁUKIEM, a nie prostą — bez tego bandy układały się
   // w skośne paski i kłąb czytał się jak zebra
-  let L = [-0.50, -0.66, 0.34]; const ln = Math.hypot(L[0], L[1], L[2]); L = L.map(v => v / ln);
+  let L = [-0.46, -0.70, 0.36]; const ln = Math.hypot(L[0], L[1], L[2]); L = L.map(v => v / ln);
   for (let ti = 0; ti < 4; ti++) {
     const K = DYM_KAFLE[ti], ox = (ti % 2) * T, oy = (ti >> 1) * T;
     let sd = ti * 9781 + 17;
     const rnd = () => { sd = (sd * 1664525 + 1013904223) | 0; return ((sd >>> 8) & 0xffffff) / 0xffffff; };
-    // garby: rdzeń + pierścień mniejszych bąbli = kalafior; każdy garb dostaje
-    // własne cieniowanie KULISTE, więc kłąb ma bryłę, a nie płaską plamę
-    const garby = [{ x: 0.50 + 0.04 * (rnd() - 0.5), y: 0.56, r: (0.20 + 0.03 * rnd()) * K.rr }];
+    // garby rozstawione na łuku SZERSZYM niż wyższym (kłąb dymu jest przysadzisty),
+    // każdy z własnym cieniowaniem kulistym — stąd bryła, a nie płaska plama
+    const garby = [];
     for (let k = 0; k < K.garby; k++) {
-      const a = Math.PI * 2 * ((k + 0.15 + 0.5 * rnd()) / K.garby), d = 0.17 + 0.08 * rnd();
-      garby.push({ x: 0.5 + Math.cos(a) * d, y: 0.52 + Math.sin(a) * d * 0.78, r: (0.115 + 0.075 * rnd()) * K.rr });
+      const u = K.garby === 1 ? 0.5 : k / (K.garby - 1);
+      garby.push({
+        x: 0.5 + (u - 0.5) * K.roz * 2.0 + (rnd() - 0.5) * 0.05,
+        y: 0.54 - Math.sin(u * Math.PI) * 0.10 + (rnd() - 0.5) * 0.05,
+        r: K.r0 + rnd() * K.r1,
+      });
     }
     const pole = new Float32Array(T * T), wlasc = new Int8Array(T * T);
     for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) {
@@ -1876,32 +1883,39 @@ function dymAtlas() {
       f += (pnoise(nx * 9 + ti * 3.7, ny * 9 + ti * 2.3, 9) - 0.5) * K.jag
          + (pnoise(nx * 19 + ti * 5.1, ny * 19 + ti * 1.9, 19) - 0.5) * K.jag2;
       // DZIURY: strzęp dymu jest przewiany, więc trzeci szum wygryza mu wnętrze
-      if (K.dziury > 0) f -= Math.max(0, pnoise(nx * 13 + ti * 7.7, ny * 13 + ti * 3.3, 13) - 0.42) * K.dziury * 1.6;
+      if (K.dziury > 0) f -= Math.max(0, pnoise(nx * 11 + ti * 7.7, ny * 11 + ti * 3.3, 11) - 0.46) * K.dziury * 1.6;
       pole[y * T + x] = f; wlasc[y * T + x] = oi;
     }
+    const poza = (xx, yy) => xx < 0 || yy < 0 || xx >= T || yy >= T || pole[yy * T + xx] <= 0;
     for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) {
       const f = pole[y * T + x];
       const i = ((oy + y) * S + ox + x) * 4;
       if (f <= 0) continue;                                   // poza sylwetką
       // rant: dithering szachownicą — klasyczna pixel-artowa „rozsypka" dymu
-      if (f < 0.05 && ((x + y) & 1)) continue;
-      // kontur = piksel sylwetki, który ma sąsiada na zewnątrz
-      const brzeg = x === 0 || y === 0 || x === T - 1 || y === T - 1
-        || pole[y * T + x - 1] <= 0 || pole[y * T + x + 1] <= 0
-        || pole[(y - 1) * T + x] <= 0 || pole[(y + 1) * T + x] <= 0;
+      if (f < 0.02 && ((x + y) & 1)) continue;
+      // kontur = piksel sylwetki, który ma sąsiada na zewnątrz (grubość DYM_PAL.gr)
+      let brzeg = false, rant = false;
+      for (let d = 1; d <= (DYM_PAL.gr || 1) && !brzeg; d++) {
+        brzeg = poza(x - d, y) || poza(x + d, y) || poza(x, y - d) || poza(x, y + d);
+      }
+      const GR2 = (DYM_PAL.gr || 1) + 3;
+      for (let d = 1; d <= GR2 && !rant; d++) rant = poza(x, y - d);   // ile do GÓRNEJ krawędzi
       let kol, a = 224;
       // KONTUR JEST BARDZIEJ KRYJĄCY OD WNĘTRZA (255 vs 224). Przy jednolitej alfie
       // ciemna obwódka gasła razem z ciałem kłębu i sylwetka rozmywała się w trawie.
       if (brzeg) { kol = P4.kontur; a = 255; }
+      else if (rant) { kol = P4.jasny; }                      // ŚWIETLNY RANT u góry kłębu
       else {
         const b = garby[wlasc[y * T + x]];
         const nx = (x + 0.5) / T, ny = (y + 0.5) / T;
         const vx = (nx - b.x) / b.r, vy = (ny - b.y) / b.r;
         const m = Math.min(1, Math.hypot(vx, vy));
         const nz = Math.sqrt(Math.max(0, 1 - m * m));         // normalna kuli garbu
-        const lit = -(vx * L[0] + vy * L[1]) + nz * L[2];
-        const s = 0.02 + 1.15 * lit - (ny - 0.5) * 0.45;      // + przygaszenie spodu
-        kol = s > 0.62 ? P4.jasny : s > 0.28 ? P4.sredni : P4.ciemny;
+        const lit = -(vx * L[0] + vy * L[1]) + nz * L[2];      // -1..1
+        // walor = GLOBALNE światło z góry (cały kłąb) + LOKALNA bryła garbu.
+        // Samo lokalne dawało bąbelki jak winogrona, samo globalne — płaski pasek.
+        const s = 0.42 * (1.0 - ny) + 0.58 * (0.5 + 0.5 * lit);
+        kol = s > 0.66 ? P4.jasny : s > 0.44 ? P4.sredni : P4.ciemny;
       }
       im.data[i] = kol[0]; im.data[i + 1] = kol[1]; im.data[i + 2] = kol[2]; im.data[i + 3] = a;
     }
@@ -1947,17 +1961,17 @@ function dymSzum() {
 // kłębów na kolumnę): kolejne kłęby jednego pióra mają przesunięte fazy, więc
 // wychodzą z ziemi jeden za drugim, puchną, chwieją się i strzępią u góry —
 // czyli kolumna smrodu jak z komina. Zasięg = ILE tych kolumn stoi wokół gracza.
-const DYM_W_PIORZE = 8;
-const DYM_PIOR = 21;
+const DYM_W_PIORZE = 5;
+const DYM_PIOR = 24;
 const DYM_ILE = DYM_PIOR * DYM_W_PIORZE;               // 168 kłębów, 1 draw call
 const dymCfg = {
-  opac: 0.86,      // krycie kłębu (przez dym MUSI być widać wrogów)
+  opac: 0.80,      // krycie kłębu (przez dym MUSI być widać wrogów)
   pasy: 5,         // kwantyzacja alfy — zanik skokami, nie gradientem
-  dur: 2.6,        // czas przelotu kłębu przez całą kolumnę [s]
-  wys: 2.7,        // wysokość kolumny w jednostkach
-  roz: 1.30,       // rozmiar kłębu w jednostkach świata (STAŁY, nie od promienia)
-  gest: 0.30,      // kolumn na jednostkę² powierzchni aury
-  ile0: 3,         // minimum kolumn (poz. 1 ma być skromna, ale nie pusta)
+  dur: 2.8,        // czas przelotu kłębu przez całą kolumnę [s]
+  wys: 3.0,        // wysokość kolumny w jednostkach
+  roz: 1.90,       // rozmiar kłębu w jednostkach świata (STAŁY, nie od promienia)
+  gest: 0.17,      // kolumn na jednostkę² powierzchni aury
+  ile0: 2,         // minimum kolumn (poz. 1 ma być skromna, ale nie pusta)
   wir: 0.11,       // prędkość krążenia kolumn wokół gracza
   wykl: 1.30,      // >1 = zagęszczenie ku środkowi (1 = równo po powierzchni)
   kraw: 0.35,      // o ile przezroczystsze są kolumny na skraju zasięgu
@@ -1965,7 +1979,7 @@ const dymCfg = {
   strzep: 1,       // 1 = kłąb u góry przechodzi na poszarpany kafel
   klebSk: 2.2,     // skala szumu kłębienia (ile „bąbli" na kłąb)
   klebSp: 0.30,    // prędkość przewijania szumu kłębienia
-  erozja: 0.62,    // ile szum wygryza ze STAREGO kłębu (0 = nic nie wygryza)
+  erozja: 0.28,    // ile szum wygryza ze STAREGO kłębu (0 = nic nie wygryza)
   nadZ: 0.42,      // podniesienie quada nad punkt bazowy (żeby nie ciął trawy)
   blend: 'normal',
 };
@@ -2421,7 +2435,7 @@ function resetStats() {
     // karabin: `karabinRun` = już wypadł w tym biegu, `karabinMa` = leży w kieszeni gotowy
     gliding: false, runGlide: false, karabinRun: false, karabinMa: false,
     sokoPierwszy: false,                             // komunikat o klawiszu F raz na bieg
-    smrodT: 0, smrodCd: 0,                           // aktywna aura Garlicina (klawisz G)
+    smrodT: 0, smrodCd: 0, smrodTik: 0,              // aktywna aura Garlicina (klawisz G)
     vx: 0, vz: 0,
     weapons: [{ key: CHARS[charKey].startWpn || 'kule', lvl: 1, t: 0 }],   // max 3 sloty (broń z biblii)
     passives: {},                                // key -> poziom
@@ -4238,6 +4252,10 @@ function updateKrzaki(dt) {
 // jest cala jej trescia. 20 s przerwy: raz na fale, nie na kazde zwarcie.
 const SMROD_KLAWISZ = 'KeyG';
 const SMROD_CD = 20, SMROD_CZAS = 3.0, SMROD_R = 7.5, SMROD_SILA = 9;
+// AURA TEZ TRUJE (decyzja wlasciciela). Tik co 0.25 s przez 3 s = 12 tikow;
+// 1.1 x dmgAll() na tik daje ~13 x dmgAll() na cala aure — mocno, ale to jedno
+// uzycie na 20 s, a obszar 7.5 j. i tak zaraz sie oprozni od odpychania.
+const SMROD_TIK = 0.25, SMROD_DMG = 1.1;
 function odpalSmrod() {
   if (charKey !== 'garlicino') return;
   if (!G.running || G.paused || G.dying || P.smrodT > 0 || P.smrodCd > 0) return;
@@ -4245,7 +4263,8 @@ function odpalSmrod() {
   // animacja 'aura' z paczki PixelLaba (katalog 'ladowanie_smrodliwej_aury')
   if (LIB[CHARS[charKey].char] && LIB[CHARS[charKey].char].anims.aura) playerBB.play('aura', false);
   AUDIO.sfx('nova');
-  toastBuff('SMRODLIWA AURA — horda sie cofa!', 'skarpeta');
+  P.smrodTik = 0;                                    // pierwszy tik obrazen od razu
+  toastBuff('SMRODLIWA AURA — truje i odpycha!', 'skarpeta');
   novaRing(P.pos.x, P.pos.z, SMROD_R);
   G.shake = Math.max(G.shake, 0.16);
 }
@@ -4254,11 +4273,21 @@ function updateSmrodGracza(dt) {
   if (P.smrodT <= 0) return;
   const bylo = P.smrodT;
   P.smrodT -= dt;
-  for (const e of G.enemies) {
+  P.smrodTik = (P.smrodTik || 0) - dt;
+  const bije = P.smrodTik <= 0;
+  if (bije) P.smrodTik = SMROD_TIK;
+  const dmg = SMROD_DMG * dmgAll();
+  for (let i = G.enemies.length - 1; i >= 0; i--) {
+    const e = G.enemies[i];
     if (e.dying) continue;
     const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z;
     const d = Math.hypot(dx, dz) || 1;
     if (d > SMROD_R) continue;
+    if (bije) {
+      e.hp -= dmg;
+      dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), '#c9f07a', 0.7);
+      if (e.hp <= 0) { killEnemy(e, i); continue; }   // petla od konca, wiec splice jest bezpieczny
+    }
     // im blizej gracza, tym mocniej wypycha — inaczej wrogowie tuz przy postaci
     // (czyli ci, o ktorych chodzi) ruszaliby sie najmniej
     const s = SMROD_SILA * dt * (1.15 - 0.5 * (d / SMROD_R));
