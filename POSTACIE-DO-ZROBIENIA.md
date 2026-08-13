@@ -176,3 +176,14 @@ czyta się jako rozmyty/„z innej gry". Ketchupino ma ten sam problem, słabszy
 
 Skalowanie w packerze NIE POMOŻE: powiększenie 92 px nearest-neighbourem daje
 te same wielkie piksele. Arkusz musi być wygenerowany od nowa w docelowym rozmiarze.
+
+## Garlicino Stinkerino (dodany 13.08) — jedna rzecz do przegenerowania
+Paczka `Garlicino_Stinkerino.zip` ma cztery animacje × 8 kierunków: idle (8 kl.),
+run (8 kl.), **aura (9 kl.)** = `ladowanie_smrodliwej_aury` pod aktywną umiejętność,
+oraz jump (7 kl.). Arkusz spakowany jako `assets/veggie/garlicino_stinkerino.png`, 92 px.
+
+⚠️ **SKOK JEST W 64 px, cała reszta w 92 px.** Packer dopełnia mniejsze klatki
+pustym miejscem (bez skalowania — piksele zostają nietknięte), więc w trakcie skoku
+postać będzie o ~30% mniejsza niż w bieganiu. Do przegenerowania w PixelLabie:
+**Two-Footed_Jump w rozdzielczości 92 px.** To ta sama pułapka, co przy Donie Chipso
+i Ketchupinie (patrz sekcja o gęstości pikseli wyżej).
