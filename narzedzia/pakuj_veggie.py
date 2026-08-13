@@ -36,6 +36,12 @@ ANIM_MAP = {
 # '..tal_strip'). Dlatego dopasowujemy po fragmencie nazwy. Kolejność ma znaczenie —
 # pierwszy trafiony wzorzec wygrywa, a fragmenty są coraz krótsze, żeby przetrwać obcięcie.
 ANIM_WZORCE = [
+    # UMIEJETNOSCI AKTYWNE. Garlicino Stinkerino ma katalog
+    # 'ladowanie_smrodliwej_aury' — bez tego wzorca packer POMIJAL cala animacje
+    # umiejetnosci (ostrzezenie „nierozpoznana animacja") i postac nie miala czym
+    # zagrac wlasnej mechaniki. Fragment 'aura' jest odporny na obciecie nazwy.
+    ('aura', ('aura', 10)),
+    ('smrod', ('aura', 10)),
     ('explosion', ('death', 12)),
     ('explod', ('death', 12)),          # 'explode'/'exploding'/obcięte 'explos'
     ('death', ('death', 10)),
