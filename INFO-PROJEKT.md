@@ -17,7 +17,7 @@
 > placeholdery = sprite'y z Rudeusza. User zażyczył sobie „większego 3D" jak
 > w Megabonku → zrobione w v4-v7 (teren, niska kamera, obrót, skok).
 
-## ⇒ START TUTAJ (stan na 13.08.2026, po 9 commitach)
+## ⇒ START TUTAJ (stan na 13.08.2026, po 10 commitach — ostatni: krzywa XP + przyprawy)
 
 > Ten plik ma 800+ linii historii. **Jeśli wracasz do projektu — czytaj TYLKO ten blok
 > i sekcję „CO DALEJ" niżej.** Reszta to zapis decyzji i pułapek, przydatny jako
@@ -969,19 +969,67 @@ z jednego biegu, a wzrost jest asymptotyczny.
 i `boltFx()` klonują materiał na każde użycie (setki razy na minutę) i nigdy go nie
 zwalniały — w przeciwieństwie do `pops`/`puffs`, gdzie dispose był od początku.
 
+## ═══════════ 13.08 CZĘŚĆ TRZECIA: KRZYWA XP + PRZYPRAWY NONNY ═══════════
+(main.js v122 — zadanie nr 1 z „CO DALEJ" zamknięte)
+
+### KRZYWA XP: człon kwadratowy
+`P.xpNeed` liczy teraz `xpDoNast(l) = round(5 + 3.2·l + 0.30·l²)` (helper nad blokiem
+statystyk pochodnych, wołany w pętli zbierania pigułek). Start biegu zostaje na
+`xpNeed: 5` — pierwszy awans ma być natychmiastowy.
+- **Zmierzone na tym samym budżecie XP, jaki tester wyliczył dla starej krzywej:**
+  5019 XP (dawniej poziom 55 w 5:00) → **poziom 32**; 14 146 XP (dawniej 93 w 10:00)
+  → **poziom 47**. Czyli awans co ~12-20 s zamiast co ~5 s.
+- Wczesna gra prawie nietknięta: poz. 2 to 13 XP zamiast 11, poz. 4 → 23 zamiast 18.
+  Rozjazd wchodzi od ~8. poziomu (50 vs 31) i rośnie (poz. 20: 189 vs 69).
+
+### PRZYPRAWY NONNY — karty POWTARZALNE (`REPEAT`, `repeatPool()`)
+Cztery karty bez limitu: **Sól** +3% obrażeń, **Oliwa** +3% tempa, **Pieprz** +2% szansy
+na krytyk, **Bazylia** +4% zasięgu broni. Wchodzą w `showCards()` **tylko na slotach,
+których nie wypełniła normalna pula** — wczesna gra wygląda identycznie jak przedtem
+(zweryfikowane: przy świeżej postaci karty to nadal pasywy i poziomy broni).
+- Bonusy wpięte w `dmgAll()`, `fireMul()`, `critC()`, `rangeF()` — zmierzone
+  przez `HORDA.staty`: 10 przypraw każdego rodzaju = dokładnie ×1.30 obrażeń,
+  ×1.30 tempa, +0.20 krytyka, ×1.40 zasięgu.
+- `critC()` ma teraz **clamp 0.75**. Pasyw sam daje najwyżej 0.50, ale Pieprz jest
+  bez limitu i bez clampa długi bieg kończyłby się krytykiem na 100%.
+- Licznik na karcie (`Sól Nonny ×5`) to tylko podpis; `do()` czyta `P.repeat[key]`
+  **na nowo w chwili kliknięcia**. Pierwsza wersja zapisywała `n + 1` z chwili budowy
+  kafelka i przy kafelku przeleżałym w kolejce overlayów COFAŁA licznik do 1
+  (złapane w teście: jedna gruba pigułka = 9 awansów pod rząd).
+
+### PUSTA PULA NIE OTWIERA OVERLAYA
+Gdy nie ma czego ulepszyć, awans nie żąda kliknięcia w atrapę: `showCards()` przyznaje
++20 monet, pokazuje toast „AWANS — nic już do ulepszenia" i wychodzi przez
+`zamknijOverlay('cardsOv')` (ten sam idiom, co `openNewWeapon` przy pełnej szafie broni),
+więc kolejka i pauza zachowują się normalnie. Dziś ta gałąź jest nieosiągalna
+(przyprawy są bez limitu) — została jako siatka bezpieczeństwa i **jest przetestowana**
+(REPEAT chwilowo opróżniony w teście: overlay się nie otworzył, +20 monet, `G.paused`
+wrócił na `false`).
+
+### `HORDA.staty` — pomiar zamiast wiary
+Debug API dostało getter `staty` (dmgAll/fireMul/critC/rangeF/magnetF/speedF, poziom,
+próg XP, ranga, pasywy, przyprawy) plus `xpDoNast`, `REPEAT`, `cardPool`, `repeatPool`.
+Powód: martwy `fireMul()` w 13 z 14 broni przeleżał w kodzie tygodnie, bo **nie było
+jak zmierzyć, czy karta cokolwiek robi**. Tylko DEV.
+
+### Pułapki tej sesji (do następnego razu)
+- `HORDA.spawnEnemy(typ, kąt)` bierze typy z `ENEMY_TYPES` (`chipsetti`, `marshmallini`,
+  `gummini`, `friesetti`, `sodino`, `lollini`, `ketchupino`, `boss`) — nazwy z Rudeusza
+  (`zul`) dają `undefined` i wysypkę w `spawnEnemy`. Wróg ma `pos`/`bb`, **nie `mesh`**.
+- Bieg cichutko się kończył w trakcie krokowania (`G.running === false` → `step()` to
+  no-op i pomiary wychodzą zerowe). Do pomiarów krokować przez opakowanie, które
+  co klatkę robi `P.hp = P.maxHp; P.iframes = 1`.
+- Kilka awansów w jednej klatce da się wywołać jedną pigułką: `G.gems[0].val = 400`.
+
 ## ═══════════ CO DALEJ — KOLEJNOŚĆ I GDZIE SZUKAĆ ═══════════
 
-### 1. DRZEWO ULEPSZEŃ WYSYCHA W 4. MINUCIE (największy wpływ na dłuższy bieg)
-Zmierzone przez testera: w 5:00 poziom **55** i WSZYSTKIE osiem pasywów zmaksowanych →
-karty degenerują się do jednej. Test 33 awansów w jednej klatce: **29 pod rząd** to
-karta „Znaleźne +20 monet", czyli 29 obowiązkowych kliknięć.
-- **Gdzie:** `P.xpNeed = Math.round(5 + P.lvl * 3.2)` w pętli zbierania pigułek
-  (szukaj `xpNeed`), `cardPool()`, `PASSIVES` (pola `max`).
-- **Jak:** projektant policzył warianty krzywej. Wariant A: `5 + 3.2L + 0.30L²`
-  → poziom 29 w 5:00 i 47 w 10:00 zamiast 55/93, awans co ~12-20 s zamiast co 5.
-  Pierwsze 8 poziomów prawie bez zmian, więc początek nie cierpi.
-- Do tego karty POWTARZALNE bez limitu (np. „Sól Nonny +3% obrażeń") na późną grę,
-  a przy pustej puli **nie pokazywać overlaya** — tylko toast i auto-nagroda.
+### 1. ~~DRZEWO ULEPSZEŃ WYSYCHA W 4. MINUCIE~~ ✅ **ZROBIONE 13.08 (v122)**
+Krzywa XP z członem kwadratowym (poziom 32 w 5:00 zamiast 55), cztery karty
+POWTARZALNE („Przyprawy Nonny") dopełniające sloty w późnej grze, pusta pula
+bez overlaya. Szczegóły i pomiary: sekcja „13.08 CZĘŚĆ TRZECIA" wyżej.
+**Zostało do sprawdzenia w prawdziwym biegu (nie krokowanym):** czy przy poziomie 32
+w 5:00 gracz nadąża z siłą za `hpScale()` — jeśli nie, ranga (`rangaDmg`) lub drop
+pigułek jest miejscem na korektę, nie krzywa.
 
 ### 2. 58 MB VRAM NA SPRITE'ACH (i właśnie dodałem dwa arkusze 92 px)
 `buildChar` robi osobny canvas + `CanvasTexture` + `Material` **na każdą klatkę każdego

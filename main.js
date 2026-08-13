@@ -1971,8 +1971,9 @@ function resetStats() {
     vx: 0, vz: 0,
     weapons: [{ key: CHARS[charKey].startWpn || 'kule', lvl: 1, t: 0 }],   // max 3 sloty (broń z biblii)
     passives: {},                                // key -> poziom
+    repeat: {},                                  // key -> ile razy wzięte (karty bez limitu)
     evo: {},                                     // key -> true
-    xp: 0, lvl: 1, xpNeed: 5,
+    xp: 0, lvl: 1, xpNeed: 5,                    // pierwszy poziom świadomie tani (dalej wg xpDoNast)
   });
 }
 // ---- statystyki pochodne (meta + pasywy + buffy) ----
@@ -2001,10 +2002,20 @@ function sprawdzRange() {
   }
 }
 
-const dmgAll  = () => CHARS[charKey].dmg * (1 + 0.10 * META.up.dmg) * Math.pow(1.15, P.passives.moc || 0) * (G.buff.key === 'dmg' ? 2 : 1) * rangaDmg();
-const fireMul = () => Math.pow(1.12, P.passives.tempo || 0) * rangaFire();
-const critC   = () => 0.10 * (P.passives.krytyk || 0);
-const rangeF  = () => 14 * Math.pow(1.2, P.passives.zasieg || 0);
+// ============================== KRZYWA XP ==============================
+// Do 13.08 próg rósł LINIOWO (`5 + 3.2L`): w 5:00 wychodził poziom 55, awans co ~5 s
+// i wszystkie osiem pasywów na maksie w 4. minucie — dalej karty degenerowały się
+// do jednej („Znaleźne”), czyli 29 obowiązkowych kliknięć pod rząd (zmierzone).
+// Człon kwadratowy 0.30L² zostawia pierwsze ~8 poziomów prawie bez zmian
+// (L=8: 51 vs 31 XP), a późną grę rozciąga: ~31 poziom w 5:00 zamiast 55.
+const xpDoNast = l => Math.round(5 + 3.2 * l + 0.30 * l * l);
+
+const dmgAll  = () => CHARS[charKey].dmg * (1 + 0.10 * META.up.dmg) * Math.pow(1.15, P.passives.moc || 0) * (1 + 0.03 * (P.repeat.sol || 0)) * (G.buff.key === 'dmg' ? 2 : 1) * rangaDmg();
+const fireMul = () => Math.pow(1.12, P.passives.tempo || 0) * (1 + 0.03 * (P.repeat.oliwa || 0)) * rangaFire();
+// clamp 0.75: pasyw daje najwyżej 0.50, ale „Pieprz Nonny” jest bez limitu i bez
+// tego setny poziom oznaczałby krytyk na 100% (crit ×3 przestaje być zdarzeniem).
+const critC   = () => Math.min(0.75, 0.10 * (P.passives.krytyk || 0) + 0.02 * (P.repeat.pieprz || 0));
+const rangeF  = () => 14 * Math.pow(1.2, P.passives.zasieg || 0) * (1 + 0.04 * (P.repeat.bazylia || 0));
 const magnetF = () => CHARS[charKey].mag * 2.6 * (1 + 0.20 * META.up.magnes) * Math.pow(1.35, P.passives.magnes || 0);
 const speedF  = () => CHARS[charKey].spd * 6.2 * (1 + 0.08 * META.up.szyb) * Math.pow(1.10, P.passives.buty || 0);
 const hasWeapon = k => P.weapons.find(w => w.key === k);
@@ -3801,6 +3812,32 @@ const PASSIVES = {
   tarcza: { ico: 'tarcza', nm: 'Tarcza brainrota', ds: 'Blokuje 1 trafienie (ładuje się z czasem)', max: 3, locked: true },
 };
 
+// ============================== PRZYPRAWY NONNY (karty POWTARZALNE) ==============================
+// Pasywy mają `max`, bronie mają `max` + ewolucję — więc pula normalnych kart
+// KIEDYŚ wysycha i awans przestaje być decyzją. Te cztery karty nie mają limitu
+// i dopełniają slotów dopiero wtedy, gdy zabraknie normalnych (patrz `showCards`),
+// więc wczesna gra wygląda dokładnie jak wcześniej. Bonusy są małe świadomie:
+// mają nagradzać długi bieg, nie zastępować broni.
+const REPEAT = {
+  sol:     { ico: 'plomien',  nm: 'Sól Nonny',      ds: '+3% obrażeń (bez limitu)' },
+  oliwa:   { ico: 'zegar',    nm: 'Oliwa Nonny',    ds: '+3% szybkości ataków (bez limitu)' },
+  pieprz:  { ico: 'gwiazda',  nm: 'Pieprz Nonny',   ds: '+2% szansy na cios ×3 (bez limitu)' },
+  bazylia: { ico: 'celownik', nm: 'Bazylia Nonny',  ds: '+4% zasięgu broni (bez limitu)' },
+};
+function repeatPool() {
+  return Object.keys(REPEAT).map(key => {
+    const R = REPEAT[key];
+    const n = P.repeat[key] || 0;
+    return {
+      ico: R.ico, nm: R.nm + (n ? ` ×${n + 1}` : ''), ds: R.ds,
+      // `n` sluzy TYLKO do podpisu. Licznik czytamy na nowo w chwili klikniecia:
+      // kafelek moze przelezec w kolejce overlayow (dwa awanse w jednej klatce),
+      // a `n + 1` z chwili budowy COFNELOBY licznik do 1 zamiast go podniesc.
+      do: () => { P.repeat[key] = (P.repeat[key] || 0) + 1; },
+    };
+  });
+}
+
 // ============================== KARTY ULEPSZEŃ ==============================
 function cardPool() {
   const pool = [];
@@ -3874,7 +3911,22 @@ function showCards() {
   while (picks.length < 3 && pool.length) {
     picks.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
   }
-  if (!picks.length) picks.push({ ico: 'moneta', nm: 'Znaleźne', ds: '+20 monet', do: () => { G.runCoins += 20; drawCoins(); } });
+  // PÓŹNA GRA: brakujące slotu dopełniają przyprawy bez limitu (zamiast „Znaleźne”
+  // trzydzieści razy pod rząd). Wcześnie ta gałąź nie odpala, bo pula normalnych
+  // kart ma wtedy kilkanaście pozycji.
+  if (picks.length < 3) {
+    const rep = repeatPool();
+    while (picks.length < 3 && rep.length) picks.push(rep.splice(Math.floor(Math.random() * rep.length), 1)[0]);
+  }
+  // ZERO KART = ZERO OVERLAYA. Awans nie może zmuszać do kliknięcia w kafelek,
+  // który nic nie znaczy — nagroda leci sama, gra się nie zatrzymuje.
+  // (Dziś nieosiągalne, bo przyprawy są bez limitu; zostaje jako siatka
+  // bezpieczeństwa, gdyby kiedyś dostały `max`.)
+  if (!picks.length) {
+    G.runCoins += 20; drawCoins();
+    toastBuff('AWANS — nic już do ulepszenia: +20 monet', 'moneta');
+    return zamknijOverlay('cardsOv');
+  }
   for (const u of picks) {
     const d = document.createElement('div');
     d.className = 'card' + (u.gold ? ' gold' : '');
@@ -5706,7 +5758,7 @@ function update(dt) {
       // Kazdy awans wchodzi do KOLEJKI, wiec zaden zestaw kart nie przepada.
       while (P.xp >= P.xpNeed) {
         P.xp -= P.xpNeed; P.lvl++;
-        P.xpNeed = Math.round(5 + P.lvl * 3.2);
+        P.xpNeed = xpDoNast(P.lvl);
         document.getElementById('lvl').textContent = 'POZIOM ' + P.lvl;
         AUDIO.sfx('awans');
         AUDIO.event('awans');
@@ -6330,6 +6382,17 @@ if (loadTip) {
     updateTrample,
     render() { renderer.render(scene, camera); },
     PAD, pollPads, get camYaw() { return camYaw; }, get gpSel() { return gpSel; },
+    // staty pochodne + pula kart: do pomiarow balansu (projektant/tester nie mieli
+    // jak zmierzyc, czy karta faktycznie cokolwiek robi — stad martwy `fireMul`)
+    get staty() {
+      return {
+        dmgAll: +dmgAll().toFixed(4), fireMul: +fireMul().toFixed(4), critC: +critC().toFixed(4),
+        rangeF: +rangeF().toFixed(3), magnetF: +magnetF().toFixed(3), speedF: +speedF().toFixed(3),
+        lvl: P.lvl, xpNeed: P.xpNeed, ranga: G.ranga,
+        passives: { ...P.passives }, repeat: { ...P.repeat },
+      };
+    },
+    xpDoNast, REPEAT, cardPool, repeatPool,
     step(n = 1, dt = 1 / 60) {
       for (let i = 0; i < n; i++) { pollPads(dt); if (G.running && !G.paused) update(dt); }
       renderer.render(scene, camera);
