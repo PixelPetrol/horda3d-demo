@@ -1,7 +1,7 @@
 // HORDA 3D v4 — teren 3D + kamera za plecami + meta-progresja (monety/sklep)
 import * as THREE from './lib/three.module.js';
-import { SPRITEDATA } from './spritedata.js?v=7';
-import { icon, ico } from './icons.js?v=2';
+import { SPRITEDATA } from './spritedata.js?v=8';
+import { icon, ico } from './icons.js?v=3';
 import { AUDIO } from './audio.js?v=4';            // muzyka wg fazy gry + kwestie głosowe + efekty
 
 // ============================== USTAWIENIA ==============================
@@ -33,7 +33,10 @@ let mapKey = 'laki';
 const CHARS = {
   // ===== VEGGIE FAMIGLIA (statystyki wg biblii postaci v1.1) =====
   carrotello: { nm: 'Carrotello Squattello', ds: 'Marchewino Dresino — szybki, ogromny magnes. Starter.',
-                char: 'carrotello_squattello', price: 0, spd: 1.15, hp: 0, dmg: 0.9, mag: 1.3, scale: 1.22 },
+                // dmg 0.9 → 1.0: jedyna postać w grze z KARĄ do obrażeń była
+                // jednocześnie tą, którą gra się na starcie. Jej tożsamość to
+                // szybkość (1.15) i magnes (1.3), nie słabsze ciosy.
+                char: 'carrotello_squattello', price: 0, spd: 1.15, hp: 0, dmg: 1.0, mag: 1.3, scale: 1.22 },
   // Beetino idzie za ZABÓJSTWA, nie za monety (250 monet uzbierało się już
   // w drugim biegu, więc jako zakup nie był żadnym celem).
   // PRÓG 450 = TRZECI BIEG. Zmierzona ścieżka nowego gracza: bieg 1 ≈ 60 zabójstw,
@@ -1766,7 +1769,7 @@ const SHOP = [
 const SHOP_UNLOCKS = [
   { key: 'piorun',   ico: 'pioruny', nm: 'Piorun',          ds: 'Grom bije losowych wrogów',      price: 150 },
   { key: 'butelka',  ico: 'butelka', nm: 'Butelka żula',    ds: 'Leci łukiem i wybucha',          price: 200 },
-  { key: 'bumerang', ico: 'radio', nm: 'Radio-bumerang',  ds: 'Leci i wraca, kosząc po drodze', price: 250 },
+  { key: 'bumerang', ico: 'radio', nm: 'Pizza Volante',   ds: 'Koło pizzy leci i wraca, kosząc po drodze', price: 250 },
   { key: 'tarcza',   ico: 'tarcza', nm: 'Tarcza',         ds: 'Blokuje 1 trafienie co jakiś czas', price: 120 },
   { key: 'djump',    ico: 'skok', nm: 'Podwójny skok',         ds: 'Drugi skok w powietrzu — przeskakuj regały (bywa też w skrzyniach)', price: 300 },
   { key: 'glide',    ico: 'skok', nm: 'Foliowa torba',           ds: 'PRZYTRZYMAJ skok w locie = szybujesz na torbie i uciekasz hordzie', price: 250 },
@@ -1941,6 +1944,7 @@ const G = {
   turrets: [],                                     // postawione sokowirówki (TD-lite)
   pestki: [], kielki: [],                          // Pipsini i jego kiełki
   karabinPoc: [],                                  // ziarna kukurydzy z karabinu (tryb FPP)
+  gluty: [], kaluze: [],                           // globy ketchupu w locie + kałuże po nich
   seria: [],                                       // kolejka rzutów scyzorykiem
   hitstop: 0,                                      // krótkie zatrzymanie czasu przy grubym zabójstwie
   spawnT: 0, shake: 0, bossAt: 120, ringAt: 60, tier: 0,
@@ -2045,6 +2049,31 @@ addEventListener('keyup', e => {
 const stickEl = document.getElementById('stick'), knobEl = document.getElementById('knob');
 const touch = { on: false, id: null, cx: 0, cy: 0, vx: 0, vy: 0 };
 const camDrag = { on: false, id: null, lx: 0, ly: 0 };
+// ============ MYSZ JAK W FPS: KLIK PRZECHWYTUJE KURSOR ============
+// Na PC obracanie kamery wymagalo PRZYTRZYMANIA i przeciagania — przy jednoczesnym
+// biegu na WSAD to niewykonalne. Teraz jedno kliknięcie w obraz przechwytuje kursor
+// (Pointer Lock) i od tej pory SAM RUCH myszy obraca kamere, jak w kazdym FPS-ie.
+// Escape zwalnia kursor (i przy okazji pauzuje — to samo, czego gracz oczekuje).
+// Przeciaganie zostaje jako awaryjne, gdy przegladarka odmowi blokady.
+let myszLock = false;
+const MYSZ_CZULOSC = 0.0032;           // rad na piksel ruchu
+function chwycMysz() {
+  if (!G.running || G.paused || G.dying) return;
+  if (document.pointerLockElement === canvas) return;
+  try { canvas.requestPointerLock && canvas.requestPointerLock(); } catch { /* odmowa = zostaje drag */ }
+}
+function puscMysz() {
+  try { if (document.pointerLockElement) document.exitPointerLock(); } catch { /* nic */ }
+}
+document.addEventListener('pointerlockchange', () => {
+  myszLock = document.pointerLockElement === canvas;
+});
+// ruch myszy przy przechwyconym kursorze — bez wcisniętego przycisku
+addEventListener('mousemove', e => {
+  if (!myszLock || !G.running || G.paused) return;
+  camYaw -= e.movementX * MYSZ_CZULOSC;
+  if (G.fps.on) dodajPitch(-e.movementY * MYSZ_CZULOSC * 0.8);
+});
 // W trybie karabinu pion myszy/palca CELUJE. Clamp jest ciasny (±20°) świadomie:
 // przy 500 wrogach zadarcie kamery w niebo znaczy zgon, a i tak nie ma w co strzelać.
 const PITCH_MAX = 0.35;
@@ -2058,6 +2087,8 @@ addEventListener('pointerdown', e => {
     stickEl.style.display = 'block';
     stickEl.style.left = (e.clientX - 55) + 'px'; stickEl.style.top = (e.clientY - 55) + 'px';
   } else if (!camDrag.on) {
+    // mysz: przechwyc kursor; dotyk/pad: zostaje przeciaganie
+    if (e.pointerType === 'mouse') chwycMysz();
     camDrag.on = true; camDrag.id = e.pointerId; camDrag.lx = e.clientX; camDrag.ly = e.clientY;
   }
 });
@@ -2068,7 +2099,7 @@ addEventListener('pointermove', e => {
     if (d > 0) { dx /= d; dy /= d; }
     touch.vx = dx * (m / 45); touch.vy = dy * (m / 45);
     knobEl.style.transform = `translate(calc(-50% + ${dx * m}px), calc(-50% + ${dy * m}px))`;
-  } else if (camDrag.on && e.pointerId === camDrag.id) {
+  } else if (camDrag.on && e.pointerId === camDrag.id && !myszLock) {
     camYaw -= (e.clientX - camDrag.lx) * 0.008;
     if (G.fps.on) dodajPitch(-(e.clientY - camDrag.ly) * 0.005);
     camDrag.lx = e.clientX; camDrag.ly = e.clientY;
@@ -2206,6 +2237,110 @@ function pollPads(dt) {
   for (let i = 0; i < B.length; i++) PAD.prev[i] = btn(i);
 }
 
+// ============================== KETCHUPINO: ARTYLERIA ==============================
+// Wg biblii postaci: „butelka ketchupu-artylerzysta. Trzyma dystans, pluje globami
+// po łuku (telegraf: czerwony krąg na ziemi), kałuże slow 40% przez 4 s."
+// To pierwszy wróg w grze, który atakuje na odległość — dotąd KAŻDY po prostu
+// wbiegał w gracza, więc jedyną odpowiedzią na wszystko był ruch.
+const KETCH_BLISKO = 9;         // bliżej = cofa się
+const KETCH_DALEKO = 15;        // dalej = podchodzi; w środku stoi i pluje
+const KETCH_CD = 3.0;           // co ile plunie
+const KETCH_LOT = 1.05;         // s lotu globu — TO JEST TELEGRAF, gracz ma czas zejść
+const KETCH_R = 2.5;            // promień plaśnięcia
+const KETCH_KALUZA = 4.0;       // s życia kałuży (biblia: 4 s)
+const KETCH_SLOW = 0.6;         // gracz w kałuży ×0.6 (biblia: slow 40%)
+let ketchMat = null, ketchKalMat = null;
+function ketchupTexture(kropla) {
+  const S = 16, c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  const d = g.createImageData(S, S);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const dx = x - 7.5, dy = y - 7.5, r = Math.hypot(dx, dy * (kropla ? 0.78 : 1));
+    let kol = null;
+    if (r < 7.4) kol = r > 6.2 ? [120, 22, 20] : r > 3.4 ? [186, 42, 36] : [214, 74, 62];
+    const i = (y * S + x) * 4;
+    if (kol) { d.data[i] = kol[0]; d.data[i+1] = kol[1]; d.data[i+2] = kol[2]; d.data[i+3] = 255; }
+  }
+  g.putImageData(d, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+// glob leci łukiem, a POD CELEM od razu rośnie czerwony krąg — telegraf jest
+// tym, co zamienia atak dystansowy z „nagłej kary" w decyzję gracza.
+function plunKetchupem(e) {
+  if (!ketchMat) {
+    ketchMat = new THREE.MeshBasicMaterial({ map: ketchupTexture(true), transparent: true,
+      alphaTest: 0.4, side: THREE.DoubleSide });
+    ketchKalMat = new THREE.MeshBasicMaterial({ map: ketchupTexture(false), transparent: true,
+      opacity: 0.5, depthWrite: false });
+  }
+  // celuje z WYPRZEDZENIEM w miejsce, gdzie gracz BĘDZIE — inaczej wystarczy iść prosto
+  const cx = P.pos.x + P.vx * KETCH_LOT * 0.55, cz = P.pos.z + P.vz * KETCH_LOT * 0.55;
+  const glob = new THREE.Mesh(unitGeo, ketchMat);
+  glob.scale.setScalar(0.55);
+  glob.position.set(e.pos.x, e.ty + 1.1, e.pos.z);
+  scene.add(glob);
+  const krag = new THREE.Mesh(blobGeo, ketchKalMat);
+  krag.scale.set(KETCH_R * 2, 1, KETCH_R * 2);
+  krag.position.set(cx, terrainH(cx, cz) + 0.05, cz);
+  scene.add(krag);
+  G.gluty.push({ mesh: glob, krag, t: 0, from: { x: e.pos.x, y: e.ty + 1.1, z: e.pos.z },
+                 to: { x: cx, z: cz } });
+  AUDIO.sfx('strzal');
+}
+function updateGluty(dt) {
+  for (let i = G.gluty.length - 1; i >= 0; i--) {
+    const gl = G.gluty[i];
+    gl.t += dt;
+    const k = Math.min(1, gl.t / KETCH_LOT);
+    const x = gl.from.x + (gl.to.x - gl.from.x) * k, z = gl.from.z + (gl.to.z - gl.from.z) * k;
+    gl.mesh.position.set(x, gl.from.y + Math.sin(k * Math.PI) * 3.4
+      + (terrainH(x, z) + 0.4 - gl.from.y) * k, z);
+    gl.mesh.rotation.set(0, camYaw, gl.t * 6);
+    gl.krag.material.opacity = 0.35 + 0.5 * k;             // krąg puchnie do uderzenia
+    gl.krag.scale.setScalar(1);
+    gl.krag.scale.set(KETCH_R * 2 * (0.6 + 0.4 * k), 1, KETCH_R * 2 * (0.6 + 0.4 * k));
+    if (k < 1) continue;
+    // PLAŚNIĘCIE
+    scene.remove(gl.mesh);
+    scene.remove(gl.krag);
+    G.gluty.splice(i, 1);
+    okruchy(gl.to.x, terrainH(gl.to.x, gl.to.z) + 0.4, gl.to.z, 0xba2a24, 7);
+    AUDIO.sfx('wybuch');
+    if (Math.hypot(P.pos.x - gl.to.x, P.pos.z - gl.to.z) < KETCH_R
+        && P.iframes <= 0 && !ciosPochloniety()) {
+      P.hp -= 1 * dmgScale(); P.iframes = 0.9; drawHearts(); AUDIO.sfx('hurt'); G.shake = 0.3;
+      const v = document.getElementById('vign');
+      v.style.opacity = 1; setTimeout(() => v.style.opacity = 0, 180);
+      if (P.hp <= 0) startDeath();
+    }
+    G.kaluze.push({ x: gl.to.x, z: gl.to.z, r: KETCH_R, t: KETCH_KALUZA,
+                    mesh: (() => { const m = new THREE.Mesh(blobGeo, ketchKalMat.clone());
+                      m.scale.set(KETCH_R * 2, 1, KETCH_R * 2);
+                      m.position.set(gl.to.x, terrainH(gl.to.x, gl.to.z) + 0.04, gl.to.z);
+                      scene.add(m); return m; })() });
+  }
+}
+function updateKaluze(dt) {
+  for (let i = G.kaluze.length - 1; i >= 0; i--) {
+    const k = G.kaluze[i];
+    k.t -= dt;
+    // max 0.5, nie 0.8: kilka nachodzących kałuż dawało niemal jednolitą czerwień
+    // i nie było widać pod nimi terenu ani wrogów
+    k.mesh.material.opacity = Math.min(0.5, k.t * 0.35);
+    if (k.t <= 0) { scene.remove(k.mesh); k.mesh.material.dispose(); G.kaluze.splice(i, 1); }
+  }
+}
+// czy gracz stoi w ketchupie (spowolnienie z biblii: 40%)
+function wKetchupie(x, z) {
+  for (const k of G.kaluze) if (Math.hypot(x - k.x, z - k.z) < k.r) return true;
+  return false;
+}
+
 // ============================== WROGOWIE ==============================
 // nm/ds = wpis do BESTIARIUSZA (odblokowywany po pierwszym zabiciu danego typu)
 const ENEMY_TYPES = {
@@ -2235,8 +2370,19 @@ const ENEMY_TYPES = {
     ds: 'Wielki lizak na patyku, który obraca się jak tarcza pilarska. Wolny jak niedziela, ale kto podejdzie za blisko, ten poznaje smak wiśniowej przemocy.' },
   // ===== BOSS: DON CHIPSO (wg biblii — torba chipsów; do czasu własnego sprite'a
   //          używamy powiększonego Chipsettiego, bo to ten sam „materiał") =====
-  boss: { hp: 90, okrKol: 0xf2c14a, speed: 2.2, dmg: 2, scale: 2.7, xp: 25, walk: 'run',
-    char: 'chipsetti_soldatetti', boss: true,
+  // WLASNY ARKUSZ (13.08): worek chipsow w fedorze i plaszczu. Do tej pory boss byl
+  // dosłownie tym samym plikiem co szeregowy Chipsetti, tylko rozciagnietym x2.7 —
+  // czyli obok biegalo 200 identycznych kopii „bossa". Skala zeszla z 2.7 na 2.1,
+  // bo teraz rysunek sam niesie powage i nie trzeba jej udawac rozmiarem.
+  // ELITA-ARTYLERZYSTA wg biblii (HP 220 w skali biblii = 63 w silniku; ZBITE DO 26,
+  // bo pierwszy wróg dystansowy przy 63 HP byłby mini-bossem, a gracz nie ma jeszcze
+  // żadnej odpowiedzi na atak z 15 j.). Pojawia się od 3. minuty, rzadko.
+  ketchupino: { hp: 26, okrKol: 0xd23b3b, speed: 1.9, dmg: 1, scale: 1.15, xp: 8, walk: 'run',
+    char: 'ketchupino_splatterino', artyleria: true,
+    nm: 'Ketchupino Splatterino',
+    ds: 'Butla ketchupu, która nauczyła się moździerza. Nie podejdzie — nie musi. Ściska sobie brzuch i pluje po łuku, a to, co po nim zostaje, trzyma za nogi lepiej niż rozlana woda.' },
+  boss: { hp: 90, okrKol: 0xf2c14a, speed: 2.2, dmg: 2, scale: 2.1, xp: 25, walk: 'run',
+    char: 'don_chipso', boss: true,
     nm: 'Don Chipso',
     ds: 'Głowa Famiglii. Mówi szeptem, bo kto ma sól, nie musi krzyczeć. Wymięty jak jego sumienie, tłusty jak jego interesy. Osiedle traktuje jak talerz: co na nim leży, uważa za swoje.' },
 };
@@ -2405,6 +2551,40 @@ function makeCoin(x, z, val = 1) {
 
 // materiały nowych broni + efekt pioruna
 let bottleMat = null, radioMat = null;
+// ============================== PIZZA VOLANTE ==============================
+// „Radio-bumerang" był reliktem po starej obsadzie (żul z boomboxem) i nie miał
+// nic wspólnego z warzywami walczącymi z mafią przekąsek — zgłoszenie właściciela.
+// Biblia postaci przewidywała tu `pizza.png` („koło pizzy z góry — bumerang"), więc
+// do czasu dostawy grafiki rysujemy koło proceduralnie. KLUCZ BRONI ZOSTAJE
+// `bumerang` — wisi na nim `META.unlocked`, czyli zakupy graczy w starych zapisach.
+function pizzaTexture() {
+  const S = 32, c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  const d = g.createImageData(S, S);
+  const pep = [[10, 9], [20, 11], [15, 17], [9, 20], [22, 20], [16, 8]];   // pepperoni
+  const bazyl = [[13, 13], [19, 16], [12, 24]];                            // bazylia
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const dx = x - 15.5, dy = y - 15.5, r = Math.hypot(dx, dy);
+    let kol = null;
+    if (r < 15.5) {
+      kol = r > 12.6 ? [206, 150, 76]                    // skórka
+          : r > 11.4 ? [226, 176, 96]                    // rant jaśniejszy
+          : [242, 196, 88];                              // ser
+      for (const [px, py] of pep) if (Math.hypot(x - px, y - py) < 2.6) kol = [198, 58, 46];
+      for (const [px, py] of bazyl) if (Math.hypot(x - px, y - py) < 1.5) kol = [86, 150, 62];
+      if (r > 14.6) kol = [27, 27, 34];                  // kontur
+    }
+    const i = (y * S + x) * 4;
+    if (kol) { d.data[i] = kol[0]; d.data[i + 1] = kol[1]; d.data[i + 2] = kol[2]; d.data[i + 3] = 255; }
+  }
+  g.putImageData(d, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
 let kapecMat = null, kapecAspect = 1.4;
 let scyzorykMat = null, scyzorykAspect = 2.2;
 // SCYZORYK — mala pixelowa ostrz z rekojescia (do podmiany na sprite z generatora)
@@ -2790,14 +2970,28 @@ function emojiMat(emoji) {
 // była pułapką: gracz brał ją co kilka awansów i nie dostawał nic.
 // Dodając nową broń: `w.t = (bazowy_czas) / fireMul()`, nigdy samo `w.t = bazowy_czas`.
 const WEAPONS = {
+  // ⚠️ OBRAŻENIA KUL ROSNĄ Z POZIOMEM. Do 13.08 `dmg` pocisku było zaszyte na
+  // sztywno jako 1 (pocisk bez pola `dmg` dostaje `s.dmg || 1` w pętli pocisków),
+  // a poziomy dawały TYLKO liczbę pocisków i przebicie. Skutek zmierzony w grze:
+  // Carrotello — postać, którą gra się przez pierwsze TRZY biegi — zabijał
+  // 1 wroga na 10 s, gdy każda inna postać zabijała 18-20. Chipsetti ma 3.01 HP,
+  // a kula robiła 1 × 0.9 (kara postaci) = 0.9, czyli CZTERY trafienia na
+  // najsłabszego wroga w grze, co 0.87 s. To były najgorsze 3 minuty w grze
+  // i pierwsze, jakie widzi nowy gracz.
   kule: {
     ico: 'kula', nm: 'Kule energii', ds: 'Samonaprowadzające pociski', max: 5, postac: 'carrotello',
-    lvlDs: l => ['1 pocisk', '2 pociski', '+1 przebicie', '3 pociski', '+2 przebicia (→ ewolucja!)'][l - 1],
+    lvlDs: l => ['1 pocisk', '2 pociski, mocniejsze', '3 pociski i przebicie',
+                 'jeszcze mocniejsze', '4 pociski, +2 przebicia (→ ewolucja!)'][l - 1],
     evoKey: 'meteor', evoIco: 'kula', evoNm: 'KULE METEORYCZNE', evoDs: 'EWOLUCJA: pociski WYBUCHAJĄ przy trafieniu',
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
-      const count = [1, 2, 2, 3, 3][w.lvl - 1], pierce = [0, 0, 1, 1, 2][w.lvl - 1];
+      const count = [1, 2, 3, 3, 4][w.lvl - 1], pierce = [0, 0, 1, 1, 2][w.lvl - 1];
+      // POZIOM 1 MUSI ZABIJAĆ CHIPSETTIEGO JEDNĄ KULĄ (ma 3.01 HP na starcie).
+      // To chwyt z Vampire Survivors, gdzie bicz kasuje pierwsze nietoperze za jednym
+      // ciosem — i to on daje pierwsze 30 sekund „mam moc". Okno zamyka się samo,
+      // bo `hpScale` rośnie: w 2. minucie Chipsetti ma już ~6.6 HP i trzeba ulepszeń.
+      const dmg = [3.2, 3.9, 4.6, 5.4, 6.2][w.lvl - 1];
       let targets = G.enemies.filter(e => !e.dying)
         .map(e => ({ e, d: e.pos.distanceTo(P.pos) }))
         .filter(o => o.d < rangeF())
@@ -2811,7 +3005,7 @@ const WEAPONS = {
         const m = new THREE.Mesh(shotGeo, shotMat);
         m.position.set(P.pos.x, P.y + 1.0, P.pos.z);      // z POSTACI (też gdy stoi na regale)
         scene.add(m);
-        G.shots.push({ mesh: m, dir, life: 1.3, pierce, hit: new Set(), y: P.y + 1.0 });
+        G.shots.push({ mesh: m, dir, life: 1.3, pierce, hit: new Set(), y: P.y + 1.0, dmg });
       }
     },
   },
@@ -2874,7 +3068,7 @@ const WEAPONS = {
     },
   },
   bumerang: {
-    ico: 'radio', nm: 'Radio-bumerang', ds: 'Grające radio leci i WRACA, kosząc po drodze', max: 5, locked: true,
+    ico: 'radio', nm: 'Pizza Volante', ds: 'Koło pizzy leci i WRACA, kosząc po drodze', max: 5, locked: true,
     lvlDs: l => `zasięg ${(8 + 0.6 * l).toFixed(0)}, co ${(2.8 - 0.2 * l).toFixed(1)} s`,
     tick(w, dt) {
       w.t -= dt;
@@ -3542,11 +3736,11 @@ const stompDmg = l => l * 1.5 * (P.evo.sejsm ? 2 : 1) * dmgAll();
 
 // ============================== PASYWY (bufy zbierane kartami) ==============================
 const PASSIVES = {
-  moc:    { ico: 'fala', nm: 'Moc',     ds: '+15% obrażeń wszystkiego', max: 5 },
-  tempo:  { ico: 'pioruny', nm: 'Tempo',   ds: '+12% szybkości ataków',    max: 5 },
+  moc:    { ico: 'plomien', nm: 'Moc',     ds: '+15% obrażeń wszystkiego', max: 5 },
+  tempo:  { ico: 'zegar', nm: 'Tempo',   ds: '+12% szybkości ataków',    max: 5 },
   buty:   { ico: 'but', nm: 'Klapki Carrotella', ds: '+10% szybkości ruchu', max: 5 },
   magnes: { ico: 'magnes', nm: 'Magnes',  ds: '+35% zasięgu zbierania',   max: 5 },
-  krytyk: { ico: 'celownik', nm: 'Krytyk',  ds: '+10% szansy na cios ×3',   max: 5 },
+  krytyk: { ico: 'gwiazda', nm: 'Krytyk',  ds: '+10% szansy na cios ×3',   max: 5 },
   serce:  { ico: 'serce', nm: 'Serducho', ds: '+1 max serce i pełne leczenie', max: 5 },
   zasieg: { ico: 'celownik', nm: 'Sokoli wzrok', ds: '+20% zasięgu broni',  max: 4 },
   tarcza: { ico: 'tarcza', nm: 'Tarcza brainrota', ds: 'Blokuje 1 trafienie (ładuje się z czasem)', max: 3, locked: true },
@@ -3595,6 +3789,7 @@ const ovWidoczny = () =>
   document.getElementById('cardsOv').style.display === 'flex' ||
   document.getElementById('swapOv').style.display === 'flex';
 function pchnijOverlay(fn) {
+  puscMysz();                                      // karty klika sie kursorem
   // TRUP NIE AWANSUJE: obrazenia od spadajacego regalu i od Sodina wolaja `startDeath()`
   // BEZ `return`, wiec ta sama klatka leciala dalej do petli pigulek i mogla otworzyc
   // karty POD ekranem smierci (dwa `.ov` naraz = prawie czarny ekran).
@@ -4278,6 +4473,13 @@ function pixTex(W, H, bryly, kontur = '#1b1b22') {
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
+// Sprite garnka od właściciela (biały garnek w czerwone kropki, para, ogień pod spodem).
+// `garnekTexture()` niżej zostaje jako awaryjny — ten sam wzorzec co salata/karabin.
+let garnekImgMat = null;
+async function ladujGarnek() {
+  try { garnekImgMat = (await flatMat('assets/garnek_nonny.png')).mat; }
+  catch { garnekImgMat = null; }
+}
 function garnekTexture() {
   const b = [];
   const r = (x, y, w, h, kol) => b.push([x, y, w, h, kol]);
@@ -4328,7 +4530,8 @@ let garnekTex = null, witrynaTex = null;
 function ustawWygladGarnkow(key) {
   if (!garnekTex) { garnekTex = garnekTexture(); witrynaTex = witrynaTexture(); }
   const indoor = MAPS[key] && MAPS[key].indoor;
-  const tex = indoor ? witrynaTex : garnekTex;
+  // na Łąkach sprite właściciela, jeśli się wczytał; w markecie proceduralna witryna
+  const tex = indoor ? witrynaTex : ((garnekImgMat && garnekImgMat.map) || garnekTex);
   const obr = tex.image.width / tex.image.height;
   for (const t of totems) {
     t.mat.map = tex;
@@ -4880,6 +5083,8 @@ function update(dt) {
   const wx = fx * -mz + rx * mx, wz = fz * -mz + rz * mx;
   const inWater = !P.airborne && terrainH(P.pos.x, P.pos.z) < WATER_Y - 0.04;
   let spd = speedF() * (inWater ? 0.6 : 1);
+  // KETCHUP trzyma za nogi (biblia: slow 40%); w powietrzu nie działa, jak woda
+  if (!P.airborne && G.kaluze.length && wKetchupie(P.pos.x, P.pos.z)) spd *= KETCH_SLOW;
   if (G.buff.key === 'szyb') spd *= 1.45;
   if (P.gliding) spd *= 1.45;                    // szybując lecisz szybciej = ucieczka od hordy
   // strome zbocze (mesa): pieszo wolno POD GÓRĘ, ale skokiem normalnie
@@ -4952,6 +5157,8 @@ function update(dt) {
   // ziarna lecą dalej NIEZALEŻNIE od trybu — wystrzelone w ostatniej sekundzie
   // muszą dolecieć, a nie zniknąć w powietrzu
   if (G.karabinPoc.length) updateKarabinPoc(dt);
+  if (G.gluty.length) updateGluty(dt);
+  if (G.kaluze.length) updateKaluze(dt);
 
   // ---- spawner: krzywa trudności (1 min ~lekko, 4 min = ~4× więcej naraz) ----
   const min = G.time / 60;
@@ -4969,6 +5176,8 @@ function update(dt) {
     if (G.time > 180) pula.push('friesetti');
     if (G.time > 240) pula.push('sodino');
     if (G.time > 270) pula.push('lollini');
+    // Ketchupino wchodzi RZADKO i pojedynczo (elita wg biblii), nie do zwykłej puli
+    if (G.time > 180 && Math.random() < 0.035) spawnEnemy('ketchupino');
     for (let b = 0; b < batch && G.enemies.length < CAP; b++) {
       // chipsetti zawsze dominują (szeregowi), reszta doprawia hordę
       const type = Math.random() < 0.45 ? 'chipsetti' : pula[Math.floor(Math.random() * pula.length)];
@@ -5064,7 +5273,20 @@ function update(dt) {
     if (wspin > 0.18) es *= 0.35;
     if (MAPS[mapKey].indoor && onSpill(e.pos.x, e.pos.z)) es *= 0.55;   // im też ślisko
     if (celPos !== P.pos && dCel < 1.1) es = 0;      // dotarł do przynęty — bije ją, nie przepycha
-    e.pos.addScaledVector(to, es * dt);
+    // ARTYLERIA (Ketchupino): PIERWSZY WRÓG DYSTANSOWY. Nie szarżuje — trzyma się
+    // w okienku [KETCH_BLISKO, KETCH_DALEKO]: za blisko cofa się, za daleko podchodzi,
+    // w okienku STOI i pluje. Dzięki temu nie da się go „przeczekać" bieganiem
+    // w kółko, ale też nie wchodzi w młynek broni przy graczu.
+    if (e.T.artyleria) {
+      if (d < KETCH_BLISKO) { e.pos.addScaledVector(to, -es * dt * 1.15); }   // odwrót
+      else if (d <= KETCH_DALEKO) { /* stoi i celuje */ }
+      else e.pos.addScaledVector(to, es * dt);
+      e.plunCd = (e.plunCd || KETCH_CD * 0.6) - dt;
+      if (e.plunCd <= 0 && d <= KETCH_DALEKO + 2 && !e.dying) {
+        e.plunCd = KETCH_CD;
+        plunKetchupem(e);
+      }
+    } else e.pos.addScaledVector(to, es * dt);
     if (!e.T.bezKb) {                                  // Gummini są odporne na odrzut
       e.pos.add(e.kb.clone().multiplyScalar(dt * 8));
       e.kb.multiplyScalar(Math.max(0, 1 - dt * 10));
@@ -5163,6 +5385,13 @@ function update(dt) {
     const docel = terrainH(s.mesh.position.x, s.mesh.position.z) + 1.0;
     s.y += (docel - s.y) * Math.min(1, 3 * dt);
     s.mesh.position.y = s.y;
+    // WIRUJACY POCISK (scyzoryk): rzucony noz musi sie obracac, inaczej sunie w powietrzu
+    // jak naklejka. Ten sam idiom co butelka i bumerang — `rotation.set(0, camYaw, roll)`:
+    // yaw ustawia billboard twarza do kamery, a roll to obrot w plaszczyznie ekranu.
+    if (s.wiruje) {
+      s.obrot = (s.obrot || 0) + dt * 17 * s.wiruje;
+      s.mesh.rotation.set(0, camYaw, s.obrot);
+    }
     s.life -= dt;
     let dead = s.life <= 0;
     if (!dead) for (let j = G.enemies.length - 1; j >= 0; j--) {
@@ -5344,9 +5573,12 @@ function update(dt) {
       m.scale.set(0.5 * scyzorykAspect, 0.5, 1);
       m.position.set(P.pos.x, P.y + 1.0, P.pos.z);
       scene.add(m);
+      // kierunek wirowania zgodny z tym, w ktora strone EKRANU leci noz — inaczej
+      // co drugi rzut wygladalby, jakby krecil sie w tyl. Rzut na os „prawo kamery".
+      const sx = Math.sin(a) * Math.cos(camYaw) - Math.cos(a) * Math.sin(camYaw);
       G.shots.push({ mesh: m, dir: new THREE.Vector3(Math.sin(a), 0, Math.cos(a)),
                      life: 1.2, pierce: 2 + r.lvl, hit: new Set(), y: P.y + 1.0,
-                     dmg: 2.2 + 0.5 * r.lvl });
+                     dmg: 2.2 + 0.5 * r.lvl, wiruje: sx >= 0 ? -1 : 1 });
     }
     AUDIO.sfx('kryt');
   }
@@ -5648,6 +5880,7 @@ function gameOver() {
 function togglePause(on) {
   if (!G.running) return;
   G.paused = on;
+  if (on) puscMysz();                              // na pauzie gracz musi widziec kursor
   document.getElementById('pauseOv').style.display = on ? 'flex' : 'none';
   odswiezKarabinBtn();                             // przycisk karabinu nie może wisieć nad pauzą
   if (on) {
@@ -5689,13 +5922,16 @@ function clearWorld() {
   for (const pe of G.pestki) pe.bb.dispose();
   for (const ki of G.kielki) scene.remove(ki.mesh);
   for (const s of G.karabinPoc) scene.remove(s.mesh);
+  for (const gl of G.gluty) { scene.remove(gl.mesh); scene.remove(gl.krag); }
+  for (const k of G.kaluze) { scene.remove(k.mesh); k.mesh.material.dispose(); }
   for (const pl of plamy) if (pl) pl.mesh.visible = false;
   G.enemies = []; G.gems = []; G.coins = []; G.shots = []; G.orbs = []; G.sparks = []; G.rings = [];
   G.lobs = []; G.boomers = []; G.bolts = []; G.pops = []; G.hps = []; G.kury = []; G.okruchy = [];
   G.puffs = []; G.hitstop = 0; G.padajace = []; G.turrets = []; G.pestki = []; G.kielki = []; G.seria = [];
-  G.karabinPoc = [];
+  G.karabinPoc = []; G.gluty = []; G.kaluze = [];
   G.streak = 0; G.streakT = -9;
   G.vacuum = 0; G.buff = { key: null, t: 0 };
+  puscMysz();                                      // w menu kursor musi wrocic
   // TRYB KARABINU: bez tego wyjście do menu w trakcie trybu zostawiało widok broni
   // na ekranie menu, a gracz wracał do biegu bez własnego sprite'a.
   if (G.fps.on) endKarabin('koniec');
@@ -5826,14 +6062,24 @@ if (loadTip) {
   scene.add(wchest.ring);
   // (column1.png = dawna kolumna totemu; garnek/witryna są proceduralne, plik nie jest już wczytywany)
   bottleMat = (await flatMat('assets/bottle.png')).mat;
-  radioMat = (await flatMat('assets/radio.png')).mat;
+  // pizza zamiast radia z Rudeusza (nazwa zmiennej zostaje — wisi na niej pocisk bumerangu)
+  radioMat = new THREE.MeshBasicMaterial({ map: pizzaTexture(), transparent: true,
+    alphaTest: 0.4, side: THREE.DoubleSide });
   kapecMat = new THREE.MeshBasicMaterial({ map: kapecTexture(), transparent: true,
     alphaTest: 0.4, side: THREE.DoubleSide });
   try { salataMat = (await flatMat('assets/salata_czasza.png')).mat; } catch { salataMat = null; }
-  scyzorykMat = new THREE.MeshBasicMaterial({ map: scyzorykTexture(), transparent: true,
-    alphaTest: 0.4, side: THREE.DoubleSide });
+  // scyzoryk ze sprite'a wlasciciela; `scyzorykTexture()` zostaje jako awaryjny.
+  // Rysunek jest po przekatnej kwadratu, wiec aspekt 1 i nieco wiekszy quad —
+  // przy wirowaniu poczatkowy kat i tak przestaje mieć znaczenie.
+  try {
+    scyzorykMat = (await flatMat('assets/scyzoryk.png')).mat;
+    scyzorykAspect = 1.0;
+    scyzorykMat.side = THREE.DoubleSide;
+  } catch {
+    scyzorykMat = new THREE.MeshBasicMaterial({ map: scyzorykTexture(), transparent: true,
+      alphaTest: 0.4, side: THREE.DoubleSide });
+  }
   heartMat = emojiMat('❤️');
-  await buildChar('kura_braz', ['walk']);
   // postacie grywalne (potrzebne też do portretów w menu)
   // ===== VEGGIE FAMIGLIA =====
   await ladowanie('Budzenie Carrotella…');
@@ -5851,6 +6097,9 @@ if (loadTip) {
                    'friesetti_spearetti', 'sodino_explodino', 'lollini_spinnini']) {
     await buildChar(w, ['run']);
   }
+  await buildChar('ketchupino_splatterino', ['run']);   // pierwszy wróg dystansowy
+  await ladowanie('Don Chipso poprawia kapelusz…');
+  await buildChar('don_chipso', ['run']);          // boss ma wreszcie własny arkusz
   // Kernello ma WLASNA animacje eksplozji — jedyny wrog z prawdziwym `death`
   await buildChar('kernello_boomello', ['idle', 'run', 'death']);
   await ladowanie('Sadzenie krzaków…');
@@ -5892,7 +6141,11 @@ if (loadTip) {
   await ladowanie('Ukrywanie skrzyń…');
   spawnChests(9);
   await ladowanie('Stawianie garnków Nonny…');
+  await ladujGarnek();      // sprite garnka; bez niego zostaje proceduralny
   spawnTotems(3);
+  // `setMap` poszedł WCZEŚNIEJ niż wczytanie sprite'a, a `spawnTotems` bierze teksturę
+  // proceduralną — bez tego wywołania garnek zostawał rysowany kodem.
+  ustawWygladGarnkow(mapKey);
   drawHearts();
   await ladowanie('Otwieranie sklepu…');
   renderShop(); renderMaps(); renderChars(); renderStats(); renderBestiary(); renderPick();

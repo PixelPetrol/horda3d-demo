@@ -1,57 +1,4 @@
 export const SPRITEDATA={
- "kura_braz": {
-  "img": "assets/kura_braz.png",
-  "size": 48,
-  "footOff": 5,
-  "anims": {
-   "idle": {
-    "fps": 3,
-    "frames": {
-     "south": 4,
-     "south-east": 4,
-     "east": 4,
-     "north-east": 4,
-     "north": 4,
-     "north-west": 4,
-     "west": 4,
-     "south-west": 4
-    },
-    "rows": {
-     "south": 0,
-     "south-east": 1,
-     "east": 1,
-     "north-east": 1,
-     "north": 2,
-     "north-west": 3,
-     "west": 3,
-     "south-west": 3
-    }
-   },
-   "walk": {
-    "fps": 8,
-    "frames": {
-     "south": 4,
-     "south-east": 4,
-     "east": 4,
-     "north-east": 4,
-     "north": 4,
-     "north-west": 4,
-     "west": 4,
-     "south-west": 4
-    },
-    "rows": {
-     "south": 0,
-     "south-east": 1,
-     "east": 1,
-     "north-east": 1,
-     "north": 2,
-     "north-west": 3,
-     "west": 3,
-     "south-west": 3
-    }
-   }
-  }
- },
  "beetino_bouncerino": {
   "img": "assets/veggie/beetino_bouncerino.png",
   "size": 124,
@@ -649,6 +596,135 @@ export const SPRITEDATA={
      "north-west": 21,
      "west": 22,
      "south-west": 23
+    }
+   }
+  }
+ },
+ "don_chipso": {
+  "img": "assets/veggie/don_chipso.png",
+  "size": 64,
+  "footOff": 0,
+  "anims": {
+   "run": {
+    "fps": 12,
+    "frames": {
+     "south": 6,
+     "south-east": 6,
+     "east": 6,
+     "north-east": 6,
+     "north": 6,
+     "north-west": 6,
+     "west": 6,
+     "south-west": 6
+    },
+    "rows": {
+     "south": 0,
+     "south-east": 1,
+     "east": 2,
+     "north-east": 3,
+     "north": 4,
+     "north-west": 5,
+     "west": 6,
+     "south-west": 7
+    }
+   },
+   "jump": {
+    "fps": 14,
+    "frames": {
+     "south": 7,
+     "south-east": 7,
+     "east": 7,
+     "north-east": 7,
+     "north": 7,
+     "north-west": 7,
+     "west": 7,
+     "south-west": 7
+    },
+    "rows": {
+     "south": 8,
+     "south-east": 9,
+     "east": 10,
+     "north-east": 11,
+     "north": 12,
+     "north-west": 13,
+     "west": 14,
+     "south-west": 15
+    }
+   },
+   "idle": {
+    "fps": 6,
+    "frames": {
+     "south": 1,
+     "south-east": 1,
+     "east": 1,
+     "north-east": 1,
+     "north": 1,
+     "north-west": 1,
+     "west": 1,
+     "south-west": 1
+    },
+    "rows": {
+     "south": 16,
+     "south-east": 17,
+     "east": 18,
+     "north-east": 19,
+     "north": 20,
+     "north-west": 21,
+     "west": 22,
+     "south-west": 23
+    }
+   }
+  }
+ },
+ "ketchupino_splatterino": {
+  "img": "assets/veggie/ketchupino_splatterino.png",
+  "size": 64,
+  "footOff": 0,
+  "anims": {
+   "idle": {
+    "fps": 6,
+    "frames": {
+     "south": 4,
+     "south-east": 4,
+     "east": 1,
+     "north-east": 4,
+     "north": 1,
+     "north-west": 4,
+     "west": 1,
+     "south-west": 4
+    },
+    "rows": {
+     "south": 0,
+     "south-east": 1,
+     "east": 2,
+     "north-east": 3,
+     "north": 4,
+     "north-west": 5,
+     "west": 6,
+     "south-west": 7
+    }
+   },
+   "run": {
+    "fps": 12,
+    "frames": {
+     "south": 6,
+     "south-east": 6,
+     "east": 6,
+     "north-east": 6,
+     "north": 6,
+     "north-west": 6,
+     "west": 6,
+     "south-west": 6
+    },
+    "rows": {
+     "south": 8,
+     "south-east": 9,
+     "east": 10,
+     "north-east": 11,
+     "north": 12,
+     "north-west": 13,
+     "west": 14,
+     "south-west": 15
     }
    }
   }

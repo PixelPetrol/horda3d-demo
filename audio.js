@@ -4,7 +4,7 @@
 // naprawdę potrzebny — ładowanie strony i start biegu nic nie ciągną z sieci.
 // Przeglądarki blokują dźwięk przed interakcją: gramy dopiero po pierwszym
 // kliknięciu/dotknięciu/klawiszu (patrz `odblokuj`), wcześniej utwór tylko czeka.
-import { ico } from './icons.js?v=2';   // ten sam specyfikator co w main.js = jeden moduł
+import { ico } from './icons.js?v=3';   // ten sam specyfikator co w main.js = jeden moduł
 
 // ============================== BIBLIOTEKA UTWORÓW ==============================
 const MUZ_DIR = 'assets/audio/muzyka/';

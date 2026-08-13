@@ -282,7 +282,7 @@ const ART = {
     '.yYYYYy.',
     '..yYYy..',
     '.yYy.yYy',
-    'yy.....yy',
+    'yy....yy',
     '........',
   ],
   skok: [
