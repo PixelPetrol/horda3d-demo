@@ -1602,6 +1602,20 @@ class Billboard {
     if (this.kopia) {
       this.kopia.material = matNaWierzchu(mats[f], 0xffffff);
       this.obrys.material = matNaWierzchu(mats[f], OBRYS_KOLOR);
+      // KOPIA WLACZA SIE TYLKO WTEDY, GDY JEST PO CO. `depthTest: false` ignoruje
+      // CALY swiat, nie tylko horde — wiec gracz przebijal takze drzewa i regaly
+      // (zgloszenie wlasciciela: „drzewa przenikaja"). Warunek: ktos stoi tuz przy
+      // graczu I jest BLIZEJ kamery, czyli faktycznie go zaslania. W pustym polu
+      // kopia gasnie i drzewa zaslaniaja postac normalnie, jak przed zmiana.
+      let zaslaniaja = 0;
+      const dk = camera.position.distanceTo(P.pos);
+      for (const e of G.enemies) {
+        if (e.dying) continue;
+        const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z;
+        if (dx * dx + dz * dz > 6.25) continue;                  // promien 2.5 j.
+        if (camera.position.distanceTo(e.pos) < dk) { zaslaniaja++; break; }
+      }
+      this.kopia.visible = this.obrys.visible = zaslaniaja > 0;
     }
     // FOOTY MUSI BYĆ SKRÓCONE O `cos(pochylenia)`. Zsuwamy sprite'a w dół o tyle
     // pustych pikseli, ile arkusz ma pod stopami — ale to przesunięcie było liczone
@@ -1749,7 +1763,11 @@ function initHitFlash() {
   hitFlashMat = new THREE.MeshBasicMaterial({ color: 0xff2a2a, transparent: true, opacity: 0,
     depthTest: false, alphaTest: 0.5, side: THREE.DoubleSide });
   hitFlash = new THREE.Mesh(unitGeo, hitFlashMat);
-  hitFlash.renderOrder = 5;
+  // 950, NIE 5. Gracz dostal dzis kopie sprite'a rysowana NA WIERZCHU hordy
+  // (renderOrder 900, `depthTest: false`) i ta kopia zaczela ZASLANIAC czerwony
+  // blysk — postac przestala migac na czerwono po ciosie, a jedyne, co bylo widac,
+  // to zlota aura nietykalnosci nad glowa. Blysk musi rysowac sie PO kopii.
+  hitFlash.renderOrder = 950;
   hitFlash.visible = false;
   scene.add(hitFlash);
 }
@@ -1818,7 +1836,7 @@ const SKARPETA_R = l => 1.8 + 0.25 * l * l;
 // Cztery różne sylwetki, żeby dym nie był powtórzoną naklejką. Kształt = suma
 // garbów (koła o różnych promieniach zsunięte ku górze) + poszarpanie `pnoise`,
 // więc nawet pojedynczy kłąb nie ma obrysu koła.
-let DYM_PAL = { jasny: [242, 250, 176], sredni: [184, 216, 88], ciemny: [114, 152, 50], kontur: [50, 68, 30] };
+let DYM_PAL = { jasny: [250, 253, 226], sredni: [214, 236, 162], ciemny: [172, 204, 114], kontur: [62, 82, 46] };
 // Kafle 0-1 = gęste kalafiory (kłęby przyziemne), kafle 2-3 = poszarpane strzępy
 // (to, co się unosi i rozwiewa). Rodzaj kłębu wybiera kafel — patrz `initSmrod`.
 const DYM_KAFLE = [
@@ -1871,8 +1889,8 @@ function dymAtlas() {
       const brzeg = x === 0 || y === 0 || x === T - 1 || y === T - 1
         || pole[y * T + x - 1] <= 0 || pole[y * T + x + 1] <= 0
         || pole[(y - 1) * T + x] <= 0 || pole[(y + 1) * T + x] <= 0;
-      let kol, a = 184;
-      // KONTUR JEST BARDZIEJ KRYJĄCY OD WNĘTRZA (255 vs 184). Przy jednolitej alfie
+      let kol, a = 224;
+      // KONTUR JEST BARDZIEJ KRYJĄCY OD WNĘTRZA (255 vs 224). Przy jednolitej alfie
       // ciemna obwódka gasła razem z ciałem kłębu i sylwetka rozmywała się w trawie.
       if (brzeg) { kol = P4.kontur; a = 255; }
       else {
@@ -1895,6 +1913,29 @@ function dymAtlas() {
   return t;
 }
 
+// MAPA SZUMU DO KŁĘBIENIA (64², kafelkuje się bezszwowo, `RepeatWrapping`).
+// Kanoniczna sztuczka na stylizowany dym: NIE obracamy naklejki, tylko
+// PRZEWIJAMY szum w UV. Obracany billboard czyta się jak wirująca nalepka;
+// przesuwany szum wygryza sylwetkę i kłąb faktycznie się kłębi. Wartości są
+// kwantowane na 8 stopni, więc erozja idzie pixel-artowymi skokami.
+function dymSzum() {
+  const S = 64, c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d'), im = g.createImageData(S, S);
+  const OKT = [[4, 0.50], [8, 0.28], [16, 0.15], [32, 0.07]];
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    let v = 0;
+    for (const [per, waga] of OKT) v += pnoise(x / S * per, y / S * per, per) * waga;
+    v = Math.max(0, Math.min(1, (v - 0.30) * 1.9));
+    const i = (y * S + x) * 4, b = Math.round(Math.floor(v * 8) / 8 * 255);
+    im.data[i] = im.data[i + 1] = im.data[i + 2] = b; im.data[i + 3] = 255;
+  }
+  g.putImageData(im, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false;
+  return t;
+}
+
 // JEDEN InstancedMesh = jeden draw call na cały dym, zero alokacji w pętli klatki
 // i pełna swoboda per kłąb (własna alfa, odcień, kafel atlasu, obrót) — czego
 // pula 26 zwykłych meshy z jednym materiałem dać nie mogła (wspólne `opacity`).
@@ -1910,7 +1951,7 @@ const DYM_W_PIORZE = 8;
 const DYM_PIOR = 21;
 const DYM_ILE = DYM_PIOR * DYM_W_PIORZE;               // 168 kłębów, 1 draw call
 const dymCfg = {
-  opac: 0.72,      // krycie kłębu (przez dym MUSI być widać wrogów)
+  opac: 0.86,      // krycie kłębu (przez dym MUSI być widać wrogów)
   pasy: 5,         // kwantyzacja alfy — zanik skokami, nie gradientem
   dur: 2.6,        // czas przelotu kłębu przez całą kolumnę [s]
   wys: 2.7,        // wysokość kolumny w jednostkach
@@ -1922,6 +1963,10 @@ const dymCfg = {
   kraw: 0.35,      // o ile przezroczystsze są kolumny na skraju zasięgu
   chwiej: 0.55,    // amplituda chwiania kolumny
   strzep: 1,       // 1 = kłąb u góry przechodzi na poszarpany kafel
+  klebSk: 2.2,     // skala szumu kłębienia (ile „bąbli" na kłąb)
+  klebSp: 0.30,    // prędkość przewijania szumu kłębienia
+  erozja: 0.62,    // ile szum wygryza ze STAREGO kłębu (0 = nic nie wygryza)
+  nadZ: 0.42,      // podniesienie quada nad punkt bazowy (żeby nie ciął trawy)
   blend: 'normal',
 };
 let dymMesh = null, dymMat = null, dymPulsT = -9;
@@ -1977,14 +2022,17 @@ function initSmrod() {
       uWys: { value: dymCfg.wys }, uRoz: { value: dymCfg.roz }, uWir: { value: dymCfg.wir },
       uWykl: { value: dymCfg.wykl }, uKraw: { value: dymCfg.kraw },
       uChwiej: { value: dymCfg.chwiej }, uStrzep: { value: dymCfg.strzep },
+      uSzum: { value: dymSzum() }, uKlebSk: { value: dymCfg.klebSk },
+      uKlebSp: { value: dymCfg.klebSp }, uErozja: { value: dymCfg.erozja },
+      uNadZ: { value: dymCfg.nadZ },
     },
     vertexShader: `
       attribute vec4 aSeed; attribute vec2 aPlm; attribute vec3 aTint;
       attribute float aI; attribute float aKol;
       uniform float uTime, uR, uOpac, uPuls, uFrac, uDur, uWys, uRoz, uWir, uWykl, uKraw,
-                    uChwiej, uStrzep;
+                    uChwiej, uStrzep, uKlebSk, uKlebSp, uErozja, uNadZ;
       uniform vec3 uCenter, uRight, uUp;
-      varying vec2 vUv; varying float vA; varying vec3 vTint;
+      varying vec2 vUv; varying vec2 vSz; varying float vA; varying float vEr; varying vec3 vTint;
       void main() {
         // aI > uFrac = kłąb wyłączony (zerowy quad). Instancje idą PIÓRAMI, więc
         // odcięcie po indeksie gasi CAŁE kolumny — tak rośnie zasięg z poziomem.
@@ -2010,15 +2058,26 @@ function initSmrod() {
         // MŁODY kłąb = gęsty kalafior (górny rząd atlasu), STARY = poszarpany
         // strzęp (dolny rząd): dym rozwiewa się, wznosząc się. Zero kosztu.
         vUv = uv * 0.5 + vec2(aKol, step(0.55, life) * uStrzep * 0.5);
-        vec3 wp = p + uRight * (position.x * sz) + uUp * ((position.y + 0.18) * sz);
+        // UV szumu kłębienia: PRZEWIJANE w czasie (dym się kłębi), z przesunięciem
+        // per kłąb, żeby dwa sąsiednie nie wygryzały się identycznie
+        vSz = uv * uKlebSk + vec2(aSeed.w * 7.3 + uTime * uKlebSp * 0.5,
+                                  aSeed.z * 5.1 - uTime * uKlebSp);
+        // erozja rośnie z wiekiem: świeży kłąb jest zwarty, stary rozdmuchany
+        vEr = uErozja * smoothstep(0.15, 0.95, life);
+        // uNadZ podnosi quada NAD punkt bazowy — inaczej dolna połowa pochylonego
+        // billboardu wchodzi w teren i powstaje twarda linia cięcia o ostrza trawy
+        vec3 wp = p + uRight * (position.x * sz) + uUp * ((position.y + uNadZ) * sz);
         gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
       }`,
     fragmentShader: `
-      uniform sampler2D uMap; uniform float uPasy;
-      varying vec2 vUv; varying float vA; varying vec3 vTint;
+      uniform sampler2D uMap; uniform sampler2D uSzum; uniform float uPasy;
+      varying vec2 vUv; varying vec2 vSz; varying float vA; varying float vEr; varying vec3 vTint;
       void main() {
         vec4 t = texture2D(uMap, vUv);
         if (t.a < 0.25) discard;                      // twarda sylwetka: zero rozmycia
+        // KŁĘBIENIE: przewijany szum wygryza dziury w kłębie (im starszy, tym
+        // bardziej). NearestFilter na obu teksturach = erozja idzie po pikselach.
+        if (texture2D(uSzum, vSz).r < vEr) discard;
         float a = floor(vA * uPasy + 0.5) / uPasy;    // ALFA W PASACH (jak gradient nieba)
         if (a < 0.02) discard;
         gl_FragColor = vec4(t.rgb * vTint, a * t.a);
@@ -2053,6 +2112,8 @@ function updateSmrod() {
   u.uWys.value = dymCfg.wys; u.uRoz.value = dymCfg.roz; u.uWir.value = dymCfg.wir;
   u.uWykl.value = dymCfg.wykl; u.uKraw.value = dymCfg.kraw;
   u.uChwiej.value = dymCfg.chwiej; u.uStrzep.value = dymCfg.strzep;
+  u.uKlebSk.value = dymCfg.klebSk; u.uKlebSp.value = dymCfg.klebSp;
+  u.uErozja.value = dymCfg.erozja; u.uNadZ.value = dymCfg.nadZ;
 }
 
 let aura = null, auraRing = null;
@@ -2078,9 +2139,11 @@ function updateAura() {
   const puls = 0.5 + 0.5 * Math.sin(G.time * (niet ? 7 : 13));
   const h = playerBB.h;
   aura.material.opacity = (niet ? 0.55 : 0.40) + 0.25 * puls;
-  aura.scale.set(h * (1.55 + 0.10 * puls), h * (1.55 + 0.10 * puls), 1);
+  // 1.55 -> 1.32 i nizszy srodek: poswiata siegala wysoko nad glowe i czytala sie
+  // jako „blysk nad postacia", a ma byc otoczka POSTACI
+  aura.scale.set(h * (1.32 + 0.08 * puls), h * (1.32 + 0.08 * puls), 1);
   // pivot sprite'a siedzi w stopach, więc poświatę środkujemy na tułowiu
-  aura.position.set(playerBB.mesh.position.x, playerBB.mesh.position.y + h * 0.46, playerBB.mesh.position.z);
+  aura.position.set(playerBB.mesh.position.x, playerBB.mesh.position.y + h * 0.38, playerBB.mesh.position.z);
   aura.quaternion.copy(playerBB.mesh.quaternion);
   auraRing.material.opacity = (niet ? 0.75 : 0.5) + 0.25 * puls;
   const r = h * (0.95 + 0.12 * puls);
