@@ -1021,6 +1021,84 @@ jak zmierzyć, czy karta cokolwiek robi**. Tylko DEV.
   co klatkę robi `P.hp = P.maxHp; P.iframes = 1`.
 - Kilka awansów w jednej klatce da się wywołać jedną pigułką: `G.gems[0].val = 400`.
 
+## ═══════════ 13.08 CZĘŚĆ CZWARTA: CZYTELNOŚĆ, KINO, OBRAZ, MENU ═══════════
+(main.js v126 — trzy porcje pod rząd: (a) czytelność, (b) oprawa filmowa, (c) jakość obrazu
++ przebudowa menu zrobiona równolegle przez `grafik-3d`)
+
+### (a) GRACZA NIE BYŁO NA EKRANIE — zmierzone, nie wyczute
+W 3. minucie w promieniu **70 px** od postaci stoją **32 wrogi, z czego 18 rysuje się
+PRZED nią**. Na zrzucie nie dało się znaleźć Carrotella we własnej hordzie.
+- Gracz ma teraz **dwie kopie sprite'a z `depthTest: false`**: ciemny obrys
+  (`renderOrder` 899, skala 1.10, kolor konturu `#1b1b22`) i kolorowa kopia (900).
+  Są **DZIEĆMI głównego mesha** — dziedziczą pozycję, obrót, skalę i widoczność,
+  więc `playerBB.mesh.visible = false` w trybie karabinu chowa je razem z ciałem
+  (zweryfikowane w pierwszej osobie: rodzic niewidoczny) i animacja śmierci działa
+  bez ani jednej linii synchronizacji. Tekstura jest **wspólna z oryginałem**
+  (`matNaWierzchu` cache'uje po `src.uuid + kolor`) — zero dodatkowego VRAM-u.
+- `Billboard` ma trzeci argument `naWierzchu`; używa go tylko gracz.
+- **Cień kontaktowy**: rdzeń 0.40 → 0.58, rozmycie od 10 px, dodatkowy przystanek
+  na 55% → horda przestała unosić się nad trawą.
+- **Kamera odjeżdża od tłoku**: `G.tlok` (0-1) z liczby wrogów w promieniu 7 j.,
+  dojście `dt * 1.2`, wpływ +22% dystansu i +14% wysokości. Wolne dojście jest
+  celowe — kamera skacząca przy każdym przebiegniętym wrogu byłaby gorsza.
+- **AURA NIETYKALNOŚCI** (pomysł właściciela: „jak SSJ"): poświata **kwantowana na
+  6 pasów** (jak gradient nieba — gładka wyglądałaby jak z innej gry) + pierścień
+  na ziemi, który widać nawet wtedy, gdy postać zasłania horda. Podział ról:
+  **czerwony błysk = „oberwałem" (zdarzenie), złota aura = „nie można mnie tknąć" (stan)**.
+  Wcześniej to samo migotanie robiło oba i okno nietykalności było nieczytelne.
+- `#buff` schodzi **pod pasek bossa** — „SERIA x12 — MONETY ×2" drukowało się NA
+  „DON CHIPSO". Pozycja z `getBoundingClientRect()`, bo pasek ma własną regułę `@media`.
+
+### (b) OPRAWA FILMOWA
+- **Wejście bossa**: pasy letterbox + **slow-mo 55% na 1.2 s** (`G.kino`) + odjazd
+  kamery, do tego istniejące przyciemnienie i imię. Czas odliczany **realnym dt**
+  (`dtReal`), inaczej hitstop w tej samej klatce rozciągnąłby oprawę kilkukrotnie.
+- **Błysk na cały ekran**: biały 0.20 przy awansie, złoty 0.55 przy EWOLUCJI broni
+  (najrzadszy moment w biegu nie miał żadnej własnej oprawy).
+- Nakładki (`blysk`, `pasy`, `winieta`) są **tworzone z kodu**, nie w index.html —
+  stoją przy funkcjach, które je odpalają, i nie kolidowały z równoległą pracą nad menu.
+- **LICZBY OBRAŻEŃ przestały zasłaniać grę**: „KILL X34" miało 1.87 j. wysokości
+  i **7.6 j. szerokości** (~715 px), bo skala rosła z serią, a szerokość jeszcze
+  z długości tekstu. Teraz: szerokość ograniczona do `min(3.4, 2.2 + 0.45·scale)`,
+  słowo „KILL" przy serii zastąpione samym mnożnikiem (`x34`), skala serii
+  1.1+0.12·s → 1.0+0.08·s (max 1.6), a **drobne liczby (`scale < 1`) ustępują,
+  gdy w kadrze jest już 24 napisy**. Zmierzone po zmianie: najszerszy pop 3.06 j.
+
+### (c) JAKOŚĆ OBRAZU — spłacony dług z audytu grafika
+- **Cień chmur wchodzi PRZED mgłę.** Mnożenie siedziało przy `dithering_fragment`,
+  czyli PO `fog_fragment`: przyciemniało kolor już zmieszany z mgłą, więc daleki
+  horyzont dostawał ciemne łaty wędrujące z chmurami. Kotwica z fallbackiem —
+  materiał bez mgły dostaje starą, żeby cień chmur nie zniknął po cichu.
+- **Peter-panning**: `shadow.bias` −0.0014 (≈23 cm odklejenia) → **−0.00018**,
+  ciężar przeniesiony na `normalBias` 0.03 → 0.045.
+- **Snapowanie ramki cienia do teksela** (`TEKSEL = 84 / 2048`): ramka jechała
+  dokładnie za graczem, więc mapa cieni przesuwała się o ułamek teksela co krok
+  i krawędzie pełzały. Teraz środek skacze pełnymi tekselami.
+- **Winieta** — jeden `div` z `radial-gradient`, `z-index 4`, czyli **pod HUD-em**
+  (5): przyciemnia wyłącznie obraz 3D, liczniki zostają ostre. Zero kosztu GPU.
+  Włącza się na start biegu, gaśnie w `gameOver()`.
+- **NIE zrobione: światło na sprite'ach.** `buildChar` daje `MeshBasicMaterial`
+  i materiały są **wspólne dla wszystkich wrogów danego typu**, więc tint per postać
+  wymaga materiału per mesh — czyli **tej samej przebudowy, co atlas** (zadanie nr 2).
+  Do zrobienia razem z nim, nie osobno.
+
+### MENU (agent `grafik-3d`, tylko CSS + markup w index.html)
+- **Znaleziony i naprawiony błąd `box-sizing`**: reguły `width:min(Xvw,Ypx)` +
+  `padding` liczyły padding NA DODATEK (content-box). Panel „Dźwięk" **373 → 345 px**
+  przy ekranie 375, kafle 184 → 164, `#kodInput` 244 → 220, `.stat` 162 → 146.
+  `.card` (karty awansu) dołożone przeze mnie: **186 → 161 px**, więc trzy karty
+  wreszcie mieszczą się w 375 px. Zmierzone po całości: `scrollWidth` = 375 px
+  we **wszystkich siedmiu zakładkach**, nic nie wystaje (max prawa 363, min lewa 12).
+- **Druga pułapka, groźniejsza:** `.ov { justify-content: center }` przy treści
+  wyższej od ekranu centruje ją **poza zakresem przewijania** — w Sklepie logo
+  i przycisk GRAJ były przy `scrollTop: 0` już wycięte (`top: −575 px`) i **nie
+  dało się do nich dojechać**. Teraz `flex-start` + `@supports (justify-content: safe center)`.
+- **Hierarchia ekranu tytułowego**: `GRAJ` wyjęty z panelu do `#playCta` NAD
+  zakładkami (widoczny zawsze, niezależnie od otwartego panelu), zakładka „Graj"
+  ukryta ale ZOSTAJE w DOM, bo `gpBack()` (pad) ją klika, a `navItems()` filtruje
+  po `offsetWidth`, więc sama wypada z nawigacji padem. Instrukcje sterowania
+  zjechały do `#startFoot`. Każdy panel dostał `<h2>` = wspólna rama.
+
 ## ═══════════ CO DALEJ — KOLEJNOŚĆ I GDZIE SZUKAĆ ═══════════
 
 ### 1. ~~DRZEWO ULEPSZEŃ WYSYCHA W 4. MINUCIE~~ ✅ **ZROBIONE 13.08 (v122)**

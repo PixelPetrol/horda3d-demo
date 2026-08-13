@@ -175,8 +175,11 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.bias = -0.0014;
-sun.shadow.normalBias = 0.03;
+// PETER-PANNING: bias -0.0014 przy ramce 84 j. odklejal cien od obiektu o ~23 cm
+// (zmierzone przez grafika) — obiekty wygladaly, jakby lekko unosily sie nad ziemia.
+// `normalBias` robi te sama robote BEZ odklejania, wiec ciezar przenosimy na niego.
+sun.shadow.bias = -0.00018;
+sun.shadow.normalBias = 0.045;
 {
   const d = 42;                                    // obszar objęty cieniami wokół gracza
   const sc = sun.shadow.camera;
@@ -185,9 +188,15 @@ sun.shadow.normalBias = 0.03;
   sc.updateProjectionMatrix();
 }
 const SUN_OFF = new THREE.Vector3(38, 60, 26);     // kierunek padania promieni
+// SNAPOWANIE DO TEKSELA. Ramka cienia jechala DOKLADNIE za graczem, wiec przy kazdym
+// kroku cala mapa cieni przesuwala sie o ulamek teksela i krawedzie „pelzaly"
+// (migotanie zauwazalne zwlaszcza na cieniach drzew). Teraz srodek ramki skacze
+// pelnymi tekselami — obraz stoi, a cien i tak jest tam, gdzie ma byc.
+const TEKSEL = (2 * 42) / 2048;                    // szerokosc ramki / rozdzielczosc mapy
 function updateSun(x, z) {
-  sun.position.set(x + SUN_OFF.x, SUN_OFF.y, z + SUN_OFF.z);
-  sun.target.position.set(x, 0, z);
+  const sx = Math.round(x / TEKSEL) * TEKSEL, sz = Math.round(z / TEKSEL) * TEKSEL;
+  sun.position.set(sx + SUN_OFF.x, SUN_OFF.y, sz + SUN_OFF.z);
+  sun.target.position.set(sx, 0, sz);
   sun.target.updateMatrixWorld();
 }
 
@@ -657,11 +666,18 @@ function addCloudShadow(mat) {
          _wp = instanceMatrix * _wp;
        #endif
        vWPos = (modelMatrix * _wp).xyz;`);
+    // CIEŃ CHMUR MUSI WEJŚĆ **PRZED MGŁĘ**. Wcześniej mnożenie siedziało przy
+    // `dithering_fragment`, czyli PO `fog_fragment`: przyciemniało kolor, który był
+    // już zmieszany z mgłą, więc daleki horyzont — który ma być czystą mgłą — dostawał
+    // ciemne łaty wędrujące razem z chmurami (zgłoszone przez grafika w audycie).
+    const kod = `float cs = texture2D(uCloud, vWPos.xz * ${CLOUD_SCALE.toFixed(5)} + uCloudOff).r;
+       gl_FragColor.rgb *= mix(0.48, 1.06, cs);`;
+    const kotwica = sh.fragmentShader.includes('#include <fog_fragment>')
+      ? '#include <fog_fragment>' : '#include <dithering_fragment>';
+    // przy braku mgły w materiale zostaje stara kotwica — inaczej `replace` nie
+    // trafiłby w nic i cień chmur zniknąłby po cichu
     sh.fragmentShader = 'uniform sampler2D uCloud;uniform vec2 uCloudOff;varying vec3 vWPos;\n' +
-      sh.fragmentShader.replace('#include <dithering_fragment>',
-      `#include <dithering_fragment>
-       float cs = texture2D(uCloud, vWPos.xz * ${CLOUD_SCALE.toFixed(5)} + uCloudOff).r;
-       gl_FragColor.rgb *= mix(0.48, 1.06, cs);`);
+      sh.fragmentShader.replace(kotwica, kod + '\n       ' + kotwica);
   };
   mat.needsUpdate = true;
   return mat;
@@ -1508,8 +1524,11 @@ function matNaWierzchu(src, kolor) {
   }
   return m;
 }
-const OBRYS_SKALA = 1.10;                        // grubość obrysu (10% sylwetki)
-const OBRYS_KOLOR = 0x1b1b22;                    // ten sam kontur, co w całym pixel-arcie gry
+// Grubosc i kolor obrysu sa REGULOWANE na zywo (`HORDA.ustawObrys`), bo to czysta
+// kwestia gustu, a wlasciciel mial watpliwosci co do czarnej otoczki.
+// `skala === 1` = brak obrysu (schowa sie dokladnie pod kolorowa kopia).
+let OBRYS_SKALA = 1.07;
+let OBRYS_KOLOR = 0x1b1b22;                      // ten sam kontur, co w calym pixel-arcie gry
 
 class Billboard {
   constructor(char, scaleMul = 1, naWierzchu = false) {
@@ -2360,12 +2379,19 @@ function pollPads(dt) {
 // Elementy tworzone Z KODU, nie w index.html — to jedna nakładka na cały ekran
 // i dwa pasy; trzymanie ich przy kodzie, który je odpala, jest czytelniejsze niż
 // trzy martwe divy w HTML-u. Wszystko `pointer-events:none`, więc nic nie łyka wejścia.
-let _blyskEl = null, _pasyEl = null;
+let _blyskEl = null, _pasyEl = null, _winietaEl = null;
 function initKino() {
   _blyskEl = document.createElement('div');
   _blyskEl.style.cssText = 'position:fixed;inset:0;z-index:8;pointer-events:none;opacity:0;' +
     'background:#fff;transition:opacity .28s ease-out';
   document.body.appendChild(_blyskEl);
+  // WINIETA. Kadr jest jednakowo jasny od brzegu do brzegu, a przy 500 wrogach oko
+  // nie ma się gdzie zaczepić. z-index 4 = PONIŻEJ HUD-u (5), więc przyciemnia
+  // wyłącznie obraz 3D, a liczniki zostają ostre. Zero kosztu GPU — to jeden div.
+  _winietaEl = document.createElement('div');
+  _winietaEl.style.cssText = 'position:fixed;inset:0;z-index:4;pointer-events:none;opacity:0;' +
+    'transition:opacity .6s;background:radial-gradient(ellipse at 50% 48%,transparent 42%,rgba(6,10,16,.52) 100%)';
+  document.body.appendChild(_winietaEl);
   _pasyEl = document.createElement('div');
   _pasyEl.style.cssText = 'position:fixed;inset:0;z-index:8;pointer-events:none;opacity:0;' +
     'transition:opacity .3s;background:linear-gradient(#000 0 8%,transparent 8% 92%,#000 92% 100%)';
@@ -2383,6 +2409,7 @@ function blysk(kolor = '#fff', moc = 0.35) {
   });
 }
 const pasy = on => { if (_pasyEl) _pasyEl.style.opacity = on ? 1 : 0; };
+const winieta = on => { if (_winietaEl) _winietaEl.style.opacity = on ? 1 : 0; };
 
 function wejscieBossa() {
   const ov = document.getElementById('bossOv'), nm = document.getElementById('bossNm');
@@ -2576,7 +2603,13 @@ const ENEMY_TYPES = {
     char: 'ketchupino_splatterino', artyleria: true,
     nm: 'Ketchupino Splatterino',
     ds: 'Butla ketchupu, która nauczyła się moździerza. Nie podejdzie — nie musi. Ściska sobie brzuch i pluje po łuku, a to, co po nim zostaje, trzyma za nogi lepiej niż rozlana woda.' },
-  boss: { hp: 90, okrKol: 0xf2c14a, speed: 2.2, dmg: 2, scale: 2.1, xp: 25, walk: 'run',
+  // TEMPO 2.2 -> 4.4 (decyzja wlasciciela 13.08): Don Chipso ma IsC NA PRZODZIE HORDY.
+  // 4.4 stawia go nad najszybszym szeregowym (Friesetti 4.0), wiec wychodzi z tlumu
+  // i widac, ze to on prowadzi atak. Gracz ma 7.13 (Carrotello), czyli da sie od niego
+  // odejsc — ale nie da sie go zignorowac. Zglaszam kompromis: ciezki boss, ktory
+  // jest zwinniejszy od calej hordy, jest mniej „ciezki" w odczuciu; wlasciciel
+  // wybral czytelnosc roli („to on tu rzadzi") i to ona wygrywa.
+  boss: { hp: 90, okrKol: 0xf2c14a, speed: 4.4, dmg: 2, scale: 2.1, xp: 25, walk: 'run',
     char: 'don_chipso', boss: true,
     nm: 'Don Chipso',
     ds: 'Głowa Famiglii. Mówi szeptem, bo kto ma sól, nie musi krzyczeć. Wymięty jak jego sumienie, tłusty jak jego interesy. Osiedle traktuje jak talerz: co na nim leży, uważa za swoje.' },
@@ -2646,7 +2679,11 @@ function killEnemy(e, i) {
   G.streak = (G.time - G.streakT < 1.3) ? G.streak + 1 : 1;
   G.streakT = G.time;
   if (G.streak === 12 || G.streak === 30) toastBuff('SERIA x' + G.streak + ' — MONETY ×' + (G.streak >= 30 ? 3 : 2));
-  G.shake = Math.max(G.shake, Math.min(0.5, 0.06 + G.streak * 0.03));
+  // ZGLOSZENIE WLASCICIELA: „ekran czasem sie za mocno trzesie". To bylo TU —
+  // trzesienie odpalalo sie przy KAZDYM zabojstwie i rosło z seria do 0.5, a przy
+  // 500 wrogach zabojstwa sa co klatke, wiec kamera nigdy nie wracala do spokoju.
+  // Zostaje odczucie serii, znika ciagly jitter.
+  G.shake = Math.max(G.shake, Math.min(0.18, 0.05 + G.streak * 0.008));
   AUDIO.sfx(e.T.boss ? 'bossdown' : 'kill', { seria: G.streak });   // ton rośnie z serią
   AUDIO.seria(G.streak);                           // przy dużej serii postać się odezwie (rzadko)
   if (e.T.boss) { dmgPop(e.pos.x, e.ty + 1.2, e.pos.z, 'BOSS DOWN!', '#ff5555', 2.6); META.st.bosses++; saveMeta();
@@ -5533,6 +5570,10 @@ function update(dt) {
     const dCel = to.length(); to.normalize();
     const d = e.pos.distanceTo(P.pos);              // do gracza — od tego zależą jego obrażenia
     let es = e.T.speed * (e.elite ? 0.85 : 1) * spdScale();
+    // BOSSA NIE DA SIE ZGUBIC (decyzja wlasciciela: „przeciwnik, ktorego trzeba pokonac").
+    // Prowadzi horde (4.4 > Friesetti 4.0), a z bardzo daleka jeszcze docisnie —
+    // wiec odejscie na drugi koniec mapy nie jest odpowiedzia na walke z Donem.
+    if (e.T.boss && d > 26) es *= 1.35;
     if (e.stun > 0) { e.stun -= dt; es = 0; }        // ogluszenie z ewolucji "DZIS NIE WEJDZIESZ"
     if (e.ty < WATER_Y - 0.04) es *= 0.7;               // woda spowalnia też ich
     if (G.buff.key === 'slow') es *= 0.6;
@@ -5989,9 +6030,13 @@ function update(dt) {
   // lerp zostawiał kamerę w połowie drogi na cały tryb.
   camera.position.lerp(_camCel, kf > 0 ? 1 : Math.min(1, dt * 8));
   if (G.shake > 0) {
-    G.shake -= dt;
-    camera.position.x += (Math.random() - .5) * G.shake * 0.7;
-    camera.position.y += (Math.random() - .5) * G.shake * 0.7;
+    // SUFIT I SZYBSZY ZANIK. Zrodel trzesienia jest 22 i potrafia sie nakladac
+    // (boss + wybuch + cios w tej samej klatce), a zanik „-dt" trzymal duze
+    // wartosci przez pol sekundy. Sufit 0.35 + zanik rosnacy z amplituda.
+    G.shake -= dt * (1 + G.shake * 2);
+    const sh = Math.min(G.shake, 0.35) * 0.7;
+    camera.position.x += (Math.random() - .5) * sh;
+    camera.position.y += (Math.random() - .5) * sh;
   }
   const patrzD = 2.2 + kf * 18;                    // w pierwszej osobie patrzymy w dal, nie na siebie
   camera.lookAt(P.pos.x + fx * patrzD, P.y + 1.3 + kf * (Math.tan(F.pitch) * patrzD + 0.32),
@@ -6131,6 +6176,7 @@ function deszczMonet(ile) {
   }
 }
 function gameOver() {
+  winieta(false); pasy(false);
   G.over = true; G.running = false;
   AUDIO.endRun();                                  // koniec biegu = powrót do motywu głównego
   document.getElementById('vign').style.opacity = 0;
@@ -6246,6 +6292,7 @@ function newGame() {
   clearWorld();
   resetStats();
   Object.assign(G, { running: true, over: false, paused: false, dying: false, deathT: 0, time: 0, kills: 0, runCoins: 0, zebrane: 0, ranga: 0, rangaKille: 0, spawnT: 0.5, bossAt: 120, ringAt: 60, tier: 0, shake: 0, tlok: 0, kino: 0 });
+  winieta(true);
   P.pos.set(0, 0, 0);
   P.y = terrainH(0, 0);
   // ODBUDOWA ŚWIATA. `clearWorld()` czyści `G.padajace`, ale NIE dotyka `ch.shelves`:
@@ -6568,6 +6615,16 @@ if (loadTip) {
       };
     },
     xpDoNast, REPEAT, cardPool, repeatPool,
+    // podglad wariantow obrysu gracza bez przeladowania: HORDA.ustawObrys(1.07, 0x1b1b22)
+    ustawObrys(skala = OBRYS_SKALA, kolor = OBRYS_KOLOR) {
+      OBRYS_SKALA = skala; OBRYS_KOLOR = kolor;
+      _przezMaty.clear();
+      if (playerBB && playerBB.obrys) {
+        playerBB.obrys.scale.setScalar(skala);
+        playerBB.obrys.position.y = -(skala - 1) / 2;
+      }
+      return { OBRYS_SKALA, OBRYS_KOLOR };
+    },
     step(n = 1, dt = 1 / 60) {
       for (let i = 0; i < n; i++) { pollPads(dt); if (G.running && !G.paused) update(dt); }
       renderer.render(scene, camera);
