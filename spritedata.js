@@ -602,7 +602,7 @@ export const SPRITEDATA={
  },
  "don_chipso": {
   "img": "assets/veggie/don_chipso.png",
-  "size": 64,
+  "size": 92,
   "footOff": 0,
   "anims": {
    "run": {
@@ -654,14 +654,14 @@ export const SPRITEDATA={
    "idle": {
     "fps": 6,
     "frames": {
-     "south": 1,
-     "south-east": 1,
-     "east": 1,
-     "north-east": 1,
-     "north": 1,
-     "north-west": 1,
-     "west": 1,
-     "south-west": 1
+     "south": 9,
+     "south-east": 9,
+     "east": 9,
+     "north-east": 9,
+     "north": 9,
+     "north-west": 9,
+     "west": 9,
+     "south-west": 9
     },
     "rows": {
      "south": 16,
@@ -678,7 +678,7 @@ export const SPRITEDATA={
  },
  "ketchupino_splatterino": {
   "img": "assets/veggie/ketchupino_splatterino.png",
-  "size": 64,
+  "size": 92,
   "footOff": 0,
   "anims": {
    "idle": {
@@ -725,6 +725,29 @@ export const SPRITEDATA={
      "north-west": 13,
      "west": 14,
      "south-west": 15
+    }
+   },
+   "punch": {
+    "fps": 14,
+    "frames": {
+     "south": 9,
+     "south-east": 9,
+     "east": 9,
+     "north-east": 9,
+     "north": 9,
+     "north-west": 9,
+     "west": 9,
+     "south-west": 9
+    },
+    "rows": {
+     "south": 16,
+     "south-east": 17,
+     "east": 18,
+     "north-east": 19,
+     "north": 20,
+     "north-west": 21,
+     "west": 22,
+     "south-west": 23
     }
    }
   }

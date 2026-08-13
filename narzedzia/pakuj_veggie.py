@@ -40,6 +40,14 @@ ANIM_WZORCE = [
     ('explod', ('death', 12)),          # 'explode'/'exploding'/obcięte 'explos'
     ('death', ('death', 10)),
     ('dying', ('death', 10)),
+    # PixelLab nazywa katalog z promptu, wiec animacja ataku moze nazywac sie dowolnie
+    # (Ketchupino: 'squeezes_its_own_body_hard_with_tiny_arms_compress'). Bez tych
+    # wzorcow packer ja PO CICHU POMIJAL i atak wroga nie mial animacji.
+    ('squeez', ('punch', 14)),
+    ('squirt', ('punch', 14)),
+    ('spit', ('punch', 14)),
+    ('shoot', ('punch', 14)),
+    ('throw', ('punch', 14)),
     ('attack', ('punch', 14)),
     ('punch', ('punch', 14)),
     ('jump', ('jump', 14)),
@@ -172,15 +180,17 @@ def pakuj(zip_path: str, out_dir: str):
                 for kl in klatki:
                     with Image.open(kl) as im:
                         rozmiary[im.width] = rozmiary.get(im.width, 0) + 1
-        size = max(rozmiary, key=rozmiary.get)
+        # NAJWIEKSZY, nie dominujacy: mniejsze klatki DOPELNIAMY (patrz `wstaw` nizej).
+        # Poprzednio brany byl rozmiar dominujacy, a klatki innego rozmiaru albo
+        # wypadaly, albo — gdy cala animacja byla „inna" — trafialy do arkusza w zlym
+        # rozmiarze i rozlazily sie po sasiednich komorkach siatki. PixelLab potrafi
+        # wyeksportowac jedna animacje w innej rozdzielczosci niz reszta (Don Chipso:
+        # 64 px run/jump + 92 px idle; Ketchupino: 64 px idle/run + 92 px punch).
+        size = max(rozmiary)
         if len(rozmiary) > 1:
-            ostrzezenia.append(f'niejednolite rozmiary klatek {rozmiary} — biorę {size}px')
-            def pasuje(kl):
-                with Image.open(kl) as im:
-                    return im.width == size
-            for _, per_dir in zebrane.values():
-                for d in list(per_dir):
-                    per_dir[d] = [kl for kl in per_dir[d] if pasuje(kl)] or per_dir[d]
+            ostrzezenia.append(
+                f'niejednolite rozmiary klatek {rozmiary} — arkusz {size}px, '
+                f'mniejsze klatki dopelnione (bez przeskalowania, piksele nietkniete)')
 
         # policz wiersze i maksymalną liczbę klatek
         wiersze = []            # (anim, dir, [klatki])
@@ -195,7 +205,13 @@ def pakuj(zip_path: str, out_dir: str):
         for r, (anim, d, klatki) in enumerate(wiersze):
             for c, kl in enumerate(klatki):
                 with Image.open(kl) as im:
-                    arkusz.paste(im.convert('RGBA'), (c * size, r * size))
+                    im = im.convert('RGBA')
+                    # wysrodkowanie w poziomie + WYROWNANIE DO DOLU komorki: silnik liczy
+                    # `footOff` z alfy raz na CALY arkusz, wiec gdyby animacje siedzialy
+                    # na roznych wysokosciach w komorce, postac skakalaby przy zmianie animacji
+                    ox = c * size + (size - im.width) // 2
+                    oy = r * size + (size - im.height)
+                    arkusz.paste(im, (ox, oy))
             meta = anims_meta.setdefault(anim, {'fps': zebrane[anim][0], 'frames': {}, 'rows': {}})
             meta['frames'][d] = len(klatki)
             meta['rows'][d] = r

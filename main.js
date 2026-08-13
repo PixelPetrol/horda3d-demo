@@ -1,6 +1,6 @@
 // HORDA 3D v4 — teren 3D + kamera za plecami + meta-progresja (monety/sklep)
 import * as THREE from './lib/three.module.js';
-import { SPRITEDATA } from './spritedata.js?v=8';
+import { SPRITEDATA } from './spritedata.js?v=9';
 import { icon, ico } from './icons.js?v=3';
 import { AUDIO } from './audio.js?v=4';            // muzyka wg fazy gry + kwestie głosowe + efekty
 
@@ -2249,7 +2249,7 @@ const KETCH_LOT = 1.05;         // s lotu globu — TO JEST TELEGRAF, gracz ma c
 const KETCH_R = 2.5;            // promień plaśnięcia
 const KETCH_KALUZA = 4.0;       // s życia kałuży (biblia: 4 s)
 const KETCH_SLOW = 0.6;         // gracz w kałuży ×0.6 (biblia: slow 40%)
-let ketchMat = null, ketchKalMat = null;
+let ketchMat = null, ketchKalMat = null, ketchKragMat = null;
 function ketchupTexture(kropla) {
   const S = 16, c = document.createElement('canvas');
   c.width = c.height = S;
@@ -2277,18 +2277,24 @@ function plunKetchupem(e) {
       alphaTest: 0.4, side: THREE.DoubleSide });
     ketchKalMat = new THREE.MeshBasicMaterial({ map: ketchupTexture(false), transparent: true,
       opacity: 0.5, depthWrite: false });
+    // TELEGRAF TO OBWÓDKA, NIE PLAMA. Wypełniona plama przed uderzeniem wyglądała, jakby
+    // ketchup już wylądował — plama pojawia się dopiero po plaśnięciu (uwaga właściciela).
+    ketchKragMat = new THREE.MeshBasicMaterial({ map: ringTexture('rgba(232,64,52,0.95)'),
+      transparent: true, depthWrite: false });
   }
   // celuje z WYPRZEDZENIEM w miejsce, gdzie gracz BĘDZIE — inaczej wystarczy iść prosto
   const cx = P.pos.x + P.vx * KETCH_LOT * 0.55, cz = P.pos.z + P.vz * KETCH_LOT * 0.55;
+  const wylot = e.ty + 1.7;                        // glob wychodzi z góry butli, nie z jej stóp
   const glob = new THREE.Mesh(unitGeo, ketchMat);
   glob.scale.setScalar(0.55);
-  glob.position.set(e.pos.x, e.ty + 1.1, e.pos.z);
+  glob.position.set(e.pos.x, wylot, e.pos.z);
   scene.add(glob);
-  const krag = new THREE.Mesh(blobGeo, ketchKalMat);
+  const krag = new THREE.Mesh(blobGeo, ketchKragMat);
   krag.scale.set(KETCH_R * 2, 1, KETCH_R * 2);
   krag.position.set(cx, terrainH(cx, cz) + 0.05, cz);
   scene.add(krag);
-  G.gluty.push({ mesh: glob, krag, t: 0, from: { x: e.pos.x, y: e.ty + 1.1, z: e.pos.z },
+  e.bb.play('punch', false);                       // wyciska się, żeby plunąć
+  G.gluty.push({ mesh: glob, krag, t: 0, from: { x: e.pos.x, y: wylot, z: e.pos.z },
                  to: { x: cx, z: cz } });
   AUDIO.sfx('strzal');
 }
@@ -2301,9 +2307,10 @@ function updateGluty(dt) {
     gl.mesh.position.set(x, gl.from.y + Math.sin(k * Math.PI) * 3.4
       + (terrainH(x, z) + 0.4 - gl.from.y) * k, z);
     gl.mesh.rotation.set(0, camYaw, gl.t * 6);
-    gl.krag.material.opacity = 0.35 + 0.5 * k;             // krąg puchnie do uderzenia
-    gl.krag.scale.setScalar(1);
-    gl.krag.scale.set(KETCH_R * 2 * (0.6 + 0.4 * k), 1, KETCH_R * 2 * (0.6 + 0.4 * k));
+    // obwódka ZACISKA SIĘ do miejsca uderzenia i pulsuje — czyta się jako „tu spadnie",
+    // a nie jako „tu już leży ketchup"
+    const rk = KETCH_R * 2 * (1.35 - 0.35 * k);
+    gl.krag.scale.set(rk, 1, rk);
     if (k < 1) continue;
     // PLAŚNIĘCIE
     scene.remove(gl.mesh);
@@ -2377,7 +2384,9 @@ const ENEMY_TYPES = {
   // ELITA-ARTYLERZYSTA wg biblii (HP 220 w skali biblii = 63 w silniku; ZBITE DO 26,
   // bo pierwszy wróg dystansowy przy 63 HP byłby mini-bossem, a gracz nie ma jeszcze
   // żadnej odpowiedzi na atak z 15 j.). Pojawia się od 3. minuty, rzadko.
-  ketchupino: { hp: 26, okrKol: 0xd23b3b, speed: 1.9, dmg: 1, scale: 1.15, xp: 8, walk: 'run',
+  // scale 1.7 (Chipsetti ma 0.85): WYSTAJE NAD TŁUM. Ta sama zasada co przy
+  // Sokowirówce — byt, który zmienia sposób gry, musi być widoczny w kupie wrogów.
+  ketchupino: { hp: 26, okrKol: 0xd23b3b, speed: 1.9, dmg: 1, scale: 1.7, xp: 8, walk: 'run',
     char: 'ketchupino_splatterino', artyleria: true,
     nm: 'Ketchupino Splatterino',
     ds: 'Butla ketchupu, która nauczyła się moździerza. Nie podejdzie — nie musi. Ściska sobie brzuch i pluje po łuku, a to, co po nim zostaje, trzyma za nogi lepiej niż rozlana woda.' },
@@ -5281,6 +5290,9 @@ function update(dt) {
       if (d < KETCH_BLISKO) { e.pos.addScaledVector(to, -es * dt * 1.15); }   // odwrót
       else if (d <= KETCH_DALEKO) { /* stoi i celuje */ }
       else e.pos.addScaledVector(to, es * dt);
+      // animacja ataku jest jednorazowa — po niej wracamy do biegu, inaczej butla
+      // zastygłaby w pozie wyciskania na resztę biegu
+      if (e.bb.anim === 'punch' && e.bb.done) e.bb.play(e.T.walk);
       e.plunCd = (e.plunCd || KETCH_CD * 0.6) - dt;
       if (e.plunCd <= 0 && d <= KETCH_DALEKO + 2 && !e.dying) {
         e.plunCd = KETCH_CD;
@@ -6097,7 +6109,9 @@ if (loadTip) {
                    'friesetti_spearetti', 'sodino_explodino', 'lollini_spinnini']) {
     await buildChar(w, ['run']);
   }
-  await buildChar('ketchupino_splatterino', ['run']);   // pierwszy wróg dystansowy
+  // 'punch' = animacja WYCISKANIA SIĘ z paczki PixelLaba; packer ją wcześniej po cichu
+  // pomijał, bo katalog nazywał się 'squeezes_its_own_body_hard_with_tiny_arms_compress'
+  await buildChar('ketchupino_splatterino', ['run', 'punch']);   // pierwszy wróg dystansowy
   await ladowanie('Don Chipso poprawia kapelusz…');
   await buildChar('don_chipso', ['run']);          // boss ma wreszcie własny arkusz
   // Kernello ma WLASNA animacje eksplozji — jedyny wrog z prawdziwym `death`
