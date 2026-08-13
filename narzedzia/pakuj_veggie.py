@@ -202,15 +202,36 @@ def pakuj(zip_path: str, out_dir: str):
 
         arkusz = Image.new('RGBA', (maks_klatek * size, len(wiersze) * size), (0, 0, 0, 0))
         anims_meta = {}
+        MARG_DOL = 1        # ile pustych rzedow zostawiamy pod stopami w komorce
+
         for r, (anim, d, klatki) in enumerate(wiersze):
+            # WYROWNUJEMY STOPY, NIE KRAWEDZIE KLATEK. PixelLab daje roznym animacjom
+            # rozna ilosc pustego miejsca pod postacia (Ketchupino: bieg 1 pusty rzad,
+            # atak 15) — przy wyrownaniu krawedzi butla PODNOSILA SIE o 14 px w trakcie
+            # strzalu. Silnik liczy `footOff` z alfy RAZ NA CALY ARKUSZ, wiec wszystkie
+            # animacje musza stac na tej samej linii.
+            # Przesuniecie liczymy RAZ NA WIERSZ (nie na klatke), bo inaczej skasowalibysmy
+            # ruch W OBREBIE animacji — np. luk skoku spłaszczylby sie do miejsca.
+            # 1) najnizszy nieprzezroczysty rzad W CALYM WIERSZU
+            dol_wiersza = 0
+            for kl in klatki:
+                with Image.open(kl) as im:
+                    bb = im.convert('RGBA').getchannel('A').getbbox()
+                    if bb:
+                        dol_wiersza = max(dol_wiersza, bb[3])
+            # 2) ODCINAMY puste rzedy pod trescia (te same dla calego wiersza, wiec ruch
+            #    W OBREBIE animacji zostaje), a potem wyrownujemy do dolu komorki.
+            #    Samo przesuwanie nie wystarczylo: klatki w rozmiarze komorki wypelniaja
+            #    ja bez reszty i nie ma ich gdzie zjechac — dlatego crop, nie offset.
             for c, kl in enumerate(klatki):
                 with Image.open(kl) as im:
                     im = im.convert('RGBA')
-                    # wysrodkowanie w poziomie + WYROWNANIE DO DOLU komorki: silnik liczy
-                    # `footOff` z alfy raz na CALY arkusz, wiec gdyby animacje siedzialy
-                    # na roznych wysokosciach w komorce, postac skakalaby przy zmianie animacji
+                    if dol_wiersza and dol_wiersza < im.height:
+                        im = im.crop((0, 0, im.width, dol_wiersza))
+                    if im.height > size - MARG_DOL:      # tresc wyzsza niz komorka: obetnij od gory
+                        im = im.crop((0, im.height - (size - MARG_DOL), im.width, im.height))
                     ox = c * size + (size - im.width) // 2
-                    oy = r * size + (size - im.height)
+                    oy = r * size + (size - MARG_DOL) - im.height
                     arkusz.paste(im, (ox, oy))
             meta = anims_meta.setdefault(anim, {'fps': zebrane[anim][0], 'frames': {}, 'rows': {}})
             meta['frames'][d] = len(klatki)
