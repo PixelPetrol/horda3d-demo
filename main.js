@@ -117,6 +117,15 @@ function terrainH(x, z) {
 const WATER_Y = 0.75;                            // doliny poniżej = jeziora
 const biome = (x, z) => vnoise(x / 62 + 7.7, z / 62 + 3.3);  // 0=las, 1=sucha łąka
 
+// ============================== TRYB DEWELOPERSKI ==============================
+// Recznie wycinanie debugu przed kazdym wydaniem to gwarancja, ze kiedys sie zapomni
+// (albo, co gorsza, wyciagnie sie za duzo i `tester-gry` przestanie dzialac).
+// Podglad i agenci chodza po localhoscie, wiec na localhoscie DEV jest wlaczony,
+// a GitHub Pages / Capacitor / Steam dostaja wersje bez `window.HORDA`, bez lapacza
+// bledow i bez pola na kody. `?dev=1` wlacza go recznie do diagnostyki na telefonie.
+const DEV = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+         || location.hostname === '' || location.search.includes('dev=1');
+
 // ============================== SCENA ==============================
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
@@ -1720,6 +1729,12 @@ function saveMetaSoon() {
   if (saveT) return;
   saveT = setTimeout(() => { saveT = 0; saveMeta(); }, 2000);
 }
+// dopisanie na siłę czekającego zapisu (patrz handlery `pagehide`/`visibilitychange`)
+function flushMeta() {
+  if (!saveT) return;
+  clearTimeout(saveT); saveT = 0;
+  saveMeta();
+}
 AUDIO.init(META, saveMeta);                        // dźwięk czyta/zapisuje głośności w META
 
 // Ceny wejścia podniesione razem z dopływem monet (×1.8): przy starych 30-40
@@ -1987,7 +2002,13 @@ const keys = {};
 // na zawsze — po powrocie do gry postać sama jechała w skos. Czyścimy wszystko.
 const puscWszystko = () => { for (const k in keys) keys[k] = false; jumpHeld = false; };
 addEventListener('blur', puscWszystko);
-addEventListener('visibilitychange', () => { if (document.hidden) puscWszystko(); });
+// FLUSH ZAPISU. `saveMetaSoon()` ma debounce 2 s, a przez niego idą liczniki
+// bestiariusza i `META.st.skrzynki` (od tego zależy wyreżyserowana szóstka skrzyń).
+// Bez tego zamknięcie karty w ciągu 2 s po zabójstwie kasowało progres — a na
+// Capacitorze Android potrafi ubić proces natychmiast po minimalizacji, więc to
+// nie edge case. `beforeunload` na iOS nie odpala; właściwym zdarzeniem jest `pagehide`.
+addEventListener('visibilitychange', () => { if (document.hidden) { puscWszystko(); flushMeta(); } });
+addEventListener('pagehide', flushMeta);
 const hasDjump = () => META.unlocked.djump || P.runDjump;
 const hasGlide = () => META.unlocked.glide || P.runGlide;
 let jumpHeld = false;                              // przytrzymanie = SZYBOWANIE
@@ -3480,8 +3501,34 @@ function cardPool() {
   return pool;
 }
 
-function showCards() {
+// ============================== KOLEJKA OVERLAYÓW ==============================
+// Skrzynia i awans mogą wypaść W TEJ SAMEJ KLATCE. Wcześniej oba overlaye stawały się
+// widoczne naraz, a zamknięcie jednego zdejmowało pauzę: świat się symulował, wrogowie
+// bili, a gracz nie mógł się ruszyć, bo drugi overlay łykał wejście (`pointerdown`
+// odrzuca zdarzenia z `.ov`). Drugi objaw tego samego: dwa awansy w jednej klatce
+// i `showCards()` robiło `innerHTML=''`, KASUJĄC poprzednie trzy karty.
+// Teraz overlaye stoją w kolejce i pauza schodzi dopiero, gdy kolejka jest pusta.
+const OV_Q = [];
+const ovWidoczny = () =>
+  document.getElementById('cardsOv').style.display === 'flex' ||
+  document.getElementById('swapOv').style.display === 'flex';
+function pchnijOverlay(fn) {
+  if (ovWidoczny()) { OV_Q.push(fn); return; }
   G.paused = true;
+  fn();
+}
+function zamknijOverlay(id) {
+  document.getElementById(id).style.display = 'none';
+  // WYCZYŚĆ KAFELKI: samo `display:none` zostawiało je w drzewie z żywym `onclick`,
+  // więc zamknięty overlay dawał się jeszcze „kliknąć" z kodu i ponownie nadawał
+  // ulepszenie. Gracz by tego nie tknął, ale to mina dla każdego przyszłego testu.
+  const wrap = document.getElementById(id === 'cardsOv' ? 'cards' : 'swapList');
+  if (wrap) wrap.innerHTML = '';
+  const nast = OV_Q.shift();
+  if (nast) { G.paused = true; nast(); return; }   // pauza trwa dalej dla następnego
+  G.paused = false;
+}
+function showCards() {
   const wrap = document.getElementById('cards'); wrap.innerHTML = '';
   const pool = cardPool();
   const picks = [];
@@ -3496,7 +3543,7 @@ function showCards() {
     const d = document.createElement('div');
     d.className = 'card' + (u.gold ? ' gold' : '');
     d.innerHTML = `<div class="ico">${ico(u.ico, 42)}</div><div class="nm">${u.nm}</div><div class="ds">${u.ds}</div>`;
-    d.onclick = () => { u.do(); document.getElementById('cardsOv').style.display = 'none'; G.paused = false; };
+    d.onclick = () => { u.do(); zamknijOverlay('cardsOv'); };
     wrap.appendChild(d);
   }
   document.getElementById('cardsOv').style.display = 'flex';
@@ -3504,7 +3551,6 @@ function showCards() {
 
 // ============================== WYMIENNIK BRONI 🔄 ==============================
 function openSwap() {
-  G.paused = true;
   const wrap = document.getElementById('swapList'); wrap.innerHTML = '';
   document.getElementById('swapTitle').textContent = 'WYMIENNIK! Którą broń oddajesz?';
   for (const w of P.weapons) {
@@ -3517,7 +3563,7 @@ function openSwap() {
   }
   const skip = document.createElement('div');
   skip.className = 'card';
-  skip.innerHTML = `<div class="ico">✋</div><div class="nm">Zostaw jak jest</div><div class="ds">+10 monet pocieszenia</div>`;
+  skip.innerHTML = `<div class="ico">${ico('wymiana', 42)}</div><div class="nm">Zostaw jak jest</div><div class="ds">+10 monet pocieszenia</div>`;
   skip.onclick = () => { G.runCoins += 10; drawCoins(); closeSwap(); };
   wrap.appendChild(skip);
   document.getElementById('swapOv').style.display = 'flex';
@@ -3534,12 +3580,11 @@ const broniDostepna = k => {
 // skrzynia przy WOLNYM slocie: prezent — wybór nowej broni bez oddawania
 function openNewWeapon() {
   const wszystkie = Object.keys(WEAPONS).filter(k => !hasWeapon(k) && broniDostepna(k));
-  if (!wszystkie.length) { G.runCoins += 15; drawCoins(); return; }
+  if (!wszystkie.length) { G.runCoins += 15; drawCoins(); return zamknijOverlay('swapOv'); }
   // LOSUJEMY 2 propozycje (nie pokazujemy całej listy — wybór ma coś znaczyć)
   const opts = [];
   const pula = wszystkie.slice();
   while (opts.length < 2 && pula.length) opts.push(pula.splice(Math.floor(Math.random() * pula.length), 1)[0]);
-  G.paused = true;
   const wrap = document.getElementById('swapList'); wrap.innerHTML = '';
   document.getElementById('swapTitle').textContent = 'ZNALEZIONA BROŃ! Co bierzesz?';
   for (const key of opts) {
@@ -3585,10 +3630,7 @@ function pickNewWeapon(oldW) {
     wrap.appendChild(d);
   }
 }
-function closeSwap() {
-  document.getElementById('swapOv').style.display = 'none';
-  G.paused = false;
-}
+function closeSwap() { zamknijOverlay('swapOv'); }
 
 // ============================== HUD ==============================
 function drawHearts() {
@@ -3958,7 +4000,10 @@ function rebuildWorld() {
   for (const [, ch] of chunkMap) {
     scene.remove(ch.mesh); ch.mesh.geometry.dispose();
     for (const m of ch.deco) scene.remove(m);
-    for (const m of ch.rocks) scene.remove(m);
+    // InstancedMesh trzyma wlasny instanceMatrix w buforze GL, ktorego samo `remove`
+  // NIE zwalnia (three trzyma atrybuty w WeakMap, a ta nie odpala finalizerow).
+  // Geometrii i materialow dispose'owac NIE WOLNO — sa wspoldzielone miedzy chunkami.
+  for (const m of ch.rocks) { scene.remove(m); if (m.isInstancedMesh) m.dispose(); }
     if (ch.grass) { scene.remove(ch.grass); ch.grass.dispose(); }
     if (ch.leaves) for (const l of ch.leaves) { scene.remove(l); l.dispose(); }
   }
@@ -4001,7 +4046,10 @@ function ensureChunks() {
     if (keep.has(key)) continue;
     scene.remove(ch.mesh); ch.mesh.geometry.dispose();
     for (const m of ch.deco) scene.remove(m);
-    for (const m of ch.rocks) scene.remove(m);
+    // InstancedMesh trzyma wlasny instanceMatrix w buforze GL, ktorego samo `remove`
+  // NIE zwalnia (three trzyma atrybuty w WeakMap, a ta nie odpala finalizerow).
+  // Geometrii i materialow dispose'owac NIE WOLNO — sa wspoldzielone miedzy chunkami.
+  for (const m of ch.rocks) { scene.remove(m); if (m.isInstancedMesh) m.dispose(); }
     if (ch.grass) { scene.remove(ch.grass); ch.grass.dispose(); }
     if (ch.leaves) for (const l of ch.leaves) { scene.remove(l); l.dispose(); }
     chunkMap.delete(key);
@@ -4108,7 +4156,7 @@ function updateWeaponChest(dt) {
     AUDIO.sfx('zlota');
     novaRing(wchest.pos.x, wchest.pos.z, 3);
     META.st.chests++; saveMeta();
-    if (P.weapons.length < 3) openNewWeapon(); else openSwap();
+    pchnijOverlay(P.weapons.length < 3 ? openNewWeapon : openSwap);
     arrow.style.display = 'none';
     return;
   }
@@ -5268,13 +5316,16 @@ function update(dt) {
       P.xp += g.val;
       AUDIO.sfx('xp');
       scene.remove(g.mesh); G.gems.splice(i, 1);
-      if (P.xp >= P.xpNeed) {
+      // WHILE, nie IF: jedna pigulka moze dac wiecej niz jeden poziom, a przy
+      // Wielkim Magnesie pigulki przychodza kiszkami po kilkanascie w jednej klatce.
+      // Kazdy awans wchodzi do KOLEJKI, wiec zaden zestaw kart nie przepada.
+      while (P.xp >= P.xpNeed) {
         P.xp -= P.xpNeed; P.lvl++;
         P.xpNeed = Math.round(5 + P.lvl * 3.2);
         document.getElementById('lvl').textContent = 'POZIOM ' + P.lvl;
         AUDIO.sfx('awans');
         AUDIO.event('awans');
-        showCards();
+        pchnijOverlay(showCards);
       }
       document.getElementById('xpbar').style.width = (P.xp / P.xpNeed * 100) + '%';
     }
@@ -5486,10 +5537,11 @@ function gameOver() {
     prezent = `<br><b style="color:#7ee7ff">${ico('pioruny', 18)} PIERWSZA PORAŻKA — PIORUN ODBLOKOWANY NA STAŁE!</b>`;
   }
   s.runs++; s.time += G.time; s.lvl += P.lvl - 1;
-  if (G.time > s.best) s.best = G.time;
+  const rekordCzasu = G.time > s.best;          // PRZED aktualizacja! inaczej zawsze true
+  if (rekordCzasu) s.best = G.time;
   if (G.kills > s.bestKills) s.bestKills = G.kills;
   saveMeta(); renderShop(); renderStats(); renderBestiary();
-  const rekord = G.time >= s.best;
+  const rekord = rekordCzasu;                   // było `G.time >= s.best` PO aktualizacji = zawsze true
   document.getElementById('overStats').innerHTML =
     `Przetrwano: <b><i data-licz="0" data-czas="${G.time.toFixed(1)}">0:00</i></b> · ` +
     `Pokonano: <b><i data-licz="${G.kills}">0</i></b> · Poziom: <b><i data-licz="${P.lvl}">0</i></b><br>` +
@@ -5559,6 +5611,11 @@ function clearWorld() {
   Object.assign(G.fps, { on: false, t: 0, zycia: 0, fireT: 0, pitch: 0, wejscie: 0, wyjscie: 0, kick: 0 });
   P.karabinMa = false;
   odswiezKarabinBtn();
+  // kolejka overlayow: wyjscie do menu w trakcie awansu zostawialo ja pelna,
+  // a nastepny bieg zaczynal sie od kart z poprzedniego
+  OV_Q.length = 0;
+  document.getElementById('cardsOv').style.display = 'none';
+  document.getElementById('swapOv').style.display = 'none';
   document.getElementById('fpsView').classList.remove('on');
   document.getElementById('fpsFlash').style.opacity = 0;
   document.getElementById('buff').style.opacity = 0;
@@ -5572,6 +5629,13 @@ function newGame() {
   Object.assign(G, { running: true, over: false, paused: false, dying: false, deathT: 0, time: 0, kills: 0, runCoins: 0, zebrane: 0, ranga: 0, rangaKille: 0, spawnT: 0.5, bossAt: 120, ringAt: 60, tier: 0, shake: 0 });
   P.pos.set(0, 0, 0);
   P.y = terrainH(0, 0);
+  // ODBUDOWA ŚWIATA. `clearWorld()` czyści `G.padajace`, ale NIE dotyka `ch.shelves`:
+  // regał, który w chwili wyjścia z biegu miał `stan==='pada'`, zostawał zamrożony
+  // w połowie upadku NA ZAWSZE (`przewrocRegaly` bierze tylko 'stoi', `updateRestock`
+  // tylko 'lezy'), z kolizją regału STOJĄCEGO. A bieg startuje w (0,0,0), czyli
+  // gracz od pierwszej sekundy stał w połamanej hali z niewidzialnymi ścianami.
+  // Świat jest deterministyczny per chunk, więc przebudowa jest bezpieczna.
+  rebuildWorld();
   wchest.active = false; wchest.wait = 8;
   if (wchest.mesh) wchest.mesh.visible = wchest.ring.visible = false;
   document.getElementById('lvl').textContent = 'POZIOM 1';
@@ -5768,6 +5832,11 @@ if (loadTip) {
     menu.style.display = 'flex';
   };
   // ---- KODY ----
+  // Kod odblokowuje WSZYSTKO + 5000 monet, a `main.js` w demo na GitHub Pages jest
+  // publiczny — kazdy moglby go odczytac z zrodla i sklep przestalby cokolwiek znaczyc.
+  // Poza DEV pole na kod jest USUWANE z drzewa (nie tylko ukrywane).
+  const kodBox = document.getElementById('kodBox');
+  if (!DEV && kodBox) kodBox.remove();
   const kodInfo = document.getElementById('kodInfo');
   const kodInput = document.getElementById('kodInput');
   function uzyjKodu() {
@@ -5788,8 +5857,8 @@ if (loadTip) {
       kodInfo.textContent = 'Nieznany kod.';
     }
   }
-  document.getElementById('kodBtn').onclick = uzyjKodu;
-  kodInput.addEventListener('keydown', e => {
+  if (kodInput) document.getElementById('kodBtn').onclick = uzyjKodu;
+  if (kodInput) kodInput.addEventListener('keydown', e => {
     e.stopPropagation();                       // żeby spacja/WSAD nie sterowały grą
     if (e.code === 'Enter') uzyjKodu();
   });
@@ -5832,7 +5901,10 @@ if (loadTip) {
   });
   // debug (usunąć przed wydaniem); step = ręczne krokowanie pętli,
   // bo podgląd dławi rAF bez fokusa (pułapka znana z Rudeusza)
-  window.HORDA = {
+  // hak debugowy WYLACZNIE w DEV: eksponowal META (edytowalne monety), saveMeta,
+  // spawnEnemy, killEnemy, setMap i step() — na mobile z rewarded ads to obejscie
+  // calej monetyzacji przez konsole WebView.
+  if (DEV) window.HORDA = {
     G, P, terrainH, chests, totems, openSwap, renderWpns, chunkMap, supportY, onSpill, setMap,
     wchest, META, CHARS, MAPS, ENEMY_TYPES, spawnEnemy, killEnemy, renderBestiary, saveMeta,
     setPlayerChar, togglePause, get charKey() { return charKey; }, AUDIO,
