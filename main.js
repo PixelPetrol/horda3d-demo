@@ -2770,6 +2770,12 @@ function emojiMat(emoji) {
 
 // ============================== BRONIE (rejestr) ==============================
 // tick(w, dt) woła się co klatkę dla każdej posiadanej broni; w = {key, lvl, t}
+//
+// ⚠️ KAŻDY COOLDOWN DZIEL PRZEZ `fireMul()`. Do 13.08 robiły to TYLKO Kule, a reszta
+// miała czas przeładowania zapisany na sztywno — więc pasyw TEMPO (do +76%) i bonus
+// „+4% tempa co 4. ranga" były dla większości buildów DOSŁOWNIE ZEROWE. Karta Tempo
+// była pułapką: gracz brał ją co kilka awansów i nie dostawał nic.
+// Dodając nową broń: `w.t = (bazowy_czas) / fireMul()`, nigdy samo `w.t = bazowy_czas`.
 const WEAPONS = {
   kule: {
     ico: 'kula', nm: 'Kule energii', ds: 'Samonaprowadzające pociski', max: 5, postac: 'carrotello',
@@ -2812,7 +2818,7 @@ const WEAPONS = {
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
-      w.t = P.evo.sejsm ? 2.0 : 3.2;
+      w.t = (P.evo.sejsm ? 2.0 : 3.2) / fireMul();
       nova(P.pos.x, P.pos.z, stompRad(w.lvl), stompDmg(w.lvl));
     },
   },
@@ -2824,7 +2830,7 @@ const WEAPONS = {
       if (w.t > 0) return;
       const alive = G.enemies.filter(e => !e.dying && e.pos.distanceTo(P.pos) < 15);
       if (!alive.length) return;
-      w.t = 2.8 - 0.25 * w.lvl;
+      w.t = (2.8 - 0.25 * w.lvl) / fireMul();
       for (let b = 0; b < Math.ceil(w.lvl / 2); b++) {
         const e = alive[Math.floor(Math.random() * alive.length)];
         boltFx(e.pos.x, e.ty, e.pos.z);
@@ -2846,7 +2852,7 @@ const WEAPONS = {
       if (w.t > 0) return;
       const alive = G.enemies.filter(e => !e.dying && e.pos.distanceTo(P.pos) < 13);
       if (!alive.length) return;
-      w.t = 3.6 - 0.25 * w.lvl;
+      w.t = (3.6 - 0.25 * w.lvl) / fireMul();
       const e = alive[Math.floor(Math.random() * alive.length)];
       const m = new THREE.Mesh(unitGeo, bottleMat);
       m.scale.set(0.7, 0.7, 1);
@@ -2860,7 +2866,7 @@ const WEAPONS = {
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
-      w.t = 2.8 - 0.2 * w.lvl;
+      w.t = (2.8 - 0.2 * w.lvl) / fireMul();
       const m = new THREE.Mesh(unitGeo, radioMat);
       m.scale.set(0.9, 0.9, 1);
       scene.add(m);
@@ -2874,7 +2880,7 @@ const WEAPONS = {
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
-      w.t = 0.7;
+      w.t = 0.7 / fireMul();
       const r = 2.2 + 0.35 * w.lvl, ad = (0.8 + 0.25 * w.lvl) * dmgAll();
       novaRing(P.pos.x, P.pos.z, r * 0.9);
       for (let j = G.enemies.length - 1; j >= 0; j--) {
@@ -2897,7 +2903,7 @@ const WEAPONS = {
       if (w.t > 0) return;
       const alive = G.enemies.filter(e => !e.dying && e.pos.distanceTo(P.pos) < 18);
       if (!alive.length) return;
-      w.t = 2.2 - 0.15 * w.lvl;
+      w.t = (2.2 - 0.15 * w.lvl) / fireMul();
       let far = alive[0], fd = 0;
       for (const e of alive) { const d = e.pos.distanceTo(P.pos); if (d > fd) { fd = d; far = e; } }
       const dir = far.pos.clone().sub(P.pos).setY(0).normalize();
@@ -2937,7 +2943,7 @@ const WEAPONS = {
       if (w.t > 0) return;
       const alive = G.enemies.filter(e => !e.dying && e.pos.distanceTo(P.pos) < 16);
       if (!alive.length) return;
-      w.t = 4.5 - 0.35 * w.lvl;
+      w.t = (4.5 - 0.35 * w.lvl) / fireMul();
       const bb = new Billboard('kernello_boomello', 1.0);
       bb.play('run');
       G.kury.push({ bb, pos: P.pos.clone(), t: 0, lvl: w.lvl });
@@ -2956,7 +2962,7 @@ const WEAPONS = {
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
-      w.t = 2.2 - 0.15 * w.lvl;
+      w.t = (2.2 - 0.15 * w.lvl) / fireMul();
       // kierunek liczony RAZ dla całej serii — inaczej seria rozjeżdżałaby się
       // za obracającym się graczem i przestałaby być „linią"
       let cel = null, najl = rangeF();
@@ -2982,7 +2988,7 @@ const WEAPONS = {
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
-      w.t = 1.9 - 0.12 * w.lvl;
+      w.t = (1.9 - 0.12 * w.lvl) / fireMul();
       // celujemy w najbliższego wroga — babcia nie pudłuje (biblia: „celność samonaprowadzająca")
       let cel = null, najl = 1e9;
       for (const e of G.enemies) { if (e.dying) continue;
@@ -3011,7 +3017,7 @@ const WEAPONS = {
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
-      w.t = 1.5 - 0.08 * w.lvl;
+      w.t = (1.5 - 0.08 * w.lvl) / fireMul();
       const zasieg = 3.4 + 0.4 * w.lvl, odrzut = 5 + w.lvl;
       const fx = Math.sin(playerBB.facing), fz = Math.cos(playerBB.facing);
       const dmg = (2.5 + 0.8 * w.lvl) * (P.evo.selekcja ? 2 : 1) * dmgAll();
@@ -3062,7 +3068,7 @@ const WEAPONS = {
       w.t -= dt;
       if (w.t > 0) return;
       if (G.turrets.length >= SOKO_ILE(w.lvl)) return;       // limit stojących naraz
-      w.t = 6.5 - 0.5 * w.lvl;
+      w.t = (6.5 - 0.5 * w.lvl) / fireMul();
       stawSokowirowke(w.lvl);
     },
   },
@@ -4836,10 +4842,13 @@ function update(dt) {
       // Fala z LADOWANIA dzieli cooldown z bronia — bez tego skakanie w kolko
       // dawalo fale co 0.75 s zamiast co 3.2 s, czyli 791 DPS (3x wiecej niz
       // druga najlepsza bron w grze).
+      // Bezpiecznik skaluje się TERAZ RAZEM Z TEMPEM: po wpięciu `fireMul()` do
+      // cooldownu broni sztywne 1.2 s hamowałoby dokładnie to, co Tempo przyspiesza.
       const wT = hasWeapon('tupniecie');
-      if (stompLvl() > 0 && (!wT || wT.t < 1.2)) {
+      const prog = 1.2 / fireMul();
+      if (stompLvl() > 0 && (!wT || wT.t < prog)) {
         nova(P.pos.x, P.pos.z, stompRad(stompLvl()), stompDmg(stompLvl()));
-        if (wT) wT.t = Math.max(wT.t, 1.2);
+        if (wT) wT.t = Math.max(wT.t, prog);
       }
     }
   } else {

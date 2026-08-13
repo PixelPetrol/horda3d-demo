@@ -618,9 +618,15 @@ Wszystkie 6 błędów z listy „ZAMKNIĘTE" nadal jest naprawionych — zero re
    wszystko + 5000 monet. `touch-action:none` na `body` blokuje przewijanie paneli menu.
 
 **BALANS (raport projektanta, liczby przeliczone w node):**
-- **`fireMul()` jest użyte w JEDNYM miejscu w całym pliku** (Kule). Pozostałe 13 broni
-  ma cooldown na sztywno → pasyw Tempo (+76%) i bonus rangi za tempo są DLA WIĘKSZOŚCI
-  BUILDÓW ZEROWE. To samo `critC()` (tylko pociski) i `rangeF()` (4 bronie z 14).
+- ~~**`fireMul()` jest użyte w JEDNYM miejscu w całym pliku** (Kule)~~ ✅ **NAPRAWIONE 13.08.**
+  Każdy z 11 zapisanych na sztywno cooldownów jest teraz dzielony przez `fireMul()`,
+  plus bezpiecznik fali z lądowania (`1.2 / fireMul()`, inaczej hamował to, co Tempo
+  przyspiesza). **Zmierzone w przeglądarce: wszystkie 13 broni +76% tempa przy Tempie 5**
+  (`1.12^5 = 1.762`) — wcześniej dokładnie 0% dla dwunastu z nich.
+  ⚠️ **DODAJĄC NOWĄ BROŃ: `w.t = (bazowy_czas) / fireMul()`, nigdy samo `w.t = baza`.**
+  ⚠️ To realnie przyspieszyło całą grę — krzywa trudności może teraz wymagać rewizji.
+- Nadal MARTWE: `critC()` działa tylko na pociski (Krytyk nie tyka czosnku, nova, pioruna,
+  skarpety), a `rangeF()` używają 4 bronie z 14 (Sokoli wzrok martwy dla dziesięciu).
 - Carrotello ma **najgorszy start w grze**, a gra się nim pierwsze 3 biegi: TTK jednego
   Chipsettiego 2,9 s (Razoretta 0,61 s), bo `dmg` Kul jest zaszyte jako `1` i NIE ROŚNIE
   z poziomem, a postać ma jedyną w grze karę do obrażeń (0.9).
