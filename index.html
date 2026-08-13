@@ -82,6 +82,32 @@
   #wArrow .dist{font-size:13px;font-weight:700;color:#ffd75e;text-shadow:0 2px 4px #000;margin-top:2px}
   @keyframes pulseA{0%,100%{opacity:.8}50%{opacity:1}}
   @media (max-height:520px){ #wArrow{transform:translate(-50%,-50%) translateY(-78px)} }
+  /* ================= OPRAWA BOSSA =================
+     Don Chipso ma wreszcie wlasny arkusz, wiec przestaje wchodzic po cichu:
+     przyciemnienie ekranu + imie na cala szerokosc + pasek HP u gory. */
+  #bossOv{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;
+      background:radial-gradient(ellipse at center,transparent 30%,rgba(0,0,0,.72) 100%);
+      transition:opacity .35s}
+  #bossOv.on{opacity:1}
+  #bossNm{position:fixed;left:0;right:0;top:38%;z-index:7;text-align:center;
+      font-weight:800;font-size:clamp(26px,9vw,64px);color:#ffd75e;letter-spacing:3px;
+      text-shadow:4px 4px 0 #1b1b22;opacity:0;transform:scale(.7);
+      transition:opacity .3s,transform .3s;pointer-events:none}
+  #bossNm.on{opacity:1;transform:scale(1)}
+  #bossNm small{display:block;font-size:.42em;color:#ff9d7a;letter-spacing:2px;margin-top:6px}
+  /* pasek HP bossa: twarde krawedzie, bez zaokraglen — jak reszta UI */
+  #bossHp{position:fixed;left:50%;top:78px;transform:translateX(-50%);z-index:7;display:none;
+      width:min(72vw,520px);flex-direction:column;align-items:center;gap:3px;pointer-events:none}
+  #bossHp.on{display:flex}
+  #bossHp .bn{font-weight:800;font-size:13px;color:#ffd75e;text-shadow:2px 2px 0 #1b1b22;
+      letter-spacing:2px;white-space:nowrap}
+  #bossHp .bw{width:100%;height:16px;background:#1b1b22;
+      box-shadow:-3px 0 0 0 #1b1b22,3px 0 0 0 #1b1b22,0 -3px 0 0 #1b1b22,0 3px 0 0 #1b1b22}
+  #bossHp .bf{height:100%;width:100%;
+      background:repeating-linear-gradient(90deg,#e0453c 0 6px,#ff7a6e 6px 12px);
+      transition:width .12s}
+  #bossHp .bl{font-size:11px;color:#dfe6f2;text-shadow:2px 2px 0 #1b1b22}
+  @media (max-height:520px){ #bossHp{top:52px;width:min(56vw,380px)} }
   #vign{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;
       background:radial-gradient(ellipse at center,transparent 55%,rgba(255,0,0,.55) 100%);transition:opacity .1s}
   /* ================= TRYB KARABINU (pierwsza osoba) =================
@@ -417,6 +443,9 @@
   <div id="wArrow"><div class="ar"></div><div class="dist">0 m</div></div>
 </div>
 <div id="vign"></div>
+<div id="bossOv"></div>
+<div id="bossNm"></div>
+<div id="bossHp"><div class="bn"></div><div class="bw"><div class="bf"></div></div><div class="bl"></div></div>
 <div id="fpsView">
   <div id="gunWrap"><div id="gunPix"></div><div id="gunFlash"></div></div>
   <div id="fpsCross"></div>
@@ -524,6 +553,6 @@
     addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
   }
 </script>
-<script type="module" src="main.js?v=115"></script>
+<script type="module" src="main.js?v=119"></script>
 </body>
 </html>

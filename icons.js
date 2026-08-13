@@ -165,6 +165,16 @@ const ART = {
     '.yy.....',
     'y.......',
   ],
+  pizza: [
+    '..oooo..',
+    '.oOYYOo.',
+    'oOYrYYOo',
+    'oOYYYrOo',
+    'oOrYYYOo',
+    'oOYYrYOo',
+    '.oOYYOo.',
+    '..oooo..',
+  ],
   kula: [
     '..yyyy..',
     '.yYYYYy.',

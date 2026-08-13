@@ -1,7 +1,7 @@
 // HORDA 3D v4 — teren 3D + kamera za plecami + meta-progresja (monety/sklep)
 import * as THREE from './lib/three.module.js';
 import { SPRITEDATA } from './spritedata.js?v=10';
-import { icon, ico } from './icons.js?v=3';
+import { icon, ico } from './icons.js?v=4';
 import { AUDIO } from './audio.js?v=4';            // muzyka wg fazy gry + kwestie głosowe + efekty
 
 // ============================== USTAWIENIA ==============================
@@ -1769,7 +1769,7 @@ const SHOP = [
 const SHOP_UNLOCKS = [
   { key: 'piorun',   ico: 'pioruny', nm: 'Piorun',          ds: 'Grom bije losowych wrogów',      price: 150 },
   { key: 'butelka',  ico: 'butelka', nm: 'Butelka żula',    ds: 'Leci łukiem i wybucha',          price: 200 },
-  { key: 'bumerang', ico: 'radio', nm: 'Pizza Volante',   ds: 'Koło pizzy leci i wraca, kosząc po drodze', price: 250 },
+  { key: 'bumerang', ico: 'pizza', nm: 'Pizza Volante',   ds: 'Koło pizzy leci i wraca, kosząc po drodze', price: 250 },
   { key: 'tarcza',   ico: 'tarcza', nm: 'Tarcza',         ds: 'Blokuje 1 trafienie co jakiś czas', price: 120 },
   { key: 'djump',    ico: 'skok', nm: 'Podwójny skok',         ds: 'Drugi skok w powietrzu — przeskakuj regały (bywa też w skrzyniach)', price: 300 },
   { key: 'glide',    ico: 'skok', nm: 'Foliowa torba',           ds: 'PRZYTRZYMAJ skok w locie = szybujesz na torbie i uciekasz hordzie', price: 250 },
@@ -2237,6 +2237,35 @@ function pollPads(dt) {
   for (let i = 0; i < B.length; i++) PAD.prev[i] = btn(i);
 }
 
+// ============================== OPRAWA BOSSA ==============================
+// Do 13.08 Don Chipso wchodzil BEZ ZAPOWIEDZI i byl tylko duzym chipsem: przy 359
+// wrogach na ekranie gracz czesto w ogole nie wiedzial, ze walczy z bossem. Teraz:
+// przyciemnienie + imie na caly ekran na wejsciu, a potem pasek HP u gory, ktory
+// pokazuje NAJMOCNIEJ RANNEGO bossa (przy kilku naraz to on jest celem gracza).
+function wejscieBossa() {
+  const ov = document.getElementById('bossOv'), nm = document.getElementById('bossNm');
+  nm.innerHTML = 'DON CHIPSO<small>GLOWA FAMIGLII</small>';
+  ov.classList.add('on'); nm.classList.add('on');
+  G.shake = Math.max(G.shake, 0.5);
+  G.hitstop = Math.max(G.hitstop, 0.18);           // swiat na moment przystaje
+  AUDIO.sfx('boss');
+  AUDIO.event('boss');
+  setTimeout(() => { ov.classList.remove('on'); nm.classList.remove('on'); }, 1500);
+}
+function updateBossHp() {
+  const el = document.getElementById('bossHp');
+  let naj = null;
+  for (const e of G.enemies) if (e.T.boss && !e.dying)
+    if (!naj || e.hp / e.maxHp < naj.hp / naj.maxHp) naj = e;
+  if (!naj) { if (el.classList.contains('on')) el.classList.remove('on'); return; }
+  el.classList.add('on');
+  const k = Math.max(0, naj.hp / naj.maxHp);
+  el.querySelector('.bf').style.width = (k * 100) + '%';
+  const ile = G.enemies.filter(e => e.T.boss && !e.dying).length;
+  el.querySelector('.bn').textContent = 'DON CHIPSO' + (ile > 1 ? '  x' + ile : '');
+  el.querySelector('.bl').textContent = Math.ceil(naj.hp) + ' / ' + Math.ceil(naj.maxHp);
+}
+
 // ============================== KETCHUPINO: ARTYLERIA ==============================
 // Wg biblii postaci: „butelka ketchupu-artylerzysta. Trzyma dystans, pluje globami
 // po łuku (telegraf: czerwony krąg na ziemi), kałuże slow 40% przez 4 s."
@@ -2420,6 +2449,9 @@ function spawnEnemy(type, angle = null, przy = null) {
     // Boss dotad NIE skalowal sie wcale: w 20. minucie mial 90 HP, gdy szeregowy
     // mial 108, a elita 648. Teraz rosnie jak wszyscy (bez mnoznika elity).
     hp: T.hp * hpMul * (elite ? 6 : 1),
+    // `maxHp` NIE ISTNIALO na wrogach — pasek HP bossa liczyl „100 / NaN".
+    // Ustawiamy je od razu przy spawnie: potrzebne do kazdego paska i do procentow.
+    maxHp: T.hp * hpMul * (elite ? 6 : 1),
     dying: false, hitCd: 0, kb: new THREE.Vector3(), orbCd: 0, climbing: false,
     ty: 0, vy: 0, jumpCd: 1 + Math.random() * 3, faza: Math.random() * 6.28,
     bb: new Billboard(T.char || type, T.scale * (elite ? 1.45 : 1)),
@@ -2491,8 +2523,18 @@ function killEnemy(e, i) {
   else if (e.elite) wyplac(1, 4);
   else if (Math.random() < 0.16) wyplac(1, 1);
   // serca: elity 30%, boss zawsze 2
-  if (e.T.boss) { G.hps.push(makeHeart(e.pos.x - 0.8, e.pos.z)); G.hps.push(makeHeart(e.pos.x + 0.8, e.pos.z)); }
-  else if (e.elite && Math.random() < 0.3) G.hps.push(makeHeart(e.pos.x, e.pos.z));
+  // SERCA SA RZADKIE (zyczenie wlasciciela). Bylo: boss zawsze 2, elita 30%.
+  // Przy udziale elit rosnacym o 1.5%/min (14% w 5. min, 21% w 10.) leczenie sypalo
+  // sie tak gestio, ze utrata serca przestawala cokolwiek znaczyc — a to ona jest
+  // jedyna realna kara w tej grze. Teraz: boss 1 (drugie tylko gdy naprawde boli),
+  // elita 8%.
+  if (e.T.boss) {
+    // GWARANTOWANA NAGRODA: dotad boss placil mniej niz zwykla skrzynia, wiec zabicie
+    // najtwardszego przeciwnika w grze bylo slabsza nagroda niz podejscie do pudelka.
+    wchest.wait = Math.min(wchest.wait, 0.4);      // zlota skrzynia (bron) prawie natychmiast
+    G.hps.push(makeHeart(e.pos.x, e.pos.z));
+    if (P.hp <= P.maxHp * 0.34) G.hps.push(makeHeart(e.pos.x + 0.8, e.pos.z));   // litosc przy 1/3 zycia
+  } else if (e.elite && Math.random() < 0.08) G.hps.push(makeHeart(e.pos.x, e.pos.z));
   // Marshmallini po śmierci DZIELI SIĘ na dwa mniejsze (wg biblii)
   if (e.T.dzieli && !e.mini) {
     for (const bok of [-1, 1]) {
@@ -3081,7 +3123,7 @@ const WEAPONS = {
     },
   },
   bumerang: {
-    ico: 'radio', nm: 'Pizza Volante', ds: 'Koło pizzy leci i WRACA, kosząc po drodze', max: 5, locked: true,
+    ico: 'pizza', nm: 'Pizza Volante', ds: 'Koło pizzy leci i WRACA, kosząc po drodze', max: 5, locked: true,
     lvlDs: l => `zasięg ${(8 + 0.6 * l).toFixed(0)}, co ${(2.8 - 0.2 * l).toFixed(1)} s`,
     tick(w, dt) {
       w.t -= dt;
@@ -5170,6 +5212,7 @@ function update(dt) {
   // ziarna lecą dalej NIEZALEŻNIE od trybu — wystrzelone w ostatniej sekundzie
   // muszą dolecieć, a nie zniknąć w powietrzu
   if (G.karabinPoc.length) updateKarabinPoc(dt);
+  updateBossHp();
   if (G.gluty.length) updateGluty(dt);
   if (G.kaluze.length) updateKaluze(dt);
 
@@ -5213,6 +5256,7 @@ function update(dt) {
     G.bossAt += 120;
     const ile = 1 + Math.floor(G.time / 300);
     for (let b = 0; b < ile; b++) spawnEnemy('boss');
+    wejscieBossa();
     AUDIO.sfx('boss');                                           // niski róg = „coś dużego weszło"
     AUDIO.bossOn();                                              // muzyka przełącza się na walkę z bossem
   }
@@ -5515,7 +5559,9 @@ function update(dt) {
   for (let i = G.bolts.length - 1; i >= 0; i--) {
     const b = G.bolts[i]; b.t += dt;
     b.mesh.material.opacity = Math.max(0, 1 - b.t * 6);
-    if (b.t > 0.18) { scene.remove(b.mesh); G.bolts.splice(i, 1); }
+    // klon materialu = wlasny obiekt; bez dispose zostaje po nim smiec i rosnie
+    // `usedTimes` programu (te same trzy pule co `pops`/`puffs`, tylko tam dispose byl)
+    if (b.t > 0.18) { scene.remove(b.mesh); b.mesh.material.dispose(); G.bolts.splice(i, 1); }
   }
 
   // ---- iskry ----
@@ -5523,7 +5569,7 @@ function update(dt) {
     const s = G.sparks[i]; s.t += dt;
     s.mesh.scale.setScalar(1 + s.t * 6);
     s.mesh.material.opacity = Math.max(0, 1 - s.t * 5);
-    if (s.t > 0.2) { scene.remove(s.mesh); G.sparks.splice(i, 1); }
+    if (s.t > 0.2) { scene.remove(s.mesh); s.mesh.material.dispose(); G.sparks.splice(i, 1); }
   }
 
   // ---- okruchy po zabitych (odbijają się od terenu i gasną skalą) ----
@@ -5637,7 +5683,7 @@ function update(dt) {
     const k = r.t / 0.45;
     r.mesh.scale.set(r.rMax * 2 * k, 1, r.rMax * 2 * k);
     r.mesh.material.opacity = Math.max(0, 1 - k);
-    if (k >= 1) { scene.remove(r.mesh); G.rings.splice(i, 1); }
+    if (k >= 1) { scene.remove(r.mesh); r.mesh.material.dispose(); G.rings.splice(i, 1); }
   }
 
   // ---- dropy (kości XP + monety) ----
@@ -5924,11 +5970,11 @@ function clearWorld() {
   for (const c of G.coins) scene.remove(c.mesh);
   for (const s of G.shots) scene.remove(s.mesh);
   for (const o of G.orbs) { scene.remove(o.mesh); if (o.segi) for (const sg of o.segi) scene.remove(sg); }
-  for (const s of G.sparks) scene.remove(s.mesh);
-  for (const r of G.rings) scene.remove(r.mesh);
+  for (const s of G.sparks) { scene.remove(s.mesh); s.mesh.material.dispose(); }
+  for (const r of G.rings) { scene.remove(r.mesh); r.mesh.material.dispose(); }
   for (const l of G.lobs) scene.remove(l.mesh);
   for (const b of G.boomers) scene.remove(b.mesh);
-  for (const b of G.bolts) scene.remove(b.mesh);
+  for (const b of G.bolts) { scene.remove(b.mesh); b.mesh.material.dispose(); }
   for (const p of G.pops) { scene.remove(p.mesh); p.mesh.material.dispose(); }
   for (const h of G.hps) scene.remove(h.mesh);
   for (const k of G.kury) k.bb.dispose();
@@ -5947,6 +5993,9 @@ function clearWorld() {
   G.karabinPoc = []; G.gluty = []; G.kaluze = [];
   G.streak = 0; G.streakT = -9;
   G.vacuum = 0; G.buff = { key: null, t: 0 };
+  document.getElementById('bossHp').classList.remove('on');
+  document.getElementById('bossOv').classList.remove('on');
+  document.getElementById('bossNm').classList.remove('on');
   puscMysz();                                      // w menu kursor musi wrocic
   // TRYB KARABINU: bez tego wyjście do menu w trakcie trybu zostawiało widok broni
   // na ekranie menu, a gracz wracał do biegu bez własnego sprite'a.
