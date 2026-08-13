@@ -1192,3 +1192,23 @@ szarżę z telegrafem 0.6 s i tarczę pilarską. `e.stun` już istnieje, więc s
   doctorAngry, bone, drzewa/krzaki/kamienie/kwiatki/trawa).
 - `lib/three.module.js` — Three.js r160.
 - Cache-bust: `main.js?v=N` w index.html — podbijać przy każdej zmianie!
+
+### SKARPETA BIOLOGICZNA: z „trochę obrażeń wokół" na broń obszarową (13.08, v135)
+Życzenie właściciela: „na początku mało przydatna, później po ulepszeniu mocny killer"
++ „zielona aura wokół postaci" + „może taka chmurka, może mapa szumów".
+- **Promień rośnie KWADRATOWO**: `SKARPETA_R = 1.8 + 0.25·l²` → 2.05 / 2.80 / 4.05 /
+  5.80 / **8.05**. Powierzchnia: 13 j.² → **204 j.², czyli ×15**. Poprzednie
+  `2.2 + 0.35·l` dawało 2.55 → 3.95, więc broń przez cały bieg robiła to samo.
+  Obrażenia rosną spokojnie (`0.7 + 0.28·l`) — siła ma siedzieć w POWIERZCHNI.
+- **Kształt z fBm, nie z kółka**: `smrodTexture()` używa **tego samego `pnoise`
+  (4 oktawy), co cienie chmur**. Zero nowych assetów. Gotowy obrazek 2D byłby tu
+  błędem: promień rośnie ×4, więc sprite trzeba by rozciągać i piksele zrobiłyby się
+  cztery razy większe niż wszystko obok (dokładnie problem Dona Chipso).
+- **Kontrast walorowy, nie odcieniem**: limonka na limonkowej trawie znikała.
+  Wnętrze jest ciemne (przygaszona „zatruta" zieleń), granicę zasięgu wyznacza
+  jaskrawy kwasowy rant #d8ff3a — ten sam trik, co ciemny kontur sprite'ów.
+- **Dwie warstwy przeciwbieżne** (0.22 i −0.35 rad/s) + puls skali = kłębienie gazu,
+  a nie wirująca naklejka.
+- **10 kłębków NAD trawą** (billboardy 0.55 j. nad ziemią, krążą po pierścieniu).
+  Powód: sama plama na ziemi czytała się słabo, bo **trawa to geometria 3D** i plama
+  leży POD jej ostrzami — widać ją tylko w przerwach. Kłębki widać zawsze.

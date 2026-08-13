@@ -1789,6 +1789,115 @@ function auraTexture() {
   t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false;
   return t;
 }
+// ============================== ŚMIERDZĄCA AURA (skarpeta) ==============================
+// Do 13.08 ta broń NIE MIAŁA STAŁEJ OPRAWY — raz na 0.7 s pykał pierścień `novaRing`
+// i to wszystko, więc gracz nie wiedział, gdzie kończy się jej zasięg (a od poz. 4
+// zasięg jest tak duży, że to główna informacja taktyczna: „stój tutaj").
+// Plama leży NA ZIEMI, bo tylko rzut z góry pokazuje obszar uczciwie; pasy alfy
+// są kwantowane jak resztą efektów, a jasny rant zaznacza dokładną granicę.
+const SKARPETA_R = l => 1.8 + 0.25 * l * l;
+// CHMURA, NIE KÓŁKO. Pierwsza wersja była gładkim kołem z sinusowymi „pęcherzami"
+// i na trawie czytała się jak oliwkowa plama. Teraz kształt daje **ten sam fBm
+// (`pnoise`, 4 oktawy), co cienie chmur** — czyli technika, którą gra już używa,
+// zero nowych assetów i zero rozjazdu gęstości pikseli (a takim rozjazdem skończyłby
+// się gotowy obrazek 2D: promień rośnie z 2.05 na 8.05, więc sprite trzeba by
+// rozciągać ×4 i piksele zrobiłyby się cztery razy większe niż wszystko obok).
+// `rant` = warstwa zewnętrzna z twardą granicą zasięgu (informacja taktyczna),
+// bez rantu = warstwa wewnętrzna, obracana w DRUGĄ STRONĘ, od której całość się kłębi.
+function smrodTexture(rant) {
+  const S = 128, c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d'), im = g.createImageData(S, S);
+  const OKT = [[3, 0.52], [6, 0.26], [12, 0.14], [24, 0.08]];      // jak w cloudShadowTexture
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const dx = (x - S / 2 + 0.5) / (S / 2), dy = (y - S / 2 + 0.5) / (S / 2);
+    const d = Math.sqrt(dx * dx + dy * dy);
+    let v = 0;
+    for (const [per, waga] of OKT) v += pnoise(x / S * per, y / S * per, per) * waga;
+    // KONTRAST WALOROWY, NIE ODCIENIEM. Limonka na limonkowej trawie znikała —
+    // zielone na zielonym nie da się rozdzielić samym odcieniem. Dlatego wnętrze
+    // jest CIEMNE (przygaszona, chora zieleń, czyli „trawa zatruta"), a granicę
+    // zasięgu wyznacza jaskrawy, kwasowy rant. Ten sam trik, co z konturem sprite'ów.
+    let a = 0, R = 46, Gc = 88, B = 28;
+    if (d <= 1) {
+      // szum decyduje o kształcie, dystans tylko go wygasza ku brzegowi
+      a = (v - 0.42) * 1.45 + 0.22 - d * 0.34;
+      a = Math.max(0, Math.floor(a * 7) / 7);          // pasy, nie gładki gradient
+      if (rant) {
+        if (d > 0.88) { a = 0.85; R = 216; Gc = 255; B = 58; }      // RANT = zasięg
+        else if (d > 0.80) { a = Math.max(a, 0.34); R = 120; Gc = 168; B = 40; }
+      } else if (d > 0.74) a = 0;                       // wnętrze nie dotyka rantu
+    }
+    const i = (y * S + x) * 4;
+    im.data[i] = R; im.data[i + 1] = Gc; im.data[i + 2] = B;
+    im.data[i + 3] = Math.round(Math.min(1, a) * 255);
+  }
+  g.putImageData(im, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false;
+  return t;
+}
+let smrod = null, smrodIn = null;
+// KŁĘBKI NAD TRAWĄ (pomysł właściciela: „może taka chmurka"). Sama plama na ziemi
+// czytała się słabo z prostego powodu: **trawa to geometria 3D**, a plama leży POD
+// jej ostrzami, więc widać ją tylko w przerwach. Dziesięć billboardów zawieszonych
+// pół jednostki nad ziemią jest widocznych zawsze — i to one dają „chmurę".
+const SMROD_KLEBKI = 10;
+let klebki = [];
+function initSmrod() {
+  const mat = r => new THREE.MeshBasicMaterial({
+    map: smrodTexture(r), transparent: true, depthWrite: false, opacity: 0, fog: true,
+  });
+  smrod = new THREE.Mesh(blobGeo, mat(true));
+  smrodIn = new THREE.Mesh(blobGeo, mat(false));
+  smrod.visible = smrodIn.visible = false;
+  scene.add(smrod); scene.add(smrodIn);
+  // wspólna tekstura dla wszystkich kłębków = jedna instancja w VRAM
+  const kMat = new THREE.MeshBasicMaterial({ map: smrodTexture(false), transparent: true,
+    depthWrite: false, opacity: 0.45, fog: true });
+  klebki = [];
+  for (let i = 0; i < SMROD_KLEBKI; i++) {
+    const m = new THREE.Mesh(unitGeo, kMat);
+    m.visible = false;
+    scene.add(m);
+    klebki.push(m);
+  }
+}
+function updateSmrod() {
+  if (!smrod) return;
+  const w = hasWeapon('skarpeta');
+  smrod.visible = smrodIn.visible = !!w && !G.fps.on && G.running;
+  if (!smrod.visible) { for (const m of klebki) m.visible = false; return; }
+  const r = SKARPETA_R(w.lvl);
+  // 0.07 i 0.09 nad ziemią: niżej plama tonie w trawie, wyżej odkleja się na zboczach.
+  // Dwie warstwy na RÓŻNEJ wysokości, żeby nie walczyły o z-bufor (depthWrite jest
+  // wyłączony, ale kolejność rysowania nadal zależy od odległości od kamery).
+  const gy = terrainH(P.pos.x, P.pos.z);
+  smrod.scale.set(r * 2, 1, r * 2);
+  smrod.position.set(P.pos.x, gy + 0.07, P.pos.z);
+  smrod.rotation.y = G.time * 0.22;
+  smrod.material.opacity = 0.90 + 0.10 * Math.sin(G.time * 3.1);
+  // warstwa wewnętrzna kręci się w DRUGĄ STRONĘ i lekko pulsuje skalą — z dwóch
+  // obrotów przeciwbieżnych powstaje wrażenie kłębienia się gazu, a nie wirującej naklejki
+  const puls = 1 + 0.05 * Math.sin(G.time * 1.7);
+  smrodIn.scale.set(r * 1.62 * puls, 1, r * 1.62 * puls);
+  smrodIn.position.set(P.pos.x, gy + 0.09, P.pos.z);
+  smrodIn.rotation.y = -G.time * 0.35;
+  smrodIn.material.opacity = 0.72 + 0.14 * Math.sin(G.time * 2.3 + 1.1);
+  // kłębki krążą wolno po pierścieniu, każdy w innej fazie i na innej wysokości;
+  // przy poz. 1 promień jest mały, więc same się zbiegają w jedną chmurkę u stóp
+  for (let i = 0; i < klebki.length; i++) {
+    const m = klebki[i], f = i / klebki.length * Math.PI * 2;
+    const kat = G.time * 0.30 + f;
+    const pr = r * (0.42 + 0.44 * ((i * 7 % 5) / 4));    // rozrzut od środka do rantu
+    const x = P.pos.x + Math.sin(kat) * pr, z = P.pos.z + Math.cos(kat) * pr;
+    const s = r * (0.42 + 0.10 * Math.sin(G.time * 1.9 + f));
+    m.scale.set(s, s, 1);
+    m.position.set(x, terrainH(x, z) + 0.55 + 0.18 * Math.sin(G.time * 2.4 + f), z);
+    billboardQuat(m.quaternion);
+    m.visible = true;
+  }
+}
+
 let aura = null, auraRing = null;
 function initAura() {
   const m = new THREE.MeshBasicMaterial({ map: auraTexture(), transparent: true,
@@ -1893,7 +2002,7 @@ const SHOP_UNLOCKS = [
   { key: 'tarcza',   ico: 'tarcza', nm: 'Tarcza',         ds: 'Blokuje 1 trafienie co jakiś czas', price: 120 },
   { key: 'djump',    ico: 'skok', nm: 'Podwójny skok',         ds: 'Drugi skok w powietrzu — przeskakuj regały (bywa też w skrzyniach)', price: 300 },
   { key: 'glide',    ico: 'skok', nm: 'Foliowa torba',           ds: 'PRZYTRZYMAJ skok w locie = szybujesz na torbie i uciekasz hordzie', price: 250 },
-  { key: 'skarpeta', ico: 'skarpeta', nm: 'Skarpeta', ds: 'Śmierdząca aura truje wokół', price: 180 },
+  { key: 'skarpeta', ico: 'skarpeta', nm: 'Skarpeta', ds: 'Aura trucizny — słaba na start, ogromna po ulepszeniach', price: 180 },
   { key: 'wiatrowka', ico: 'wiatr', nm: 'Wiatrówka',      ds: 'Promień przeszywa całą linię', price: 220 },
   { key: 'kura',     ico: 'kukurydza', nm: 'Kernello Boomello', ds: 'Ziarno biegnie do wroga i strzela jak popcorn', price: 350 },
   { key: 'pipsini', ico: 'pestka', nm: 'Pipsini Nipotini', ds: 'Pestka-towarzysz: biega, tłucze i sadzi kiełki', price: 320 },
@@ -3342,12 +3451,19 @@ const WEAPONS = {
   },
   skarpeta: {
     ico: 'skarpeta', nm: 'Skarpeta biologiczna', ds: 'Śmierdząca AURA truje wszystko wokół Ciebie', max: 5, locked: true,
-    lvlDs: l => `promień ${(2.2 + 0.35 * l).toFixed(1)}, trucie co 0.7 s`,
+    // ZASIĘG ROŚNIE KWADRATOWO (decyzja właściciela): „na początku mało przydatna,
+    // później po ulepszeniu może być mocnym killerem". Liniowe 2.2+0.35·l dawało
+    // 2.55 na starcie i 3.95 na maksie, czyli broń, która przez cały bieg robiła
+    // to samo — trochę. Teraz poz. 1 to 2.05 (ledwie wokół stóp, świadomie słabe),
+    // a poz. 5 to 8.05, czyli **pół ekranu trucizny**: kto wejdzie, ten gnije.
+    // Obrażenia rosną spokojnie, bo cała siła tej broni ma siedzieć w POWIERZCHNI
+    // (poz. 1: 13 j.² → poz. 5: 204 j.², czyli **15× większy obszar działania**).
+    lvlDs: l => `promień ${SKARPETA_R(l).toFixed(1)} (obszar ×${(SKARPETA_R(l) ** 2 / SKARPETA_R(1) ** 2).toFixed(1)}), trucie co 0.7 s`,
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
       w.t = 0.7 / fireMul();
-      const r = 2.2 + 0.35 * w.lvl, ad = (0.8 + 0.25 * w.lvl) * dmgAll();
+      const r = SKARPETA_R(w.lvl), ad = (0.7 + 0.28 * w.lvl) * dmgAll();
       novaRing(P.pos.x, P.pos.z, r * 0.9);
       for (let j = G.enemies.length - 1; j >= 0; j--) {
         const e = G.enemies[j];
@@ -5456,6 +5572,7 @@ function update(dt) {
   playerBB.mesh.visible = !G.fps.on;               // w pierwszej osobie własnego ciała nie widać
   playerBB.update(dt, P.pos, P.y, ground);
   updateHitFlash();
+  updateSmrod();
   updateLettuce(dt);
   updateKarabin(dt);
   // ziarna lecą dalej NIEZALEŻNIE od trybu — wystrzelone w ostatniej sekundzie
@@ -6472,6 +6589,7 @@ if (loadTip) {
   playerBB = new Billboard(CHARS[charKey].char, CHARS[charKey].scale, true);
   initHitFlash();
   initAura();
+  initSmrod();
   initKino();
   initLettuce();
   initKarabin();         // widok broni do trybu pierwszej osoby (nakładka 2D)
