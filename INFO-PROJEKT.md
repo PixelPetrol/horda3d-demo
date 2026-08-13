@@ -591,6 +591,143 @@ kamienie milowe co `killGoal/3`.
   (`r4 > 0.72 && b < 0.66`): 9.03 → 8.64 ms na przebudowę dywanu.
 - Zmierzone: 15-19 tys. trawy, 1.5-3.1 tys. kwiatów (zależnie od łanu), 160-780 kłosów.
 
+## ═══════════ STAN NA 13.08.2026: KARABIN FPP, GARNEK NONNY, CZCIONKA ═══════════
+
+### AUDYT CZTERECH AGENTÓW (12.08) — najważniejsze, jeszcze NIENAPRAWIONE
+Zlecony przez właściciela. Trzy raporty gotowe, `tester-gry` padł na błędzie 529
+(**do powtórzenia — pełny przebieg w przeglądarce nie został wykonany**).
+Wszystkie 6 błędów z listy „ZAMKNIĘTE" nadal jest naprawionych — zero regresji.
+
+**KRYTYCZNE, do zrobienia:**
+1. `clearWorld()` nie resetuje `ch.shelves` → regał, który padał w momencie wyjścia
+   z biegu, zostaje NA ZAWSZE zamrożony w połowie upadku, z kolizją stojącego.
+   `newGame()` nie woła `rebuildWorld()`, a bieg startuje w (0,0,0) → **każdy kolejny
+   bieg w markecie zaczyna się w połamanej hali z niewidzialnymi ścianami.**
+2. `saveMetaSoon()` (debounce 2 s) **nie ma flushu** na `pagehide`/`visibilitychange`
+   → zamknięcie karty kasuje ostatnie 2 s progresu. Na Capacitorze to norma, nie edge case.
+3. Kolejka overlayów: skrzynia + awans w jednej klatce → kliknięcie karty zdejmuje
+   pauzę, a `#swapOv` zostaje → świat się symuluje, a gracz nie może się ruszyć.
+4. Awans jest `if`, nie `while`, a pętla dropów leci dalej → dwa awansy w jednej
+   klatce i `showCards()` robi `innerHTML=''`, **kasując poprzednie 3 karty**.
+5. `ch.rocks` (3 InstancedMesh regałów na chunk) dostaje `remove()` bez `dispose()`
+   → wyciek buforów GL rosnący liniowo z przebytą drogą po markecie.
+6. `buildChar` robi osobny canvas+teksturę+materiał NA KAŻDĄ KLATKĘ: policzone
+   **1170 klatek = 58,7 MB VRAM + ~69 MB canvasów**. Atlas z `offset/repeat` = ~6 MB.
+7. `META.st.best` aktualizowany PRZED porównaniem → „NOWY REKORD" po KAŻDYM biegu.
+8. Kod `rudeuszek2123` (`main.js`) jest w publicznym demo jawnym tekstem i odblokowuje
+   wszystko + 5000 monet. `touch-action:none` na `body` blokuje przewijanie paneli menu.
+
+**BALANS (raport projektanta, liczby przeliczone w node):**
+- **`fireMul()` jest użyte w JEDNYM miejscu w całym pliku** (Kule). Pozostałe 13 broni
+  ma cooldown na sztywno → pasyw Tempo (+76%) i bonus rangi za tempo są DLA WIĘKSZOŚCI
+  BUILDÓW ZEROWE. To samo `critC()` (tylko pociski) i `rangeF()` (4 bronie z 14).
+- Carrotello ma **najgorszy start w grze**, a gra się nim pierwsze 3 biegi: TTK jednego
+  Chipsettiego 2,9 s (Razoretta 0,61 s), bo `dmg` Kul jest zaszyte jako `1` i NIE ROŚNIE
+  z poziomem, a postać ma jedyną w grze karę do obrażeń (0.9).
+- Ekonomia wykupiona w 2-3 biegach (meta 29 472 monet, bieg 10 min ≈ 18 800).
+  Elity dają **72% dochodu**, a mnożnik serii jest de facto stałą ×3.
+- Rozstrzał DPS broni **28×** (Piorun 5,8 — Wypad 162), przy czym Piorun jest nagrodą
+  za pierwszą przegraną, czyli pierwszy prezent w grze jest najsłabszą bronią w grze.
+- Friesetti **wcale nie szarżuje**, Lollini „wiruje" tylko wizualnie (`scale.x`).
+- Elitarne mini-Marshmallini mają HP malucha, a płacą jak elita = najszybsza kasa w grze.
+- Gracz jest 1,78-5,6× szybszy od najszybszego wroga, a fala okrążająca ma w 4. minucie
+  dziury szerokie na 9 wrogów.
+
+**GRAFIKA (raport grafika):** cienie chmur mnożone PO mgle (ciemne łaty na horyzoncie),
+trawa nie przyjmuje cieni (cień drzewa wygląda jak plama pod dywanem), `shadow.bias`
+−0.0014 = 23 cm peter-panningu, brak snapowania ramki cienia = pełzanie krawędzi,
+`addCloudShadow(waterMat)` **nie istnieje** wbrew tej dokumentacji, progi pasów głębi
+wody dają granat na 4% jeziora. Plamy `blobGeo` pod koronami też nie istnieją i nie są
+potrzebne (korony to `leafBlobGeo` z `castShadow`) — **ta dokumentacja była nieaktualna**.
+
+### CZCIONKA UI: PIXELIFY SANS → JERSEY 10 (zgłoszenie właściciela)
+Pixelify miał **nieczytelne glify: S≈5, Z≈2, B≈8** — „PAUZA" czytało się jako „PAU2A",
+„BESTIARIUSZ" jako „8ESTIARIUS8", „1500 monet" jako „1900 monet". Zweryfikowane na
+stronie porównawczej z pięcioma fontami. To ten sam problem, dla którego liczby w 3D
+dostały własny font bitmapowy `GLIF` (tam zostaje — potrzebuje konturu).
+- Wybrany **Jersey 10** (OFL, self-hosted w `fonts/`, latin + latin-ext = polskie znaki).
+  Nazwa rodziny została `Pixel`, więc żadna z ~40 reguł CSS się nie zmieniła.
+- **PUŁAPKA:** Jersey ma tylko wagę 400, a UI woła `font-weight` 700/800. W `@font-face`
+  jest dlatego `font-weight: 100 900` na tym samym pliku + `font-synthesis: none` na
+  `body` — bez tego przeglądarka SAMA pogrubia font i rozmazuje piksele.
+- Pixelify usunięty z repo. Licencje i uzasadnienie: `fonts/README.txt`.
+
+### TRYB KARABINU (pierwsza osoba) — decyzje właściciela
+- Wypada ze skrzyni **raz na bieg** (18% na skrzynię poza wyreżyserowaną szóstką)
+  i ląduje „w kieszeni": gracz odpala go sam **klawiszem R / przyciskiem obok skoku /
+  X na padzie**. Przycisk `#karabinBtn` pokazuje się DOPIERO po znalezieniu i jest
+  jednocześnie podpowiedzią klawisza dla gracza na PC (życzenie właściciela).
+- Baza **20 s**, sklep `Magazynek Nonny` (300🪙, max 3) dokłada +5 s za poziom.
+- **3 ŻYCIA TRYBU** ≠ serca: cios zabiera życie i ODRZUCA hordę na 14 j. (pozycja
+  ustawiana wprost, bo Gummini mają `bezKb`), ale **nie tyka HP**. Po trzecim → powrót
+  do widoku za plecami. Jedna bramka `ciosPochloniety()` na wszystkie 3 źródła obrażeń.
+- Kamera: `kf` (0 = za plecami, 1 = z oczu) animuje się 0.5 s, więc przejście jest
+  płynne bez osobnego kodu. Przy `kf > 0` pozycja jest DOKŁADNIE celem — dodatkowy lerp
+  zostawiał kamerę w połowie drogi na cały tryb.
+- **ZIARNA KUKURYDZY jako pociski, ZERO auto-aim** (życzenie właściciela: „celowanie
+  musi mieć sens"). Startują Z WYLOTU LUFY — punkt liczony z `#gunFlash` przez
+  `unproject` (`przeliczWylot`, cache'owane, bo `getBoundingClientRect` 13×/s wymuszałby
+  przeliczanie stylów) — i lecą w punkt celownika 55 j. przed graczem, więc tor zbiega
+  się ze środkiem ekranu jak w normalnym FPS-ie. 46 j./s = widać je w locie.
+- Sprite `assets/karabin_fpp.png` od właściciela (słoik kukurydzy jako magazynek);
+  proceduralna `gunTexture()` zostaje jako awaryjna zaślepka.
+- Widok broni to **nakładka 2D**, nie model 3D — przy pixel-artowych billboardach
+  wygląda spójnie i nie wchodzi w kolizję z shadow mapą ani mgłą. Odrzut i kołysanie
+  w marszu ustawiane na `#gunWrap`, żeby błysk wylotowy jechał razem z lufą.
+- `#fpsHud` jest POD celownikiem, bo nad nim siedzi strzałka do złotej skrzyni.
+
+### GARNEK NONNY zamiast totemów + nowe buffy
+Kamienna kolumna fantasy nie miała nic wspólnego z warzywami walczącymi z mafią przekąsek.
+Mechanika ta sama, zmienił się kostium: **bulgoczący garnek** na Łąkach, **witryna
+chłodnicza** w markecie (`ustawWygladGarnkow` w `setMap`, oba proceduralne przez `pixTex`).
+Tablica nazywa się nadal `totems` — wisi na niej `window.HORDA` i scenariusze testera.
+- Nowe buffy: **NIETYKALNOŚĆ 6 s** (nie 10 — 10 s to prawie pół fali okrążającej; złota
+  poświata idzie przez istniejący `hitFlash`, zero nowych obiektów), **MROŻONKI** (horda
+  staje 3.5 s), **PODWÓJNE MONETY 20 s**. Losowanie **z wagami** — te zdejmujące napięcie
+  są rzadsze. Etykiety przez `ico()`, koniec z emoji w HUD.
+
+### FOLIOWA TORBA zamiast liścia sałaty (spadochron)
+Płaski billboard wyglądał źle z prostego powodu: spadochron czyta się dopiero jako
+WYGIĘTA CZASZA. Teraz to górna czapa sfery (`thetaLength 0.46π`) z falującym rantem
+w vertex shaderze (im dalej od czubka, tym mocniejszy trzepot). Motyw zmieniony na
+nadmuchującą się torbę z marketu — śmieszniej i spójnie ze sklepem.
+
+### GRADIENT NIEBA
+Kopuła (r=1 × skala 300) jeżdżąca za kamerą, `renderOrder −1000`, `depthTest:false`.
+Gradient **KWANTOWANY na pasy** (`floor(h*16)/16`) — gładki wyglądał jak z Unity, nie
+jak tło pixel-artowej gry; market ma `pasy: 0`. **Kolor dolny MUSI równać się
+`scene.fog.color`**, inaczej dalekie wzgórza wtapiają się w inny kolor niż niebo = szew.
+Przy okazji: wiatr i chmury płyną teraz TEŻ w menu i na pauzie (`update()` wtedy nie
+chodzi, więc świat za overlayem stał jak zdjęcie).
+
+### ⚠️ TRAWA UGINA SIĘ POD HORDĄ — i dlaczego PIERWSZA WERSJA BYŁA ZŁA
+Właściciel odrzucił wersję v89 („źle wygląda"). Research (Ghost of Tsushima GDC 2022
+„displacement buffer", systemy foliage w UE/Unity): **nikt nie liczy kierunku z gradientu
+skalara**. Standard to **POLE WEKTOROWE** wokół gracza w teksturze RGBA:
+- **RG = kierunek położenia** (128 = zero, jak w normal mapie), zapisywany PROSTO
+  z ruchu interaktora → trawa kładzie się TAM, GDZIE KTOŚ PRZEBIEGŁ. **B = siła.**
+- Co było źle w v89: kierunek z gradientu skalara dawał **KRATER** (trawa promieniście
+  wokół gracza jak po eksplozji), plama miała 4 j. przy postaci szerokiej na 0.6,
+  przeskakiwała o cały texel (0.75 j.), falloff miał 3 stopnie → **widoczne kwadraty
+  texeli**, a amplituda wywalała czubek dwa razy dalej, niż kępka jest wysoka
+  („rozsypana słoma" zamiast położonej trawy).
+- Teraz: `TR_RES 160` na `TR_SPAN 56` (0.35 j./texel), **środek podteksturowy** (plama
+  płynie za postacią, nie przeskakuje), spadek `smoothstep`, zanik **wykładniczy**
+  (tau 0.45 s), przesuwanie pola całymi rzędami przez `copyWithin`, pusty texel
+  wykrywany JEDNYM porównaniem `uint32`.
+- W shaderze kępka kładzie się **KĄTEM** (bok = `sin`, wysokość = `cos`), nie samym
+  przesunięciem w poziomie — czubek zostaje na łuku wokół nasady. Do tego **korekta
+  proporcji instancji** (`sy/sxz`), bo kępka jest szersza niż wyższa, oraz okno
+  wygaszające pole na krawędzi tekstury (bez niego `ClampToEdge` rozsmarowałby brzegowy
+  texel na całą dalszą trawę). Przygnieciona trawa nie kołysze się na wiatrze.
+- Kwiatki i kłosy mają `gietkosc` 1.15 / 1.3 — kładą się chętniej niż zwykła kępka.
+
+### BRONIE POSTACI TYLKO DLA NICH (decyzja właściciela)
+`kule`/`wypad`/`scyzoryk`/`ciabatta` mają pole `postac:` i **nie wypadają ze złotej
+skrzyni innym postaciom** (`broniDostepna()`, jedno miejsce dla obu pul). Wcześniej
+świeży Carrotello mógł w 40. sekundzie wyciągnąć Scyzoryki — najlepszą broń jednocelową
+w grze — i wybór postaci przestawał cokolwiek znaczyć.
+
 ## Monetyzacja (decyzja usera 8.08)
 - **Steam**: wersja płatna (bez reklam). Pakowanie: Electron albo natywny webview.
 - **Telefony**: darmowa z reklamami — Capacitor + AdMob; model survivors idealnie

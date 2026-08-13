@@ -1012,39 +1012,77 @@ let stalkMat = null, stalkField = null;        // wysokie suche trawy z kłosem
 const grassCenterU = { value: new THREE.Vector2() };
 const grassRU = { value: 20 };
 
-// ================= MAPA NACISKU: TRAWA UGINA SIĘ POD HORDĄ =================
-// 500 pozycji wrogów nie da się przekazać do shadera uniformami, więc idziemy tą samą
-// drogą co mapa głębi wody: wypiekamy pole nacisku do DataTexture wokół gracza,
-// a vertex shader czyta je per kępkę. Kierunek pochylenia bierzemy z GRADIENTU pola
-// (jak piana na brzegu jeziora) — sam skalar nie mówi, w którą stronę uciekać.
-// Format R8 + LinearFilter, dokładnie jak `waterDepthTex` (filtrowalny wszędzie).
-const TR_RES = 96, TR_SPAN = 72;                   // 0.75 j./texel
+// ================= POLE NACISKU: TRAWA UGINA SIĘ POD HORDĄ =================
+// 500 pozycji wrogów nie da się przekazać do shadera uniformami, więc — jak w każdym
+// dużym silniku — trzymamy je w TEKSTURZE wokół gracza, a vertex shader czyta ją per kępkę.
+// RESEARCH (Ghost of Tsushima, GDC 2022: „displacement buffer"; Helio/Pulsar foliage
+// system; tutoriale UE4 Kodeco i Unity): NIKT nie liczy kierunku z gradientu skalara.
+// Standard to POLE WEKTOROWE (flowmap) wokół gracza:
+//   • RG = kierunek położenia trawy, 128 = zero (jak w normal mapie: v*0.5+0.5),
+//     zapisywany PROSTO z ruchu interaktora — trawa kładzie się TAM, GDZIE KTOŚ PRZEBIEGŁ,
+//   • B  = siła zgniecenia (max, nie suma — inaczej tłum zeruje wszystko),
+//   • pole snapowane do texela i przesuwane o CAŁE texele (zero resamplingu),
+//   • zanik WYKŁADNICZY (`v *= exp(-dt/tau)`) — trawa wstaje, za hordą zostaje ślad.
+// ⚠️ PIERWSZA WERSJA (v89) brała kierunek z GRADIENTU skalarnego pola i wyglądała jak
+// KRATER: trawa kładła się promieniście wokół gracza (kółko jak po eksplozji), plama
+// miała 4 j. średnicy przy postaci szerokiej na 0.6, przeskakiwała o cały texel (0.75 j.),
+// falloff miał trzy stopnie → widoczne kwadraty texeli, a amplituda (0.95 j. w LOKALNYCH
+// jednostkach, przy skali instancji xz≈1.2 / y≈0.7) wywalała czubek DWA RAZY DALEJ niż
+// kępka jest wysoka — stąd „rozsypana słoma" zamiast położonej trawy.
+const TR_RES = 160, TR_SPAN = 56;                  // 0.35 j./texel (było 0.75 = widoczna krata)
 const TR_ST = TR_SPAN / TR_RES;
-const trData = new Uint8Array(TR_RES * TR_RES);
-const trPrzesuw = new Uint8Array(TR_RES * TR_RES);
-const trampleTex = new THREE.DataTexture(trData, TR_RES, TR_RES, THREE.RedFormat);
+const trBuf = new Uint8Array(TR_RES * TR_RES * 4);
+const trU32 = new Uint32Array(trBuf.buffer);       // szybkie przesuwanie + test „texel spokojny"
+const trampleTex = new THREE.DataTexture(trBuf, TR_RES, TR_RES, THREE.RGBAFormat);
 trampleTex.minFilter = trampleTex.magFilter = THREE.LinearFilter;
 trampleTex.wrapS = trampleTex.wrapT = THREE.ClampToEdgeWrapping;
-trampleTex.unpackAlignment = 1;
 trampleTex.needsUpdate = true;
+// Stan spoczynku trzymamy jako jedno uint32, żeby pętla zaniku przeskakiwała pusty
+// texel JEDNYM porównaniem (przy pustym polu cała aktualizacja jest wtedy darmowa).
+trBuf[0] = 128; trBuf[1] = 128; trBuf[2] = 0; trBuf[3] = 255;
+const TR_REST = trU32[0];
+trU32.fill(TR_REST);
 const trampleU = { value: trampleTex };
 const trCenterU = { value: new THREE.Vector2(1e9, 1e9) };
+const trKatU = { value: 1.02 };                    // maks. pochylenie kępki w radianach (~58°)
 let trCx = 1e9, trCz = 1e9;
-function stampTrample(x, z, moc) {
-  if (Math.abs(x - trCx) > TR_SPAN / 2 || Math.abs(z - trCz) > TR_SPAN / 2) return;
-  const gx = Math.round((x - trCx) / TR_ST + TR_RES / 2);
-  const gz = Math.round((z - trCz) / TR_ST + TR_RES / 2);
-  for (let j = -2; j <= 2; j++) {
-    const jz = gz + j;
-    if (jz < 0 || jz >= TR_RES) continue;
-    for (let i = -2; i <= 2; i++) {
-      const ix = gx + i;
-      if (ix < 0 || ix >= TR_RES) continue;
-      const d2 = i * i + j * j;
-      if (d2 > 5) continue;                        // okrągła plama, nie kwadrat
-      const v = moc * (d2 === 0 ? 1 : d2 <= 2 ? 0.78 : 0.46);
-      const k = jz * TR_RES + ix;
-      if (v > trData[k]) trData[k] = v;
+let trAktywne = 0;                                 // zajęte texele (diagnostyka wydajności)
+
+// STEMPEL. Środek jest PODTEXELOWY (plama płynie za postacią, zamiast przeskakiwać
+// o texel), spadek gładki (smoothstep — zero plateau i schodków), a kierunek to
+// mieszanka RUCHU interaktora i rozpychania na boki: postać stojąca rozgarnia trawę
+// promieniście (mały krążek pod stopami), biegnąca kładzie ją w stronę biegu.
+function stampTrample(x, z, vx, vz, promien, moc) {
+  const cx = (x - trCx) / TR_ST + TR_RES * 0.5;
+  const cz = (z - trCz) / TR_ST + TR_RES * 0.5;
+  const rT = promien / TR_ST;
+  const i0 = Math.max(0, Math.ceil(cx - rT)), i1 = Math.min(TR_RES - 1, Math.floor(cx + rT));
+  const j0 = Math.max(0, Math.ceil(cz - rT)), j1 = Math.min(TR_RES - 1, Math.floor(cz + rT));
+  if (i1 < i0 || j1 < j0) return;
+  const vl = Math.sqrt(vx * vx + vz * vz);
+  const wR = vl < 3.2 ? vl / 3.2 : 1;              // im szybciej, tym mocniej rządzi kierunek biegu
+  const mx = vl > 0.02 ? vx / vl : 0, mz = vl > 0.02 ? vz / vl : 0;
+  const invR = 1 / rT, wPro = 1 - wR * 0.55;
+  for (let j = j0; j <= j1; j++) {
+    const dz = j - cz, dz2 = dz * dz;
+    for (let i = i0; i <= i1; i++) {
+      const dx = i - cx;
+      const d = Math.sqrt(dx * dx + dz2);
+      if (d > rT) continue;
+      const t = 1 - d * invR;
+      const s = t * t * (3 - 2 * t) * moc;
+      const inv = d > 0.001 ? wPro / d : 0;
+      let kx = mx * wR + dx * inv, kz = mz * wR + dz * inv;
+      const kl = Math.sqrt(kx * kx + kz * kz) || 1;
+      const o = (j * TR_RES + i) * 4;
+      // RG = SUMA wektorów: naciski z przeciwnych stron znoszą się, więc w środku
+      // ciżby zostaje samo zgniecenie w dół (B) bez losowego kierunku — tak jak w naturze.
+      const r = trBuf[o] - 128 + kx / kl * s * 110, g = trBuf[o + 1] - 128 + kz / kl * s * 110;
+      trBuf[o] = r < -127 ? 1 : r > 127 ? 255 : 128 + r;
+      trBuf[o + 1] = g < -127 ? 1 : g > 127 ? 255 : 128 + g;
+      const b = s * 255;
+      if (b > trBuf[o + 2]) trBuf[o + 2] = b;
+      trBuf[o + 3] = 255;                          // A pilnuje, by texel nie udawał spoczynku
     }
   }
 }
@@ -1056,49 +1094,64 @@ function updateTrample(dt) {
   if (nx !== trCx || nz !== trCz) {
     const dx = Math.round((nx - trCx) / TR_ST), dz = Math.round((nz - trCz) / TR_ST);
     if (!isFinite(dx) || !isFinite(dz) || Math.abs(dx) >= TR_RES || Math.abs(dz) >= TR_RES) {
-      trData.fill(0);
+      trU32.fill(TR_REST);
     } else {
-      // przesunięcie pola o CAŁE texele — ślady zostają przyklejone do świata,
-      // więc wygięta trawa nie jedzie za graczem
-      trPrzesuw.set(trData);
-      trData.fill(0);
-      for (let j = 0; j < TR_RES; j++) {
-        const src = j + dz;
-        if (src < 0 || src >= TR_RES) continue;
-        for (let i = 0; i < TR_RES; i++) {
-          const si = i + dx;
-          if (si < 0 || si >= TR_RES) continue;
-          trData[j * TR_RES + i] = trPrzesuw[src * TR_RES + si];
-        }
-      }
+      // Przesunięcie o CAŁE texele = ślady przyklejone do świata (wygięta trawa nie
+      // jedzie za graczem). Kopiujemy CAŁYMI RZĘDAMI przez copyWithin (memmove),
+      // bez bufora pomocniczego; kolejność rzędów wg znaku dz, żeby nie nadpisać źródła.
+      const i0 = Math.max(0, -dx), i1 = Math.min(TR_RES, TR_RES - dx);
+      const rzad = j => {
+        const src = j + dz, d0 = j * TR_RES;
+        if (src < 0 || src >= TR_RES || i1 <= i0) { trU32.fill(TR_REST, d0, d0 + TR_RES); return; }
+        const s0 = src * TR_RES;
+        trU32.copyWithin(d0 + i0, s0 + i0 + dx, s0 + i1 + dx);
+        if (i0 > 0) trU32.fill(TR_REST, d0, d0 + i0);
+        if (i1 < TR_RES) trU32.fill(TR_REST, d0 + i1, d0 + TR_RES);
+      };
+      if (dz > 0) for (let j = 0; j < TR_RES; j++) rzad(j);
+      else for (let j = TR_RES - 1; j >= 0; j--) rzad(j);
     }
     trCx = nx; trCz = nz;
     trCenterU.value.set(nx, nz);
   }
-  // ZANIK: trawa wstaje z powrotem, więc po hordzie zostaje na chwilę wydeptany ślad
-  const zanik = Math.max(0, 1 - dt * 2.6);
-  for (let k = 0; k < trData.length; k++) {
-    const v = trData[k];
-    if (v) trData[k] = v * zanik < 2 ? 0 : v * zanik;
+  // ZANIK WYKŁADNICZY (tau 0.45 s): trawa wstaje, więc za hordą zostaje ślad na ~1.2 s.
+  const zanik = Math.exp(-dt / 0.45);
+  let akt = 0;
+  for (let k = 0, o = 0; k < trU32.length; k++, o += 4) {
+    if (trU32[k] === TR_REST) continue;            // pusty texel = jedno porównanie
+    const r = (trBuf[o] - 128) * zanik, g = (trBuf[o + 1] - 128) * zanik, b = trBuf[o + 2] * zanik;
+    if (b < 2 && r > -2 && r < 2 && g > -2 && g < 2) { trU32[k] = TR_REST; continue; }
+    trBuf[o] = 128 + r; trBuf[o + 1] = 128 + g; trBuf[o + 2] = b;
+    akt++;
   }
-  stampTrample(P.pos.x, P.pos.z, 255);
-  for (const e of G.enemies) if (!e.dying) stampTrample(e.pos.x, e.pos.z, e.T.boss ? 255 : 205);
+  trAktywne = akt;
+  // Promienie stempli ~= promień postaci (0.4-0.6), nie 2 j. jak w v89. Kierunek gracza
+  // z jego prędkości, wrogów — z wektora do celu (i tak wszyscy idą po gracza).
+  stampTrample(P.pos.x, P.pos.z, P.vx, P.vz, 0.62, 1);
+  for (const e of G.enemies) {
+    if (e.dying) continue;
+    const dx = P.pos.x - e.pos.x, dz = P.pos.z - e.pos.z;
+    const d = Math.sqrt(dx * dx + dz * dz) || 1, s = e.T.speed / d;
+    stampTrample(e.pos.x, e.pos.z, dx * s, dz * s,
+                 e.T.boss ? 1.5 : e.elite ? 0.66 : 0.44, e.T.boss ? 1 : 0.92);
+  }
   trampleTex.needsUpdate = true;
 }
-function makeBladeMaterial(mapa = null) {
+function makeBladeMaterial(mapa = null, gietkosc = 1) {
   const m = new THREE.MeshBasicMaterial({ map: mapa || clumpTexture(), alphaTest: 0.42,
     side: THREE.DoubleSide, vertexColors: true });
   addCloudShadow(m);
   const _wind = m.onBeforeCompile;
   m.onBeforeCompile = sh => {
-    if (_wind) _wind(sh);
+    if (_wind) _wind(sh);                          // ⚠️ łańcuch onBeforeCompile — nie nadpisywać
     sh.uniforms.uTime = windU;
     sh.uniforms.uCenter = grassCenterU;
     sh.uniforms.uR = grassRU;
     sh.uniforms.uTr = trampleU;
     sh.uniforms.uTrC = trCenterU;
+    sh.uniforms.uTrKat = trKatU;
     sh.vertexShader = 'uniform float uTime;uniform vec2 uCenter;uniform float uR;' +
-      'uniform sampler2D uTr;uniform vec2 uTrC;\n' +
+      'uniform sampler2D uTr;uniform vec2 uTrC;uniform float uTrKat;\n' +
       sh.vertexShader.replace('#include <begin_vertex>',
       `#include <begin_vertex>
        vec3 iP = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
@@ -1106,25 +1159,35 @@ function makeBladeMaterial(mapa = null) {
        float fade = 1.0 - smoothstep(uR - 22.0, uR - 0.5, dC);  // bardzo szerokie wtapianie
        transformed.y *= fade;
        float h = max(position.y, 0.0);
+       // ---- POLE NACISKU: RG = kierunek położenia, B = siła ----
+       vec2 tuv = (iP.xz - uTrC) * ${(1 / TR_SPAN).toFixed(7)} + 0.5;
+       // okno wygasza pole na krawędzi tekstury: bez tego ClampToEdge rozsmarowałby
+       // brzegowy texel na CAŁĄ dalszą trawę w tym kierunku
+       vec2 tw = smoothstep(0.0, 0.04, tuv) * (1.0 - smoothstep(0.96, 1.0, tuv));
+       vec4 tr = texture2D(uTr, tuv);
+       float nac = tr.b * tw.x * tw.y;
        float sw = sin(uTime * 2.2 + iP.x * 0.45 + iP.z * 0.35) * 0.28 * h * fade
                 + sin(uTime * 0.7 + iP.x * 0.08) * 0.10 * h * fade;   // druga, wolna fala
+       sw *= 1.0 - nac * 0.85;                     // przygnieciona trawa nie kołysze się na wiatrze
        transformed.x += sw;
        transformed.z += sw * 0.45;
        // ---- UGINANIE POD HORDĄ ----
-       vec2 tuv = (iP.xz - uTrC) * ${(1 / TR_SPAN).toFixed(7)} + 0.5;
-       if (tuv.x > 0.0 && tuv.x < 1.0 && tuv.y > 0.0 && tuv.y < 1.0) {
-         float nac = texture2D(uTr, tuv).r;
-         if (nac > 0.01) {
-           // kierunek Z GRADIENTU pola: kępka kładzie się W DÓŁ zbocza, czyli OD nacisku
-           float tx1 = texture2D(uTr, tuv + vec2(${(1 / TR_RES).toFixed(7)}, 0.0)).r;
-           float tx0 = texture2D(uTr, tuv - vec2(${(1 / TR_RES).toFixed(7)}, 0.0)).r;
-           float tz1 = texture2D(uTr, tuv + vec2(0.0, ${(1 / TR_RES).toFixed(7)})).r;
-           float tz0 = texture2D(uTr, tuv - vec2(0.0, ${(1 / TR_RES).toFixed(7)})).r;
-           vec2 gr = vec2(tx1 - tx0, tz1 - tz0);
-           float gl = length(gr);
-           vec2 kier = gl > 0.0015 ? -gr / gl : vec2(0.0);
-           transformed.xz += kier * nac * 0.95 * h * fade;
-           transformed.y *= 1.0 - nac * 0.55;                  // przygniecione = niższe
+       if (nac > 0.004) {
+         vec2 kier = tr.rg * 2.0 - 1.0;
+         float kl = length(kier);
+         if (kl > 0.06) {
+           // Kładziemy kępkę KĄTEM (bok = sin, wysokość = cos), a nie samym przesunięciem
+           // w poziomie — czubek zostaje wtedy na łuku wokół nasady, zamiast odjeżdżać
+           // od korzenia (to była „rozsypana słoma" z v89). Kąt maks. ~58°, bo przy
+           // płasko leżących skrzyżowanych quadach widać teksturę z boku = kreski.
+           float hs = fract(sin(dot(iP.xz, vec2(12.9898, 78.233))) * 43758.5453);
+           float kat = uTrKat * ${gietkosc.toFixed(3)} * nac * (0.78 + 0.44 * hs);
+           // KOREKTA PROPORCJI INSTANCJI: kępka jest szersza niż wyższa (skala xz ~1.2,
+           // y ~0.7), a przesunięcie liczymy w LOKALNYCH jednostkach — bez tego ten sam
+           // „kąt" wywala czubek dwa razy dalej, niż kępka jest wysoka.
+           float sxz = length(instanceMatrix[0].xyz), sy = length(instanceMatrix[1].xyz);
+           transformed.xz += (kier / kl) * sin(kat) * h * fade * (sy / max(sxz, 0.001));
+           transformed.y *= cos(kat);
          }
        }`);
   };
@@ -5644,8 +5707,10 @@ if (loadTip) {
     side: THREE.DoubleSide, transparent: false }), 0.22, 2.1);
   cloudShadowU.value = cloudShadowTexture();
   bladeMat = makeBladeMaterial();
-  flowerMat = makeBladeMaterial(flowerTexture());
-  stalkMat = makeBladeMaterial(stalkTexture());
+  // gietkosc: kwiatek na cienkiej łodydze kładzie się chętniej, sucha trawa jeszcze
+  // chętniej (i tak stoi wyżej, więc pochylenie jest na niej najlepiej widoczne)
+  flowerMat = makeBladeMaterial(flowerTexture(), 1.15);
+  stalkMat = makeBladeMaterial(stalkTexture(), 1.3);
   glowMat = new THREE.MeshBasicMaterial({ map: glowTexture(), transparent: true,
     blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.85 });
   initLeafCards();
@@ -5776,7 +5841,8 @@ if (loadTip) {
     get tilt() { return { SPRITE_TILT, kat: +(tiltKat * 180 / Math.PI).toFixed(1) }; },
     get grass() { return grassField; },
     THREE, scene, camera, renderer,                        // do inspekcji w podglądzie
-    get tr() { return { trData, TR_RES, TR_SPAN, TR_ST, trCx, trCz }; },
+    get tr() { return { trBuf, TR_RES, TR_SPAN, TR_ST, trCx, trCz, trAktywne, trKatU }; },
+    updateTrample,
     render() { renderer.render(scene, camera); },
     PAD, pollPads, get camYaw() { return camYaw; }, get gpSel() { return gpSel; },
     step(n = 1, dt = 1 / 60) {
