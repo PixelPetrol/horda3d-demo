@@ -309,7 +309,9 @@
       box-shadow:inset 0 4px 0 0 #46557a, inset 0 -4px 0 0 #1a2135,
         -4px 0 0 0 #1b1b22, 4px 0 0 0 #1b1b22, 0 -4px 0 0 #1b1b22, 0 4px 0 0 #1b1b22}
   /* niewidzialna otoczka = jeszcze większe pole trafienia bez powiększania grafiki */
-  #jbtn::after{content:'';position:absolute;inset:-22px}
+  /* hojna na boki i w dół (tam zbacza kciuk), ale WĄSKA OD GÓRY — nad skokiem stoi
+     teraz przycisk stawiania i przy -22 pola trafienia nachodziły się o 12 px */
+  #jbtn::after{content:'';position:absolute;inset:-4px -22px -22px -22px}
   #jbtn:active{background:#39456b}
   @media (pointer:coarse){ #jbtn{display:flex} #pauseBtn{display:flex} }
   @media (pointer:coarse) and (max-height:520px){
@@ -320,9 +322,11 @@
   /* ================= PRZYCISK KARABINU =================
      Widoczny DOPIERO po znalezieniu karabinu w skrzyni — i na KAŻDEJ platformie,
      bo to jednocześnie przycisk dotykowy i podpowiedź klawisza dla gracza na PC. */
+  /* STOS AKCJI, od kciuka w górę: skok 52 → stawianie 166 → karabin 262.
+     Karabin najwyżej, bo wypada raz na bieg; stawianie w środku, bo idzie co ~5 s. */
   #karabinBtn{position:fixed;
       right:calc(38px + env(safe-area-inset-right,0px));
-      bottom:calc(166px + env(safe-area-inset-bottom,0px));
+      bottom:calc(272px + env(safe-area-inset-bottom,0px));
       z-index:7;width:86px;height:86px;background:#3a2b18;color:#ffd75e;
       font-family:inherit;font-size:10px;font-weight:700;letter-spacing:1px;
       display:none;flex-direction:column;align-items:center;justify-content:center;gap:1px;
@@ -331,7 +335,9 @@
         -4px 0 0 0 #1b1b22, 4px 0 0 0 #1b1b22, 0 -4px 0 0 #1b1b22, 0 4px 0 0 #1b1b22;
       animation:karPuls .9s ease-in-out infinite}
   #karabinBtn.on{display:flex}
-  #karabinBtn::after{content:'';position:absolute;inset:-18px}
+  /* otoczka WEZSZA niz przy skoku (-22): przyciski akcji stoja jeden nad drugim,
+     a przy -18 ich pola trafienia zachodzily na siebie o 26 px i palec trafial w zly */
+  #karabinBtn::after{content:'';position:absolute;inset:-8px}
   #karabinBtn:active{background:#4d3a20}
   #karabinBtn .kimg{width:38px;height:38px;background-size:contain;background-repeat:no-repeat;
       background-position:center;image-rendering:pixelated}
@@ -341,8 +347,48 @@
       50%{box-shadow:inset 0 4px 0 0 #6b4f24, inset 0 -4px 0 0 #241a0e,
         -4px 0 0 0 #ffd75e, 4px 0 0 0 #ffd75e, 0 -4px 0 0 #ffd75e, 0 4px 0 0 #ffd75e}}
   @media (max-height:520px){ #karabinBtn{width:70px;height:70px;
-      bottom:calc(124px + env(safe-area-inset-bottom,0px));
+      bottom:calc(220px + env(safe-area-inset-bottom,0px));
       right:calc(30px + env(safe-area-inset-right,0px))} #karabinBtn .kimg{width:30px;height:30px} }
+  /* ================= PRZYCISK STAWIANIA (Sokowirówka) =================
+     STOS PRZYCISKÓW AKCJI w prawym dolnym rogu: skok najniżej (najczęściej używany,
+     najbliżej kciuka), nad nim stawianie (co ~5 s), na górze karabin (raz na bieg).
+     Ten sam styl co #karabinBtn, ale zimna paleta — żeby nie pomylić ich w ferworze. */
+  #stawBtn{position:fixed;
+      right:calc(38px + env(safe-area-inset-right,0px));
+      bottom:calc(166px + env(safe-area-inset-bottom,0px));
+      z-index:7;width:86px;height:86px;background:#1c3040;color:#7ee7ff;
+      font-family:inherit;font-size:10px;font-weight:700;letter-spacing:1px;
+      display:none;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+      pointer-events:auto;cursor:pointer;-webkit-tap-highlight-color:transparent;
+      box-shadow:inset 0 4px 0 0 #2f5670, inset 0 -4px 0 0 #101c26,
+        -4px 0 0 0 #1b1b22, 4px 0 0 0 #1b1b22, 0 -4px 0 0 #1b1b22, 0 4px 0 0 #1b1b22}
+  #stawBtn.on{display:flex}
+  #stawBtn::after{content:'';position:absolute;inset:-8px}
+  #stawBtn:active{background:#28455c}
+  /* GOTOWY = pulsująca ramka. Gracz sam decyduje, kiedy stawia, więc przycisk musi
+     krzyczeć — inaczej po prostu nigdy go nie wciśnie i broń będzie dla niego martwa. */
+  #stawBtn.gotowy{animation:stawPuls .9s ease-in-out infinite}
+  @keyframes stawPuls{0%,100%{box-shadow:inset 0 4px 0 0 #2f5670, inset 0 -4px 0 0 #101c26,
+        -4px 0 0 0 #1b1b22, 4px 0 0 0 #1b1b22, 0 -4px 0 0 #1b1b22, 0 4px 0 0 #1b1b22}
+      50%{box-shadow:inset 0 4px 0 0 #2f5670, inset 0 -4px 0 0 #101c26,
+        -4px 0 0 0 #7ee7ff, 4px 0 0 0 #7ee7ff, 0 -4px 0 0 #7ee7ff, 0 4px 0 0 #7ee7ff}}
+  /* PEŁNO = nie ma gdzie postawić (limit stojących naraz): przygaszony, bez pulsu */
+  #stawBtn.pelno{opacity:.5}
+  #stawBtn .kimg{width:34px;height:34px;background-size:contain;background-repeat:no-repeat;
+      background-position:center;image-rendering:pixelated}
+  #stawBtn .klaw{background:#7ee7ff;color:#101c26;padding:0 4px;font-size:12px}
+  /* ŁADUNKI: kwadratowe kropki, nie licznik — od razu widać ile masz */
+  #stawBtn .lad{display:flex;gap:3px;height:8px}
+  #stawBtn .lad i{width:8px;height:8px;display:block;background:#7ee7ff;
+      box-shadow:-2px 0 0 0 #101c26, 2px 0 0 0 #101c26, 0 -2px 0 0 #101c26, 0 2px 0 0 #101c26}
+  #stawBtn .lad i.off{background:#33485a}
+  /* pasek ładowania: TWARDE bloki (repeating-gradient), nie gładki gradient */
+  #stawBtn .pas{position:absolute;left:5px;right:5px;bottom:5px;height:5px;background:#101c26}
+  #stawBtn .pas b{display:block;height:100%;width:0%;
+      background:repeating-linear-gradient(90deg,#7ee7ff 0 4px,transparent 4px 6px)}
+  @media (max-height:520px){ #stawBtn{width:70px;height:70px;
+      bottom:calc(130px + env(safe-area-inset-bottom,0px));
+      right:calc(30px + env(safe-area-inset-right,0px))} #stawBtn .kimg{width:28px;height:28px} }
 </style>
 </head>
 <body>
@@ -380,6 +426,7 @@
 <div id="stick"><div id="knob"></div></div>
 <div id="jbtn">SKOK</div>
 <div id="karabinBtn"><div class="kimg"></div><div>KARABIN</div><div class="klaw">R</div></div>
+<div id="stawBtn"><div class="kimg"></div><div class="lad"></div><div class="klaw">F</div><div class="pas"><b></b></div></div>
 <div id="pauseBtn"></div>
 
 <!-- ================= MENU GŁÓWNE ================= -->
@@ -473,6 +520,6 @@
     addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
   }
 </script>
-<script type="module" src="main.js?v=98"></script>
+<script type="module" src="main.js?v=103"></script>
 </body>
 </html>

@@ -1955,6 +1955,7 @@ function resetStats() {
     iframes: 0, y: 1.55, vy: 0, airborne: false, usedDouble: false, runDjump: false, shieldCd: 0,
     // karabin: `karabinRun` = już wypadł w tym biegu, `karabinMa` = leży w kieszeni gotowy
     gliding: false, runGlide: false, karabinRun: false, karabinMa: false,
+    sokoPierwszy: false,                             // komunikat o klawiszu F raz na bieg
     vx: 0, vz: 0,
     weapons: [{ key: CHARS[charKey].startWpn || 'kule', lvl: 1, t: 0 }],   // max 3 sloty (broń z biblii)
     passives: {},                                // key -> poziom
@@ -2025,6 +2026,7 @@ addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'Space') { e.preventDefault(); if (!jumpHeld) tryJump(); jumpHeld = true; }
   if (e.code === KARABIN_KLAWISZ && G.running && !G.paused) startKarabin();
+  if (e.code === STAW_KLAWISZ) postawWiezyczke();          // Sokowirówka na żądanie
 });
 addEventListener('keyup', e => {
   keys[e.code] = false;
@@ -2084,6 +2086,8 @@ addEventListener('pointercancel', endTouch);
   addEventListener('pointerup', puscil);            // gdy palec zjedzie poza przycisk
   const kb = document.getElementById('karabinBtn');
   kb.addEventListener('pointerdown', e => { e.stopPropagation(); startKarabin(); });
+  const sb = document.getElementById('stawBtn');
+  sb.addEventListener('pointerdown', e => { e.stopPropagation(); postawWiezyczke(); });
 }
 
 // ============================== KONTROLER (Gamepad API) ==============================
@@ -2188,6 +2192,7 @@ function pollPads(dt) {
     if (hit(0)) { PAD.jump = true; jumpHeld = true; tryJump(); }
     if (PAD.jump && !btn(0)) { PAD.jump = false; jumpHeld = false; }
     if (hit(2)) startKarabin();                      // X = karabin (jeśli leży w kieszeni)
+    if (hit(3)) postawWiezyczke();                   // Y = postaw Sokowirówkę
     if (hit(9)) togglePause(true);
   }
   for (let i = 0; i < B.length; i++) PAD.prev[i] = btn(i);
@@ -3063,13 +3068,26 @@ const WEAPONS = {
   // W markecie zaczyna grać z alejkami i przewróconymi regałami jako lejem.
   sokowirowka: {
     ico: 'sokowirowka', nm: 'Sokowirówka', ds: 'Stawiasz ją i sama miele wrogów w miejscu', max: 5, locked: true,
-    lvlDs: l => `${SOKO_ILE(l)} naraz, ${SOKO_ZYCIE(l).toFixed(0)} s, co ${(6.5 - 0.5 * l).toFixed(1)} s`,
+    lvlDs: l => `${SOKO_ILE(l)} naraz, ${SOKO_ZYCIE(l).toFixed(0)} s, ładunek co ${(6.5 - 0.5 * l).toFixed(1)} s`,
+    // TOWER DEFENSE: broń NIE stawia się sama — nabija ŁADUNKI, a gracz stawia
+    // wieżyczkę klawiszem F / przyciskiem / Y na padzie (decyzja właściciela).
+    // Powód: wieżyczka WABI wrogów w promieniu 9.5 j., a stawiana automatycznie
+    // lądowała pod stopami gracza — czyli ściągała hordę dokładnie tam, gdzie stał,
+    // i cała jej wartość (zablokuj alejkę, odciągnij bossa) była nieosiągalna.
+    // Celowaniem jest RUCH: dobiegasz tam, gdzie chcesz ją mieć, i wciskasz.
     tick(w, dt) {
+      const maxLad = SOKO_LAD(w.lvl);
+      if ((w.lad || 0) >= maxLad) return;                    // zapas pełny — licznik stoi
+      w.tMax = (6.5 - 0.5 * w.lvl) / fireMul();
       w.t -= dt;
       if (w.t > 0) return;
-      if (G.turrets.length >= SOKO_ILE(w.lvl)) return;       // limit stojących naraz
-      w.t = (6.5 - 0.5 * w.lvl) / fireMul();
-      stawSokowirowke(w.lvl);
+      w.t = w.tMax;
+      w.lad = (w.lad || 0) + 1;
+      if (!P.sokoPierwszy) {                                // raz na bieg: naucz gracza przycisku
+        P.sokoPierwszy = true;
+        toastBuff('SOKOWIRÓWKA GOTOWA — wciśnij F, żeby POSTAWIĆ', 'sokowirowka');
+        setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 4000);
+      }
     },
   },
 };
@@ -3192,6 +3210,10 @@ function updatePestki(dt, lvl) {
 }
 
 const SOKO_ILE = l => 1 + Math.floor(l / 2);      // 1 / 1 / 2 / 2 / 3
+// Zapas ładunków OGRANICZONY LIMITEM STOJĄCYCH: bez tego gracz nabijał drugi ładunek,
+// którego przy poziomie 1-2 nie ma gdzie wydać, i patrzył na przycisk, co nie działa.
+const SOKO_LAD = l => Math.min(2, SOKO_ILE(l));
+const STAW_KLAWISZ = 'KeyF';
 const SOKO_ZYCIE = l => 20 + l * 3;               // 23 → 35 s (jeśli wcześniej nie rozwalą)
 const SOKO_HP = l => 6 + 3 * l;                   // wytrzymałość na ciosy wrogów
 const SOKO_WABI = 9.5;                            // w tym promieniu wrogowie idą po NIĄ, nie po gracza
@@ -3247,6 +3269,51 @@ function updatePasek(t) {
   billboardQuat(t.pasFill.quaternion);
   t.pasFill.material.color.setHex(k > 0.5 ? 0x8ad14f : (k > 0.25 ? 0xf2c14a : 0xe0453c));
   t.pasFill.visible = k > 0.001;
+}
+// ---- STAWIANIE NA ŻĄDANIE: klawisz F / przycisk / Y na padzie ----
+function postawWiezyczke() {
+  if (!G.running || G.paused || G.dying) return;
+  const w = hasWeapon('sokowirowka');
+  if (!w || !(w.lad > 0)) return;
+  if (G.turrets.length >= SOKO_ILE(w.lvl)) {        // limit stojących — ładunek zostaje
+    toastBuff('LIMIT SOKOWIRÓWEK — poczekaj, aż któraś padnie', 'sokowirowka');
+    setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 1800);
+    return;
+  }
+  w.lad--;
+  stawSokowirowke(w.lvl);
+  AUDIO.sfx('totem');
+  G.shake = Math.max(G.shake, 0.12);
+  odswiezStawBtn();
+}
+// Przycisk odświeżamy co klatkę, ale DOM ruszamy tylko przy realnej zmianie stanu
+// (pasek kwantowany co 5%), bo inaczej byłoby to kilkaset zapisów na sekundę.
+let _stawStan = '';
+function odswiezStawBtn() {
+  const el = document.getElementById('stawBtn');
+  if (!el) return;
+  const w = G.running ? hasWeapon('sokowirowka') : null;
+  const widoczny = !!w && !G.paused && !G.dying && !G.fps.on;
+  const lad = w ? (w.lad || 0) : 0;
+  const maxLad = w ? SOKO_LAD(w.lvl) : 0;
+  const pelno = w ? G.turrets.length >= SOKO_ILE(w.lvl) : false;
+  // pasek: 100% = zapas pełny. `w.tMax` jest ustawiane w ticku broni, więc w pierwszej
+  // klatce po zdobyciu Sokowirówki jeszcze go nie ma — wtedy pasek musi być PUSTY, nie pełny.
+  const fill = lad >= maxLad ? 100
+    : (w && w.tMax ? Math.round((1 - Math.max(0, w.t) / w.tMax) * 20) * 5 : 0);
+  const stan = widoczny + '|' + lad + '|' + maxLad + '|' + pelno + '|' + fill;
+  if (stan === _stawStan) return;
+  _stawStan = stan;
+  el.classList.toggle('on', widoczny);
+  if (!widoczny) return;
+  el.classList.toggle('gotowy', lad > 0 && !pelno);
+  el.classList.toggle('pelno', pelno);
+  const im = el.querySelector('.kimg');
+  if (!im.style.backgroundImage) im.style.backgroundImage = `url(${icon('sokowirowka', 4)})`;
+  const lw = el.querySelector('.lad');
+  if (lw.childElementCount !== maxLad) lw.innerHTML = '<i></i>'.repeat(maxLad);
+  for (let i = 0; i < maxLad; i++) lw.children[i].className = i < lad ? '' : 'off';
+  el.querySelector('.pas b').style.width = fill + '%';
 }
 function stawSokowirowke(lvl) {
   if (!sokoMat) sokoMat = new THREE.MeshBasicMaterial({ map: sokowirowkaTexture(),
@@ -5071,6 +5138,7 @@ function update(dt) {
 
   // ---- BRONIE: tick każdej posiadanej ----
   for (const w of P.weapons) WEAPONS[w.key].tick(w, dt);
+  odswiezStawBtn();                      // PO tickach — inaczej licznik ładunków jest o klatkę wstecz
 
   // ---- pociski kul ----
   const boomQ = [];                      // wybuchy meteorów PO pętli (bezpieczne indeksy)
@@ -5627,6 +5695,8 @@ function clearWorld() {
   document.getElementById('swapOv').style.display = 'none';
   document.getElementById('fpsView').classList.remove('on');
   document.getElementById('fpsFlash').style.opacity = 0;
+  document.getElementById('stawBtn').classList.remove('on');
+  _stawStan = '';
   document.getElementById('buff').style.opacity = 0;
   for (const c of chests) placeChest(c);
   for (const t of totems) { t.cd = 0; t.mat.opacity = 1; t.ring.visible = true; }
