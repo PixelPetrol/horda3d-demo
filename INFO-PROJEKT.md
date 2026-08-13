@@ -17,6 +17,47 @@
 > placeholdery = sprite'y z Rudeusza. User zażyczył sobie „większego 3D" jak
 > w Megabonku → zrobione w v4-v7 (teren, niska kamera, obrót, skok).
 
+## ⇒ START TUTAJ (stan na 13.08.2026, po 9 commitach)
+
+> Ten plik ma 800+ linii historii. **Jeśli wracasz do projektu — czytaj TYLKO ten blok
+> i sekcję „CO DALEJ" niżej.** Reszta to zapis decyzji i pułapek, przydatny jako
+> słownik, nie jako lektura od początku.
+
+### Jak uruchomić i sprawdzić
+1. Podgląd: `preview_start` z `name: "horda3d"` (wpis w `.claude/launch.json`)
+   albo `python3 -m http.server 8123 -d "<ten folder>"`.
+2. **MUSI być port 8123.** Flaga `DEV` w `main.js` sprawdza `hostname` **I PORT** —
+   bez portu 8123 nie ma `window.HORDA`, `window.__err` ani pola na kody. Awaryjnie `?dev=1`.
+3. **Cache-bust przy KAŻDEJ zmianie:** `main.js?v=N` w `index.html`. Zmieniasz
+   `spritedata.js` albo `icons.js` → podbij też ich `?v=`, a `icons.js` **w main.js
+   I w audio.js do tej samej liczby** (inaczej powstają dwie instancje modułu ikon).
+4. Przeglądarka i tak potrafi podać stary `main.js`. Pewny sposób: wejdź na
+   `http://localhost:8123/index.html?cb=<N>` zamiast przeładowywać.
+
+### Pułapki testowania (kosztowały mnie po kilka podejść)
+- `HORDA.step(n)` to jedyny pewny sposób krokowania — rAF jest dławiony bez fokusa okna.
+- **`step()` NIC NIE ROBI, gdy `G.paused === true`.** Zabijanie wrogów daje awanse,
+  awans otwiera karty, karty pauzują grę → wszystkie pomiary wychodzą zerowe.
+  Po każdej porcji `step()` sprawdzaj `G.paused`/`G.running`, karty zamykaj klikając,
+  a przy pomiarach DPS ustaw `P.xp = 0` w pętli, żeby zablokować awanse.
+- Bieg mógł się skończyć (`G.running === false`) — wtedy przycisk to `JESZCZE RAZ`, nie `GRAJ`.
+- Zmiana rozmiaru okna resetuje się przy przeładowaniu — najpierw wczytaj, potem `resize_window`.
+- `pointer:coarse` nie działa w tej przeglądarce, więc `#jbtn` jest ukryty i reguły
+  telefonowe nie wchodzą. Geometrię telefonu trzeba wymuszać inline i tak ją mierzyć.
+
+### Agenci (`.claude/agents/`)
+`tester-gry` (scenariusze w przeglądarce), `projektant-gry` (balans), `grafik-3d`
+(shadery/wygląd), `optymalizator` (fps). **`tester-gry` padał dwa razy** (API 529
+i zawieszenie po 600 s) — licz się z powtórkami. `optymalizator` NIE BYŁ jeszcze
+uruchomiony ani raz.
+
+### Czego NIE dotykać bez powodu
+- `window.HORDA` — na nim wiszą scenariusze testera.
+- Klucze w `META` (`unlocked.bumerang` itd.) — to zakupy graczy w starych zapisach.
+  Broń można przemianować, klucza nie.
+- Nazwa tablicy `totems` (to dziś Garnki Nonny) i `radioMat` (to dziś pizza) —
+  zostały po staremu świadomie, bo wiszą na nich inne rzeczy.
+
 ## Jak uruchomić
 - Serwer: `python3 -m http.server 8123 -d "<ten folder>"` → http://localhost:8123
   (albo preview `horda3d` z `.claude/launch.json` w „codex claude pliki").
@@ -786,6 +827,211 @@ skalara**. Standard to **POLE WEKTOROWE** wokół gracza w teksturze RGBA:
 skrzyni innym postaciom** (`broniDostepna()`, jedno miejsce dla obu pul). Wcześniej
 świeży Carrotello mógł w 40. sekundzie wyciągnąć Scyzoryki — najlepszą broń jednocelową
 w grze — i wybór postaci przestawał cokolwiek znaczyć.
+
+## ═══════════ 13.08 CZĘŚĆ DRUGA: SOKOWIRÓWKA, KETCHUPINO, BOSS, MYSZ ═══════════
+
+### SOKOWIRÓWKA STAWIANA NA ŻĄDANIE (decyzja właściciela)
+Wieżyczka WABI wrogów w promieniu 9.5 j. (`SOKO_WABI`), a stawiała się automatycznie
+POD STOPAMI gracza — czyli ściągała hordę dokładnie tam, gdzie stał, i cała jej wartość
+(zablokuj alejkę, przytrzymaj przewężenie, odciągnij bossa) była nieosiągalna.
+- Broń nabija **ŁADUNKI** (`w.lad`, max `SOKO_LAD(lvl)` = min(2, `SOKO_ILE(lvl)`) —
+  zapas jest ograniczony limitem stojących, inaczej gracz patrzy na ładunek, którego
+  nie ma gdzie wydać). Stawia gracz: **klawisz F**, przycisk `#stawBtn`, **Y** na padzie.
+- **CELOWANIEM JEST RUCH** — wieżyczka ląduje pod stopami, bez podglądu miejsca.
+  Odradzałem to (proponowałem podgląd 4 j. przed postacią), właściciel wybrał prościej
+  i miał rację: dobiegasz tam, gdzie chcesz ją mieć, i wciskasz. Działa identycznie
+  na dotyku, padzie i klawiaturze, zero dodatkowego UI.
+- **ŚWIADOMIE BEZ AUTOMATU AWARYJNEGO** (decyzja właściciela): nie wcisnąłeś, nie masz.
+  Zgłaszałem ryzyko „gracz nigdy nie wciśnie i broń będzie dla niego martwa" —
+  zmniejszone bez zmiany zasad: przycisk pulsuje przy gotowym ładunku, a przy pierwszym
+  ładunku w biegu leci toast z podpowiedzią klawisza (`P.sokoPierwszy`).
+
+### STOS PRZYCISKÓW AKCJI — i dwie kolizje pól dotyku
+Prawy dolny róg, od kciuka w górę: **skok 52 → stawianie 166 → karabin 272**.
+Znalezione i naprawione:
+1. `#stawBtn` i `#karabinBtn` miały ten sam `bottom: 166px` — nakładałyby się co do piksela.
+2. Niewidzialne otoczki `::after` (powiększone pola trafienia) nachodziły na siebie:
+   karabin ze stawianiem o 26 px, a otoczka skoku (`-22px`) sięgała w górę w obszar
+   stawiania o 12 px. Teraz przyciski akcji mają `-8px`, a **skok ma otoczkę
+   NIESYMETRYCZNĄ** (`-4px` od góry, `-22px` na boki i w dół) — hojną tam, gdzie zbacza kciuk.
+Zmierzone pola trafienia: pion 375×812 → `446..548 / 552..654 / 660..782`;
+poziom 812×375 (geometria telefonu) → `77..163 / 167..253 / 259..367`. Zero nachodzenia.
+
+### KETCHUPINO SPLATTERINO — PIERWSZY WRÓG DYSTANSOWY
+Dotąd KAŻDY wróg po prostu wbiegał w gracza, więc jedyną odpowiedzią na wszystko był ruch.
+Projekt wprost z biblii postaci (sekcja „Elity"):
+- Trzyma okienko **9-15 j.** (`KETCH_BLISKO`/`KETCH_DALEKO`): bliżej cofa się, dalej
+  podchodzi, w środku stoi i pluje co `KETCH_CD` = 3 s.
+- Glob leci **łukiem 1.05 s** (`KETCH_LOT`) — to jest telegraf, gracz ma czas zejść.
+  Celuje **z wyprzedzeniem** w miejsce, gdzie gracz BĘDZIE, inaczej wystarczyłoby iść prosto.
+- **TELEGRAF TO OBWÓDKA, NIE PLAMA** (uwaga właściciela): wypełniona plama przed
+  uderzeniem wyglądała, jakby ketchup już wylądował. Obwódka **zaciska się** do miejsca
+  uderzenia; wypełniona plama powstaje dopiero przy plaśnięciu.
+- Kałuża spowalnia gracza o **40% na 4 s** (`wKetchupie()` obok wody i rozlanej wody).
+- **scale 1.7** (Chipsetti ma 0.85), sprite 2.84 j. — WYSTAJE NAD TŁUM. Ta sama zasada
+  co przy Sokowirówce: byt, który zmienia sposób gry, musi być widoczny w kupie wrogów.
+- Animacja **wyciskania się** (`punch`) odtwarza się przy każdym plunięciu i wraca do biegu.
+- **ODSTĘPSTWO OD BIBLII:** HP 220 (skala biblii) = 63 w silniku, **zbite do 26** —
+  pierwszy wróg dystansowy przy 63 HP byłby mini-bossem (boss ma 90), a gracz nie ma
+  jeszcze żadnej odpowiedzi na atak z 15 j. Łatwo podnieść, jeśli okaże się za miękki.
+- Spawn od 3. minuty, `Math.random() < 0.035` na tick spawnera, pojedynczo (elita).
+
+### DON CHIPSO MA WŁASNY ARKUSZ + OPRAWA BOSSA
+Boss był **dosłownie tym samym plikiem** co szeregowy Chipsetti, rozciągniętym ×2.7 —
+obok biegało 200 kopii „bossa". Teraz własny arkusz (worek chipsów w fedorze i płaszczu),
+skala 2.7 → **2.1**, bo rysunek sam niesie powagę.
+- **WEJŚCIE:** przyciemnienie (`#bossOv`) + imię na cały ekran (`#bossNm`) na 1.5 s,
+  wstrząs i **hitstop 0.18 s** (świat na moment przystaje).
+- **PASEK HP** (`#bossHp`) u góry: pokazuje NAJMOCNIEJ RANNEGO bossa (przy kilku naraz
+  to on jest celem gracza), licznik `x2`, liczby. Twarde krawędzie jak resztaUI.
+- **GWARANTOWANA NAGRODA:** złota skrzynia z bronią niemal natychmiast po zabiciu
+  (`wchest.wait = min(wait, 0.4)`). Dotąd boss płacił 90 monet i 2 serca, czyli MNIEJ
+  niż zwykła skrzynia — zabicie najtwardszego przeciwnika było słabszą nagrodą niż
+  podejście do pudełka.
+- **FIX: wrogowie nie mieli pola `maxHp`** — pasek liczył „100 / NaN". Ustawiane
+  teraz przy spawnie; potrzebne do każdego paska i procentów.
+
+### MYSZ JAK W FPS (życzenie właściciela)
+Obracanie kamery wymagało PRZYTRZYMANIA i przeciągania, co przy jednoczesnym biegu na
+WSAD jest niewykonalne. Teraz **klik w obraz przechwytuje kursor** (Pointer Lock,
+`chwycMysz`/`puscMysz`, czułość `MYSZ_CZULOSC` 0.0032 rad/px) i sam ruch myszy obraca
+kamerę; w trybie karabinu także celuje w pionie. Kursor wraca na pauzie, w menu i przy
+kartach awansu. Przeciąganie zostaje jako awaryjne, gdy przeglądarka odmówi blokady.
+Zmierzone: bez przechwycenia 0 rad, z przechwyceniem −0.64 rad na 200 px, na pauzie 0.
+
+### TEMPO WRESZCIE DZIAŁA — `fireMul()` w 14 z 14 broni
+`fireMul()` było użyte w **jednym miejscu w całym pliku** (Kule). Pozostałe 13 broni
+miało cooldown zapisany na sztywno, więc pasyw **Tempo (do +76%)** i bonus „+4% tempa
+co 4. ranga" były dla nich **dosłownie zerowe** — karta Tempo była pułapką.
+Zmierzone po naprawie (szczyt `w.t`, Tempo 0 → 5, `fireMul` 1.762): wszystkie **+76%**.
+Czosnek (`e.orbCd`) i Pipsini (`PIPS_SADZ`, `e.orbCd`) trzymają tempo POZA `w.t` —
+one wymagały osobnej poprawki. **Dodając nową broń: `w.t = (baza) / fireMul()`.**
+
+### CARROTELLO WRESZCIE ZABIJA
+`dmg` kuli było zaszyte jako `1`, a poziomy dawały TYLKO liczbę pocisków — przy 3.01 HP
+Chipsettiego i karze postaci 0.9 to były CZTERY trafienia co 0.87 s na najsłabszego
+wroga w grze. To postać, którą gra się przez pierwsze trzy biegi.
+Teraz `dmg` rośnie `[3.2, 3.9, 4.6, 5.4, 6.2]`, pociski `[1,2,3,3,4]`, Carrotello ma
+`dmg 1.0` zamiast 0.9. **Poziom 1 zabija Chipsettiego jedną kulą** (chwyt z Vampire
+Survivors; okno zamyka się samo, bo w 2. minucie wróg ma ~6.6 HP).
+Zmierzone (20 wrogów w pierścieniu 2.2 j., 10 s, poziom 1): **1 → 12 zabitych**;
+dla porównania Granny 11, Razoretta 12.
+
+### DROBNE, ALE ZGŁOSZONE PRZEZ WŁAŚCICIELA
+- **Scyzoryk obraca się w locie.** Nie obracał się ani nawet nie zwracał w kierunku
+  lotu — sunął jak naklejka. Kierunek wirowania zgodny z tym, w którą stronę EKRANU
+  leci nóż, inaczej co drugi rzut kręciłby się w tył. Sprite noża od właściciela.
+- **„Radio-bumerang" → PIZZA VOLANTE.** Relikt po starej obsadzie (żul z boomboxem)
+  razem ze sprite'em `radio.png` z Rudeusza. Biblia przewidywała „koło pizzy z góry" —
+  rysowane proceduralnie (`pizzaTexture`) do czasu dostawy grafiki. **Klucz `bumerang`
+  zostaje**, bo wiszą na nim zakupy w zapisach. Dorysowana ikona `pizza` w `icons.js`.
+- **SERCA SĄ RZADSZE.** Było: boss zawsze 2, elita 30%. Przy udziale elit rosnącym
+  o 1.5%/min (14% w 5. minucie, 21% w 10.) leczenie sypało się tak gęsto, że utrata
+  serca przestawała cokolwiek znaczyć — a to ona jest jedyną realną karą w tej grze.
+  Teraz boss 1 (drugie tylko gdy gracz ma <1/3 życia), elita 8%.
+  Zmierzone: 200 elit → 13 serc (było ~60), 20 bossów → 20 serc (było 40).
+- **„?op!" przy skoku** — napis to `HOP!`, a font bitmapowy `GLIF` **nie miał litery H**
+  (ani J, Q, V). Każda rysowała się jako `?`. Dorysowane wszystkie cztery; walidacja
+  przechodzi po całym foncie (26 liter, każdy glif dokładnie 7 rzędów × 5 znaków).
+  **Dodając nowy napis do `dmgPop` — sprawdź, czy font ma wszystkie litery.**
+- **Kolizje ikon:** osiem pozycji dzieliło trzy ikony, więc na ekranie wyboru można było
+  dostać TRZY IDENTYCZNE karty. Krytyk → `gwiazda`, Moc → `plomien`, Tempo → `zegar`.
+  Naprawiony też błąd szerokości ikony `gwiazda` (rząd miał 9 znaków przy siatce 8).
+  **Zostały dwie kolizje:** `fala` (Tupnięcie + Wypad!) i `celownik` (Scyzoryki + Sokoli
+  wzrok) — do rozwiązania trzeba dorysować 1-2 ikony.
+
+### ⚠️ PUŁAPKI PACKERA (`narzedzia/pakuj_veggie.py`) — ODKRYTE NA ŻYWO
+1. **PixelLab nazywa katalog animacji z promptu**, więc może się nazywać
+   `squeezes_its_own_body_hard_with_tiny_arms_compress`. Bez wzorca w `ANIM_WZORCE`
+   packer **PO CICHU JĄ POMIJA** — tak zginęła animacja ataku Ketchupina.
+   Dopisane: `squeez`, `squirt`, `spit`, `shoot`, `throw` → `punch`.
+2. **PixelLab potrafi wyeksportować jedną animację w innej rozdzielczości** niż reszta
+   (Don Chipso: 64 px run/jump + 92 px idle; Ketchupino: 64 px idle/run + 92 px punch).
+   Wcześniej packer brał rozmiar DOMINUJĄCY i klatki innego rozmiaru albo wypadały,
+   albo rozlazły się po sąsiednich komórkach siatki. Teraz arkusz ma rozmiar
+   **NAJWIĘKSZY**, a mniejsze klatki są dopełniane — **bez przeskalowania**.
+3. **`footOff` jest liczone z alfy RAZ NA CAŁY ARKUSZ.** PixelLab daje różnym animacjom
+   różną ilość pustego miejsca pod postacią (Ketchupino: bieg 1 pusty rząd, atak **15**),
+   więc przy wyrównaniu krawędzi klatek **butla podnosiła się o 14 px w trakcie strzału**.
+   Packer **ODCINA** teraz puste rzędy pod treścią (te same dla całego wiersza, więc ruch
+   W OBRĘBIE animacji zostaje nietknięty) i wyrównuje treść do dołu komórki.
+   Zmierzone: rozjazd 13 px → 1 px; w grze linia bazowa sprite'a identyczna (1.168 j.).
+
+### ⚠️ KOREKTA RAPORTU TESTERA: „wyciek GPU" SIĘ NIE POTWIERDZA
+Tester zgłosił „K2 wyciek zasobów GL, 10 biegów = ~2000 tekstur". **Sprawdziłem sam
+i to nieprawda.** W jednym biegu liczby są PŁASKIE między 1., 2. i 3. minutą
+(tekstury 70, geometrie 26, programy 18). Przez pięć biegów pod rząd z prawdziwą walką:
+`70 → 94 → 106 → 130 → 132 → 138`, czyli przyrosty **+24, +12, +24, +2, +6 — HAMUJĄ**.
+To sygnatura zapełniającego się cache'a z limitem (`popCache`, LRU 200 wpisów, po jednej
+teksturze na unikalny napis obrażeń), nie wycieku. Tester ekstrapolował liniowo
+z jednego biegu, a wzrost jest asymptotyczny.
+**Realny problem, który przy tym wyszedł i został naprawiony:** `spark()`, `novaRing()`
+i `boltFx()` klonują materiał na każde użycie (setki razy na minutę) i nigdy go nie
+zwalniały — w przeciwieństwie do `pops`/`puffs`, gdzie dispose był od początku.
+
+## ═══════════ CO DALEJ — KOLEJNOŚĆ I GDZIE SZUKAĆ ═══════════
+
+### 1. DRZEWO ULEPSZEŃ WYSYCHA W 4. MINUCIE (największy wpływ na dłuższy bieg)
+Zmierzone przez testera: w 5:00 poziom **55** i WSZYSTKIE osiem pasywów zmaksowanych →
+karty degenerują się do jednej. Test 33 awansów w jednej klatce: **29 pod rząd** to
+karta „Znaleźne +20 monet", czyli 29 obowiązkowych kliknięć.
+- **Gdzie:** `P.xpNeed = Math.round(5 + P.lvl * 3.2)` w pętli zbierania pigułek
+  (szukaj `xpNeed`), `cardPool()`, `PASSIVES` (pola `max`).
+- **Jak:** projektant policzył warianty krzywej. Wariant A: `5 + 3.2L + 0.30L²`
+  → poziom 29 w 5:00 i 47 w 10:00 zamiast 55/93, awans co ~12-20 s zamiast co 5.
+  Pierwsze 8 poziomów prawie bez zmian, więc początek nie cierpi.
+- Do tego karty POWTARZALNE bez limitu (np. „Sól Nonny +3% obrażeń") na późną grę,
+  a przy pustej puli **nie pokazywać overlaya** — tylko toast i auto-nagroda.
+
+### 2. 58 MB VRAM NA SPRITE'ACH (i właśnie dodałem dwa arkusze 92 px)
+`buildChar` robi osobny canvas + `CanvasTexture` + `Material` **na każdą klatkę każdego
+kierunku**. Policzone: 1170 klatek = **58.7 MB VRAM + ~69 MB canvasów w RAM**.
+- **Gdzie:** `buildChar` (szukaj `async function buildChar`).
+- **Jak, tanio:** jedna tekstura na cały arkusz + `map.offset`/`map.repeat` per klatka
+  → ~6 MB zamiast 58.7. Dopiero potem ewentualnie instancing wrogów.
+
+### 3. PRZYCISK PAUZY NACHODZI NA HUD W PIONIE
+Zmierzone: `#pauseBtn` `[48,18,34,34]` vs `#lvl` `[10,18,45,15]` → **7×15 px**,
+`#ranga` → **14×13 px**. HUD czyta się jako „POZIOM ▮▮" i „RAN".
+- **Gdzie:** `#pauseBtn` w `index.html` (`transform:translateX(-140px)`).
+
+### 4. EKONOMIA WYKUPIONA W 2-3 BIEGACH
+Meta to 29 472 monet, a bieg 10-minutowy daje ~18 800. Elity dają **72% dochodu**
+(jedna elita = 12 monet = 25 zwykłych zabójstw), a mnożnik serii jest de facto stałą ×3,
+bo od 2. minuty seria nigdy nie spada poniżej 12.
+- **Jak:** projektant policzył wariant A — drop szeregowego 16% → 35%, elita 4 → 2,
+  boss 10 → 8, mnożnik serii **tylko na szeregowych**; ceny odblokowań ×2.
+  Wychodzi ~32 000 monet ≈ 18 biegów po 5 min.
+
+### 5. DWIE MARTWE KARTY (ta sama rodzina co naprawione `fireMul`)
+`critC()` działa **tylko na pociski** (Krytyk nie tyka czosnku, nova, pioruna, skarpety),
+`rangeF()` używają **4 bronie z 14** (Sokoli wzrok martwy dla dziesięciu).
+- **Jak:** przenieść krytyk do wspólnego helpera `zadajDmg(e, dmg)`; `rangeF()/14`
+  jako mnożnik promienia szukania celu w każdej broni.
+
+### 6. DWA SNACKONI NIE MAJĄ SWOICH ZACHOWAŃ
+**Friesetti wcale nie szarżuje** (w kodzie to tylko `speed: 4.0` — zero windupu, zero
+tellu), **Lollini „wiruje" tylko wizualnie** (ściskanie `scale.x`). Biblia opisuje
+szarżę z telegrafem 0.6 s i tarczę pilarską. `e.stun` już istnieje, więc szarża to ~10 linii.
+
+### 7. RESZTA Z AUDYTÓW (drobniejsze, ale zmierzone)
+- Elitarne **mini-Marshmallini** mają HP malucha, a płacą jak elita (12 monet + XP ×4)
+  → najszybsza kasa w grze. `killEnemy` nadpisuje `hp`, ale nie zdejmuje flagi `elite`.
+- **6 broni bez ewolucji** (Piorun, Butelka, Pizza, Skarpeta, Wiatrówka, Sokowirówka) —
+  projektant rozpisał wszystkie sześć z warunkami `ok()`.
+- W 5. minucie **359 wrogów, z czego 9 w kadrze** — „ściany wrogów" nie widać.
+- `touch-action:none` na `html,body` blokuje przewijanie paneli menu palcem.
+  **Nie da się tego udowodnić w tej przeglądarce** (brak dotyku) — do sprawdzenia na telefonie.
+- Panel **Dźwięk o 11 px szerszy** od ekranu przy 375.
+- Opisy postaci zapisane **bez polskich znaków** (`piornikiem`, `scyzorykow`, `skora`).
+- **Liczby obrażeń zajmują 15-25% wysokości ekranu** przy 375 px.
+- `landSpot` po wyczerpaniu 60 prób stawia byty w jednym punkcie (złapane 4 skrzynie
+  na `(229,267)`).
+- Cienie chmur mnożone PO mgle (ciemne łaty na horyzoncie), trawa nie przyjmuje cieni,
+  `shadow.bias` = 23 cm peter-panningu, brak snapowania ramki cienia → pełzanie krawędzi.
+  Grafik podał gotowe fragmenty do wklejenia dla gradientu nieba (już wdrożone),
+  miękkich cieni pod obiektami i toon-shadingu terenu (jeszcze NIE wdrożone).
+- `optymalizator` **nie był jeszcze uruchomiony ani raz** — warto po punkcie 2.
 
 ## Monetyzacja (decyzja usera 8.08)
 - **Steam**: wersja płatna (bez reklam). Pakowanie: Electron albo natywny webview.
