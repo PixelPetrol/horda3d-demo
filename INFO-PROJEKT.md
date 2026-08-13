@@ -1204,11 +1204,19 @@ szarżę z telegrafem 0.6 s i tarczę pilarską. `e.stun` już istnieje, więc s
   (4 oktawy), co cienie chmur**. Zero nowych assetów. Gotowy obrazek 2D byłby tu
   błędem: promień rośnie ×4, więc sprite trzeba by rozciągać i piksele zrobiłyby się
   cztery razy większe niż wszystko obok (dokładnie problem Dona Chipso).
-- **Kontrast walorowy, nie odcieniem**: limonka na limonkowej trawie znikała.
-  Wnętrze jest ciemne (przygaszona „zatruta" zieleń), granicę zasięgu wyznacza
-  jaskrawy kwasowy rant #d8ff3a — ten sam trik, co ciemny kontur sprite'ów.
-- **Dwie warstwy przeciwbieżne** (0.22 i −0.35 rad/s) + puls skali = kłębienie gazu,
-  a nie wirująca naklejka.
-- **10 kłębków NAD trawą** (billboardy 0.55 j. nad ziemią, krążą po pierścieniu).
-  Powód: sama plama na ziemi czytała się słabo, bo **trawa to geometria 3D** i plama
-  leży POD jej ostrzami — widać ją tylko w przerwach. Kłębki widać zawsze.
+- **KLEBY DYMU, ZERO OKREGOW** (trzecia wersja; dwie pierwsze odrzucone przez
+  wlasciciela: „to maja byc kleby smrodliwego dymu, a nie okragi"). Wyleciala plama
+  na ziemi i jasny rant zasiegu — caly efekt to **pula 26 klebow** (`DYM_ILE`),
+  kazdy z wlasnym zyciem 2.6 s: puchnie, unosi sie 1.15 j., dryfuje na zewnatrz
+  i gasnie skala. Promien losowany przez `sqrt`, wiec gestosc jest rowna po
+  POWIERZCHNI, a nie zbita w srodku. Granice zasiegu widac z gestosci dymu.
+- **Zanikanie SKALA, nie alfa** — wszystkie kleby dziela jeden material (jedna
+  tekstura w VRAM), a `material.opacity` jest wspolne, wiec pojedynczy klab nie
+  moze gasnac osobno. Koperta `sin(zycie*pi)` na skali zalatwia to bez kosztu.
+- **Dym musi byc JASNIEJSZY od trawy.** Pierwsza paleta miala ciemny, brudnozielony
+  rdzen i po prostu znikala na lace. Teraz rdzen jest chorobliwie zoltozielony,
+  obrzeze jeszcze jasniejsze (objetosc), krycie 0.82. To ten sam wniosek, co
+  z konturem sprite'ow: **na zielonym tle rozdziela walor, nie odcien.**
+- Dlaczego nie plama na ziemi: **trawa to geometria 3D**, wiec cokolwiek lezy na
+  ziemi, widac tylko w przerwach miedzy ostrzami. Kleby wisza 0.35-1.5 j. nad
+  ziemia i sa widoczne zawsze.
