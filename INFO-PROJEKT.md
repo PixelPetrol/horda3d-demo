@@ -17,7 +17,7 @@
 > placeholdery = sprite'y z Rudeusza. User zażyczył sobie „większego 3D" jak
 > w Megabonku → zrobione w v4-v7 (teren, niska kamera, obrót, skok).
 
-## ⇒ START TUTAJ (stan na 13.08.2026, po 10 commitach — ostatni: krzywa XP + przyprawy)
+## ⇒ START TUTAJ (stan na 03.09.2026 — najnowsza porcja: sekcja „STAN NA 03.09.2026" niżej)
 
 > Ten plik ma 800+ linii historii. **Jeśli wracasz do projektu — czytaj TYLKO ten blok
 > i sekcję „CO DALEJ" niżej.** Reszta to zapis decyzji i pułapek, przydatny jako
@@ -1099,6 +1099,86 @@ PRZED nią**. Na zrzucie nie dało się znaleźć Carrotella we własnej hordzie
   po `offsetWidth`, więc sama wypada z nawigacji padem. Instrukcje sterowania
   zjechały do `#startFoot`. Każdy panel dostał `<h2>` = wspólna rama.
 
+## ═══════════ STAN NA 03.09.2026: „ZRÓB Z TEGO ARCYDZIEŁO" ═══════════
+(main.js v147; jedna duża porcja z zamówienia właściciela: lepsza trawa „jak w Zeldzie /
+Genshinie", postacie +20%, piękne drzewa z ruszającymi się liśćmi, otoczenie, sterowanie,
+„postać nałożona na wszystko / lata nad trawą". Temat „chodzenia po wodzie" właściciel
+kazał ZOSTAWIĆ — to była inna wersja.)
+
+### Postacie (Billboard, buildChar)
+- **`PX2U = 1/46`** (było 1/55) = wszystkie sprite'y +20%. Jedna stała, bo footY, cień
+  i kopia gracza liczą się z niej. Hitboxy w jednostkach świata zostały bez zmian.
+- **`SPRITE_TILT = 0.7`** (było 1.0): przy pełnym pochyleniu sprite kładł się na trawie za
+  sobą (głowa 1.5 j. za stopami przy 34°) i czytał się jako naklejka. 0.7 = skrót ~1.5%.
+  Strojenie: `HORDA.setTilt(v)`.
+- **Kopia gracza „przez hordę" jest PÓŁPRZEZROCZYSTA** (`KOPIA_KRYCIE = 0.72`,
+  `matNaWierzchu(src, kolor, opacity)`). Pełnokryjąca kopia z `depthTest:false` była
+  właśnie tym „nałożeniem na wszystko" — zasłaniała trawę, drzewa i wrogów przed graczem.
+- **`addStopyAO(mat, footOff/size)`**: pasmo ~14% wysokości nad stopami ściemnia się do 0.72
+  (jak nasada trawy). Uniform per materiał, jeden program. To plus większy cień kontaktowy
+  (`0.56×0.34` wysokości) osadza postać w trawie.
+- Pointer Lock: `requestPointerLock()` zwraca Promise — odmowa szła do `unhandledrejection`
+  (SecurityError w podglądzie). Dodane `.catch`.
+
+### Trawa i brzeg (grafik-3d; padł na limicie sesji w połowie, reszta dopięta ręcznie)
+- `clumpTexture()` = **atlas 2×1** dwóch kępek (22 i 24 długich, wąskich źdźbeł, gradient
+  walorowy nasada→rim), wybór wariantu per instancja w vertex shaderze (`vMapUv.x`) —
+  zero dodatkowych materiałów. **Mipmapy włączone** (Linear/LinearMipmapLinear): bez nich
+  wąskie ostrza migotały z daleka. To świadome odejście od NearestFilter — postacie zostają
+  pixel-artowe, trawa jest gładka („pixel art na tle stylizowanego 3D").
+- `GRASS_STEP 0.66→0.60`, `GRASS_R 56→52` (ta sama liczba komórek). Wysokość kępek
+  `0.66+0.40·r1`. **Poryw wiatru** w shaderze (długa fala ~90 j., `max(0,sin)^3`).
+- **Brzeg**: trawa rośnie do `WATER_Y+0.03`, przy wodzie niska i żółtawa (`brzeg`);
+  pas gruntu przy wodzie to PIASEK (mnożniki vertex colors >1, bo tekstura gruntu jest
+  limonkowa), pod wodą stopniowo ciemniej = dno. Grunt pod kępkami ciemniejszy niż czubki
+  źdźbeł (jaśniejszy „dywan" spłaszczał trawę). **Trzciny** = `stalkField` w pasie
+  `nadW<0.20`, **rzadko (`r4<0.16`)** — przy 0.5 wychodził płot łodyg wzdłuż brzegu.
+
+### Otoczenie (grafik-3d; też padł na limicie — nawiasy dopięte, składnia OK)
+- **Akumulator instancji per chunk** (`nowyAkumulator`, `flushInst`): pnie, stożki, korony
+  (per paleta, max 2 palety/chunk), karty liści, głazy+kamyki, plamki cienia → po JEDNYM
+  InstancedMeshu na rodzaj. Wcześniej każde drzewo = 5-6 meshy. Wszystko w `ch.rocks`
+  (ensureChunks dispose'uje). `computeBoundingSphere()` na instancjach → frustum culling.
+- **Drzewa**: 3 sylwetki liściaste (dąb / smukłe / rozłożyste) + świerk, losowane z rng
+  chunka. Korona = bryły (`leafBlobGeo` z uśrednionymi normalnymi = „plusz") w jasnych
+  paletach + **karty liści na powierzchni bryły** z walorem zapieczonym w instanceColor
+  (strona od słońca ciepła/jasna, spód chłodny). **Ruch liści w shaderze** (`makeLeafMaterial`):
+  oddech całej korony + dwie fale szelestu z fazą po pozycji karty, amplituda rośnie ku
+  krawędzi (siedzi w skali Z quada), lekki trzepot obrotowy. Bryły kołysze `addCrownSway`.
+  `addWrapLight` (pół-Lambert) rozjaśnia stronę zacienioną. Korony rzucają cień, nie odbierają.
+- **Cień kontaktowy pod dekoracjami, pniami, głazami** = `rebuildBlobs()` — JEDEN
+  InstancedMesh plamek dla całego świata, przebudowywany w `ensureChunks` (tylko przy
+  zmianie zbioru chunków), plamki położone po stoku (`blobRec` z normalnej terenu).
+- Dekoracje-billboardy dostają `billboardQuat` (yaw + pochylenie jak postacie).
+- Pieńki (do wskoczenia), kłody (AABB, do przeskoczenia), grupy głazów 1+0-2 z kamykami
+  (ten sam InstancedMesh), jaśniejsze głazy z `rockTint`. Chmury dwutonowe, dwie warstwy.
+- Draw calle: łąka ~68, gęsty las ~260 (z przebiegiem cieni). `optymalizator` nadal
+  nieuruchomiony — jeśli las tnie klatki na telefonie, zacząć od cieni koron.
+
+### Rozgrywka i sterowanie (projektant-gry)
+- **`zadajDmg(e, dmg, o)`** — wspólny cios: krytyk ×3 (pomarańczowy pop ≥1.5, `sfx('kryt')`,
+  odrzut ×1.5 z poszanowaniem `bezKb`). Podpięte 12 ścieżek trafień, zero `e.hp -=` w
+  broniach. **`rangeM() = rangeF()/14`** w 13 miejscach → Krytyk i Sokoli wzrok działają
+  w KAŻDEJ broni (punkt 5 z „CO DALEJ" zamknięty).
+- **Friesetti szarżuje** (`FRIES_*`): tell 0.6 s (przysiad + pierścień + „!"), szarża ×3 po
+  zamrożonym kierunku 1.0 s, `e.stun` 1.2 s, cooldown 3.5 s. **Lollini** w fazie wirowania
+  (63% cyklu 3 s) bije z 1.8 j. i odrzuca gracza (`P.kbx/kbz`). Punkt 6 zamknięty.
+- Mini-Marshmallini po podziale **nie są elitami** (`spawnEnemy(..., mozeElita=false)`).
+- **Coyote time 0.12 s + jump buffer 0.12 s**; joystick: martwa strefa 6 px z przeskalowaniem;
+  Q/E 2.2→2.6 rad/s; **ESC przy Pointer Lock**: pauza w `pointerlockchange` (przeglądarki
+  połykają ESC przy wychodzeniu z locka) + 400 ms blokada na spóźniony ESC; `startKarabin`
+  ma strażnika `!G.running || G.paused || G.dying`.
+- Balans policzony arytmetycznie: stosunek Kula/HP szeregowego ~1.7 od 1. do 10. min —
+  krzywa XP nie wymaga korekty; dźwignią jest ranga, nie Moc.
+
+### UI
+- `#pauseBtn` przy ≤520 px przeniesiony NA PRAWO od zegara (`translateX(44px)`) — punkt 3.
+
+### Do sprawdzenia w prawdziwym biegu / co zostało
+- Raport testera i przeglądu adwersarialnego z 03.09 — patrz commit message tej porcji.
+- Wygląd na telefonie (GRASS_R 31 przy `pointer:coarse`, las 260 calli).
+- Punkt 2 (atlas sprite'ów, 58 MB VRAM) i 4 (ekonomia) nadal otwarte.
+
 ## ═══════════ CO DALEJ — KOLEJNOŚĆ I GDZIE SZUKAĆ ═══════════
 
 ### 1. ~~DRZEWO ULEPSZEŃ WYSYCHA W 4. MINUCIE~~ ✅ **ZROBIONE 13.08 (v122)**
@@ -1116,7 +1196,7 @@ kierunku**. Policzone: 1170 klatek = **58.7 MB VRAM + ~69 MB canvasów w RAM**.
 - **Jak, tanio:** jedna tekstura na cały arkusz + `map.offset`/`map.repeat` per klatka
   → ~6 MB zamiast 58.7. Dopiero potem ewentualnie instancing wrogów.
 
-### 3. PRZYCISK PAUZY NACHODZI NA HUD W PIONIE
+### 3. ~~PRZYCISK PAUZY NACHODZI NA HUD W PIONIE~~ ✅ 03.09 (media query ≤520 px)
 Zmierzone: `#pauseBtn` `[48,18,34,34]` vs `#lvl` `[10,18,45,15]` → **7×15 px**,
 `#ranga` → **14×13 px**. HUD czyta się jako „POZIOM ▮▮" i „RAN".
 - **Gdzie:** `#pauseBtn` w `index.html` (`transform:translateX(-140px)`).
@@ -1129,20 +1209,19 @@ bo od 2. minuty seria nigdy nie spada poniżej 12.
   boss 10 → 8, mnożnik serii **tylko na szeregowych**; ceny odblokowań ×2.
   Wychodzi ~32 000 monet ≈ 18 biegów po 5 min.
 
-### 5. DWIE MARTWE KARTY (ta sama rodzina co naprawione `fireMul`)
+### 5. ~~DWIE MARTWE KARTY~~ ✅ 03.09 (`zadajDmg` + `rangeM()`, patrz sekcja 03.09)
 `critC()` działa **tylko na pociski** (Krytyk nie tyka czosnku, nova, pioruna, skarpety),
 `rangeF()` używają **4 bronie z 14** (Sokoli wzrok martwy dla dziesięciu).
 - **Jak:** przenieść krytyk do wspólnego helpera `zadajDmg(e, dmg)`; `rangeF()/14`
   jako mnożnik promienia szukania celu w każdej broni.
 
-### 6. DWA SNACKONI NIE MAJĄ SWOICH ZACHOWAŃ
+### 6. ~~DWA SNACKONI NIE MAJĄ SWOICH ZACHOWAŃ~~ ✅ 03.09 (szarża Friesetti, tarcza Lollini)
 **Friesetti wcale nie szarżuje** (w kodzie to tylko `speed: 4.0` — zero windupu, zero
 tellu), **Lollini „wiruje" tylko wizualnie** (ściskanie `scale.x`). Biblia opisuje
 szarżę z telegrafem 0.6 s i tarczę pilarską. `e.stun` już istnieje, więc szarża to ~10 linii.
 
 ### 7. RESZTA Z AUDYTÓW (drobniejsze, ale zmierzone)
-- Elitarne **mini-Marshmallini** mają HP malucha, a płacą jak elita (12 monet + XP ×4)
-  → najszybsza kasa w grze. `killEnemy` nadpisuje `hp`, ale nie zdejmuje flagi `elite`.
+- ~~Elitarne **mini-Marshmallini** płacą jak elita~~ ✅ 03.09 (`spawnEnemy(..., mozeElita=false)`).
 - **6 broni bez ewolucji** (Piorun, Butelka, Pizza, Skarpeta, Wiatrówka, Sokowirówka) —
   projektant rozpisał wszystkie sześć z warunkami `ok()`.
 - W 5. minucie **359 wrogów, z czego 9 w kadrze** — „ściany wrogów" nie widać.

@@ -5,7 +5,10 @@ import { icon, ico } from './icons.js?v=5';
 import { AUDIO } from './audio.js?v=4';            // muzyka wg fazy gry + kwestie głosowe + efekty
 
 // ============================== USTAWIENIA ==============================
-const PX2U = 1 / 55;
+// 1/55 → 1/46 = WSZYSTKIE postacie o ~20% większe (życzenie właściciela 03.09:
+// „zwiększ wszystkie postacie tak o 20%, by były widoczniejsze"). Skala siedzi
+// w jednej stałej, bo footY, cień i kopia gracza liczą się z tego samego PX2U.
+const PX2U = 1 / 46;
 const WORLD_R = 130;
 // kamera: na wąskim/niskim ekranie (telefon poziomo) mocno bliżej postaci
 let CAM_DIST = 9.2, CAM_H = 6.4;
@@ -586,32 +589,53 @@ function stripeTexture(base, dark, n) {
 let crateMat = null, plankMat = null, stoneMat = null;
 
 // -------- chmury --------
-function cloudTexture() {
+// PŁASKIE, DWUTONOWE chmury (jak kwantowane pasy nieba): biały wierzch, chłodny spód,
+// płaska podstawa, twarde krawędzie + NearestFilter. Rozmyte radialne gradienty
+// wyglądały jak dym i nie pasowały do pixel-artu. Dwa warianty kształtu.
+function cloudTexture(wariant) {
   const c = document.createElement('canvas'); c.width = 128; c.height = 64;
   const g = c.getContext('2d');
-  for (const [x, y, r] of [[38, 40, 22], [64, 32, 26], [92, 42, 20], [64, 44, 24]]) {
-    const gr = g.createRadialGradient(x, y, 2, x, y, r);
-    gr.addColorStop(0, 'rgba(255,255,255,0.95)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
-  }
-  return new THREE.CanvasTexture(c);
+  const kule = wariant === 0
+    ? [[34, 40, 17], [56, 30, 23], [82, 34, 21], [104, 42, 15], [66, 44, 19]]
+    : [[28, 44, 13], [46, 36, 19], [70, 28, 24], [94, 38, 18], [80, 46, 15]];
+  g.fillStyle = '#c4d7ec';                                   // spód w cieniu
+  for (const [x, y, r] of kule) { g.beginPath(); g.arc(x, y + 2, r, 0, 7); g.fill(); }
+  g.fillStyle = '#e9f2fb';                                   // półton
+  for (const [x, y, r] of kule) { g.beginPath(); g.arc(x, y - 3, r * 0.92, 0, 7); g.fill(); }
+  g.fillStyle = '#ffffff';                                   // oświetlony wierzch
+  for (const [x, y, r] of kule) { g.beginPath(); g.arc(x - 2, y - 7, r * 0.72, 0, 7); g.fill(); }
+  g.clearRect(0, 56, 128, 8);                                // płaska podstawa
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false;
+  return t;
 }
 const clouds = [];
 {
-  const mat = new THREE.MeshBasicMaterial({ map: cloudTexture(), transparent: true, depthWrite: false, opacity: 0.85, fog: false });
-  for (let i = 0; i < 12; i++) {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
-    const s = 18 + Math.random() * 26;
+  // DWIE WARSTWY: wysoka (duże, jasne, wolne) i niska (mniejsze, lekko przyszarzone,
+  // szybsze) — jedna warstwa jednakowych plam czytała się jak tapeta.
+  const teks = [cloudTexture(0), cloudTexture(1)];
+  const matG = teks.map(t => new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, opacity: 0.94, fog: false }));
+  const matD = teks.map(t => new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, opacity: 0.80, fog: false, color: 0xdfe8f2 }));
+  for (let i = 0; i < 14; i++) {
+    const gorna = i < 8;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), (gorna ? matG : matD)[i % 2]);
+    const s = gorna ? 26 + Math.random() * 24 : 12 + Math.random() * 12;
     m.scale.set(s, s * 0.5, 1);
-    m.position.set((Math.random() - .5) * 260, 26 + Math.random() * 14, (Math.random() - .5) * 260);
+    m.position.set((Math.random() - .5) * 260, gorna ? 34 + Math.random() * 12 : 21 + Math.random() * 7, (Math.random() - .5) * 260);
     scene.add(m);
-    clouds.push({ m, v: 0.6 + Math.random() * 0.8 });
+    clouds.push({ m, v: gorna ? 0.5 + Math.random() * 0.5 : 1.0 + Math.random() * 0.8 });
   }
 }
 
 // -------- głazy 3D (bryły rozstawiane per-chunk) --------
-const rockMat = new THREE.MeshLambertMaterial({ color: 0x8a8f85, flatShading: true });
+// jaśniejszy, lekko ciepły szary (Genshin: głazy czytają się jasno na tle zieleni);
+// instanceColor per głaz daje odchyłki barwy — patrz rockTint
+// REFERENCJE WŁAŚCICIELA (03.09): głazy = ciemny, niebieskawy łupek z płaskimi ścianami
+// i jasną górną płaszczyzną (flatShading + Lambert robi to samo z siebie). Jasnoszary
+// 0x9c9e94 zlewał się z piaskiem brzegu.
+const rockMat = new THREE.MeshLambertMaterial({ color: 0x66707f, flatShading: true });
 const rockGeo = new THREE.IcosahedronGeometry(1, 0);
+const rockTint = rng => new THREE.Color(0.86 + rng() * 0.26, 0.88 + rng() * 0.22, 0.92 + rng() * 0.2);
 
 // ============================== WIATR + CIENIE CHMUR ==============================
 const windU = { value: 0 };
@@ -678,7 +702,7 @@ function addCloudShadow(mat) {
     // już zmieszany z mgłą, więc daleki horyzont — który ma być czystą mgłą — dostawał
     // ciemne łaty wędrujące razem z chmurami (zgłoszone przez grafika w audycie).
     const kod = `float cs = texture2D(uCloud, vWPos.xz * ${CLOUD_SCALE.toFixed(5)} + uCloudOff).r;
-       gl_FragColor.rgb *= mix(0.48, 1.06, cs);`;
+       gl_FragColor.rgb *= mix(0.74, 1.04, cs);`;   // 0.48 → 0.74: cień chmury zamieniał limonkową łąkę w ciemną (referencje 03.09)
     const kotwica = sh.fragmentShader.includes('#include <fog_fragment>')
       ? '#include <fog_fragment>' : '#include <dithering_fragment>';
     // przy braku mgły w materiale zostaje stara kotwica — inaczej `replace` nie
@@ -712,10 +736,14 @@ function addWind(mat, amp = 0.16, freq = 1.7) {
 const trunkGeo = new THREE.CylinderGeometry(0.16, 0.28, 1, 6);
 trunkGeo.translate(0, 0.5, 0);
 const leafGeo = new THREE.IcosahedronGeometry(1, 0);
-const trunkMat = new THREE.MeshLambertMaterial({ color: 0x6b4a2b, flatShading: true });
+// pień cieplejszy i jaśniejszy (0x6b4a2b ginął w cieniu korony jako czarna kreska)
+const trunkMat = new THREE.MeshLambertMaterial({ color: 0x7d5636, flatShading: true });
 const leafMats = [0x3f7a34, 0x4b8f3c, 0x356b2c, 0x5a9a42].map(c =>
   addWind(new THREE.MeshLambertMaterial({ color: c, flatShading: true }), 0.09, 1.2));
-const pineMat = addWind(new THREE.MeshLambertMaterial({ color: 0x2f5f3a, flatShading: true }), 0.06, 1.1);
+// świerk: ciemniejszy od liściastych, ale już nie „butelkowy" — na limonkowej łące
+// 0x2f5f3a wyglądał jak czarna plama. addWind czyta instanceMatrix, więc działa też
+// dla stożków instancjonowanych per chunk.
+const pineMat = addWind(new THREE.MeshLambertMaterial({ color: 0x3f8a4e, flatShading: true }), 0.06, 1.1);
 const coneGeo = new THREE.ConeGeometry(1, 1, 7);
 coneGeo.translate(0, 0.5, 0);
 
@@ -783,29 +811,64 @@ function makeLeafMaterial(paleta, amp) {
   m.onBeforeCompile = sh => {
     if (_prev) _prev(sh);
     sh.uniforms.uTime = windU;
+    // WIATR KART (spójny z trawą — ten sam `windU`):
+    //  * ODDECH: wolna fala całej korony, faza po pozycji drzewa (ta sama formuła co w
+    //    addCrownSway dla brył — karty nie zjeżdżają z bryły, na której siedzą),
+    //  * SZELEST: dwie szybsze fale, faza po dokładnej pozycji karty I jej wysokości,
+    //    więc każda karta rusza się w swoim rytmie, nie cała korona sztywno,
+    //  * AMPLITUDA rośnie ku zewnętrznej krawędzi korony — mnożnik siedzi w SKALI Z
+    //    quada (kolumna 2 instanceMatrix), która dla billboardu i tak nie ma sensu,
+    //  * TRZEPOT: karta lekko obraca się w płaszczyźnie ekranu w rytm szelestu.
     sh.vertexShader = 'uniform float uTime;\n' + sh.vertexShader.replace('#include <project_vertex>',
       `vec3 iPos = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
        float sx = length(vec3(instanceMatrix[0][0], instanceMatrix[0][1], instanceMatrix[0][2]));
        float sy = length(vec3(instanceMatrix[1][0], instanceMatrix[1][1], instanceMatrix[1][2]));
-       float sway = sin(uTime * 1.35 + iPos.x * 0.4 + iPos.z * 0.3) * ${amp.toFixed(3)}
-                  + sin(uTime * 0.55 + iPos.z * 0.11) * ${(amp * 0.6).toFixed(3)};
-       vec4 mvPosition = modelViewMatrix * vec4(iPos + vec3(sway, 0.0, sway * 0.4), 1.0);
-       mvPosition.xy += vec2(position.x * sx, position.y * sy);
+       float ampK = length(vec3(instanceMatrix[2][0], instanceMatrix[2][1], instanceMatrix[2][2]));
+       float oddech = sin(uTime * 0.9 + iPos.x * 0.12 + iPos.z * 0.10) * 0.06;
+       float szelest = (sin(uTime * 2.6 + iPos.x * 1.7 + iPos.y * 2.3 + iPos.z * 1.4) * ${amp.toFixed(3)}
+                      + sin(uTime * 3.7 + iPos.z * 2.9 + iPos.y * 1.1) * ${(amp * 0.5).toFixed(3)}) * ampK;
+       vec4 mvPosition = modelViewMatrix * vec4(iPos + vec3(oddech + szelest, szelest * 0.5, (oddech + szelest) * 0.4), 1.0);
+       float rot = szelest * 1.4;
+       vec2 q = vec2(position.x * sx, position.y * sy);
+       q = vec2(q.x * cos(rot) - q.y * sin(rot), q.x * sin(rot) + q.y * cos(rot));
+       mvPosition.xy += q;
        gl_Position = projectionMatrix * mvPosition;
        vWPos = iPos;`);
-    sh.fragmentShader = sh.fragmentShader;
   };
   m.needsUpdate = true;
   return m;
 }
 function initLeafCards() {
+  // JAŚNIEJSZE palety niż dawne (#2f6b28…) — karty są nieoświetlone (MeshBasic), więc
+  // cały walor pochodzi z tekstury × instanceColor; ciemna tekstura = czarna korona.
   const palety = [
-    ['#2f6b28', '#4a9138', '#6fbc4c'],   // soczysta zieleń
-    ['#35722c', '#57a03f', '#83cc58'],   // jaśniejsza
-    ['#2a5f34', '#43884a', '#63ad63'],   // chłodna
-    ['#6b5220', '#9c7a2a', '#c9a23c'],   // jesienna (rzadka)
+    ['#3f8f32', '#63b948', '#94dd5e'],   // soczysta zieleń
+    ['#4a9c39', '#76cc4e', '#a8e86a'],   // jaśniejsza
+    ['#3a7f3d', '#5cb258', '#86d276'],   // chłodna
+    ['#8a6a22', '#c09a34', '#e8c650'],   // jesienna (rzadka)
   ];
   leafCardMats = palety.map((p, i) => makeLeafMaterial(p, i === 3 ? 0.16 : 0.13));
+}
+// kołysanie BRYŁ korony — ta sama fala „oddechu" co w kartach liści (patrz wyżej),
+// liczona w przestrzeni świata PO instanceMatrix, żeby obrót/skala bryły jej nie psuły
+function addCrownSway(mat) {
+  mat.onBeforeCompile = sh => {
+    sh.uniforms.uTime = windU;
+    sh.vertexShader = 'uniform float uTime;\n' + sh.vertexShader.replace('#include <project_vertex>',
+      `vec4 mvPosition = vec4(transformed, 1.0);
+       #ifdef USE_INSTANCING
+         mvPosition = instanceMatrix * mvPosition;
+         vec3 iPos = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
+       #else
+         vec3 iPos = vec3(0.0);
+       #endif
+       float oddech = sin(uTime * 0.9 + iPos.x * 0.12 + iPos.z * 0.10) * 0.06;
+       mvPosition.xyz += vec3(oddech, 0.0, oddech * 0.4);
+       mvPosition = modelViewMatrix * mvPosition;
+       gl_Position = projectionMatrix * mvPosition;`);
+  };
+  mat.needsUpdate = true;
+  return mat;
 }
 
 // ==== SOLIDNA KORONA: bryła z cieniowaniem góra-dół zapieczonym w wierzchołkach ====
@@ -819,72 +882,211 @@ const leafBlobGeo = (() => {
     p.setXYZ(i, p.getX(i) * s, p.getY(i) * s, p.getZ(i) * s);
   }
   g.computeVertexNormals();
-  // vertex colors: jasno na górze, ciemno pod spodem (klucz do stylizowanego wyglądu)
+  // GŁADKIE NORMALNE: PolyhedronGeometry jest nieindeksowany (każda ściana ma własne
+  // 3 wierzchołki), więc computeVertexNormals daje facetki. Uśredniamy normalne po
+  // wierzchołkach o tej samej pozycji → miękka, „pluszowa" bryła jak w Genshinie.
+  {
+    const nrm = g.attributes.normal, mapa = new Map();
+    for (let i = 0; i < p.count; i++) {
+      const k = p.getX(i).toFixed(4) + ',' + p.getY(i).toFixed(4) + ',' + p.getZ(i).toFixed(4);
+      let e = mapa.get(k); if (!e) { e = [0, 0, 0, []]; mapa.set(k, e); }
+      e[0] += nrm.getX(i); e[1] += nrm.getY(i); e[2] += nrm.getZ(i); e[3].push(i);
+    }
+    for (const e of mapa.values()) {
+      const l = Math.hypot(e[0], e[1], e[2]) || 1;
+      for (const i of e[3]) nrm.setXYZ(i, e[0] / l, e[1] / l, e[2] / l);
+    }
+  }
+  // vertex colors: jasno na górze, ciemno pod spodem (klucz do stylizowanego wyglądu).
+  // Do tego lekki dryf barwy: wierzch ciepły (żółtawy — słońce), spód chłodny
+  // (niebieskawy — cień) — to daje „miękkie łaty koloru" jak w Genshinie zamiast
+  // jednolitej zieleni z gradientem jasności. Spód 0.62, nie 0.5: przy hemisferze
+  // z ciemnozielonym „ground" dolna połowa kuli i tak dostaje mało światła.
   const kol = new Float32Array(p.count * 3);
   for (let i = 0; i < p.count; i++) {
     const t = Math.max(0, Math.min(1, p.getY(i) * 0.5 + 0.5));
-    const v = 0.55 + t * 0.65;
-    kol[i * 3] = kol[i * 3 + 1] = kol[i * 3 + 2] = v;
+    const v = 0.62 + t * 0.55;
+    kol[i * 3] = v * (0.90 + 0.18 * t);
+    kol[i * 3 + 1] = v;
+    kol[i * 3 + 2] = v * (1.08 - 0.22 * t);
   }
   g.setAttribute('color', new THREE.BufferAttribute(kol, 3));
   return g;
 })();
 let leafSolidMats = null;
 function initLeafSolids() {
-  const bazy = [0x4e9c36, 0x5aa83f, 0x3f8a3c, 0xb08a2c];   // 3 zielenie + jesienna
-  leafSolidMats = bazy.map(c => addCloudShadow(new THREE.MeshLambertMaterial({
-    color: c, vertexColors: true, flatShading: true })));
+  // JASNE, nasycone korony (cel: Genshin/BotW). Stare bazy 0x4e9c36..0x3f8a3c po
+  // Lambercie i gradiencie wychodziły niemal czarnozielone obok limonkowej trawy.
+  // Bez flatShading — 80-ścienny ikosaedr z rozruszanymi wierzchołkami daje przy
+  // gładkich normalnych miękką, „pluszową" bryłę; facetki gryzły się z pixel-artem.
+  // `emissive` podnosi stronę zacienioną, żeby spód nie zapadał w czerń.
+  // Kołysanie idzie w shaderze (addWind czyta instanceMatrix) — korony są
+  // instancjonowane per chunk (patrz buildChunk), więc nie ma już pętli JS po bryłach.
+  const bazy = [0x74c94a, 0x86d452, 0x5fb84c, 0xd6a63c];   // 3 zielenie + jesienna
+  leafSolidMats = bazy.map(c => addCloudShadow(addWrapLight(addCrownSway(new THREE.MeshLambertMaterial({
+    color: c, vertexColors: true, emissive: 0x1c4218 })), 0.55)));   // emissive niżej, bo wrap już rozjaśnia cień
+}
+// PÓŁ-LAMBERT („wrap lighting", Valve): dotNL → dotNL*(1-w)+w. Bryła oświetlona jest
+// miękko dookoła zamiast twardej granicy dzień/noc — od strony przeciwnej do słońca
+// zwykły Lambert zostawiał TYLKO hemisferę z ciemnozielonym spodem = czarnozielone
+// korony. Wpinane po addWind (który nadpisuje onBeforeCompile), przed addCloudShadow.
+function addWrapLight(mat, w = 0.5) {
+  const stary = mat.onBeforeCompile;
+  mat.onBeforeCompile = sh => {
+    if (stary) stary(sh);
+    // ⚠️ onBeforeCompile dostaje shader z NIEROZWINIĘTYMI `#include` (resolveIncludes
+    // odpala się dopiero w WebGLProgram), więc podmiana samej linii Lamberta trafiała
+    // w nic i wrap był no-opem (recenzja 03.09). Rozwijamy chunk ręcznie i podmieniamy w nim.
+    const chunk = THREE.ShaderChunk.lights_lambert_pars_fragment.replace(
+      'float dotNL = saturate( dot( geometryNormal, directLight.direction ) );',
+      `float dotNL = saturate( dot( geometryNormal, directLight.direction ) * ${(1 - w).toFixed(3)} + ${w.toFixed(3)} );`);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <lights_lambert_pars_fragment>', chunk);
+  };
+  mat.needsUpdate = true;
+  return mat;
+}
+// bufor instancji chunka: pnie/pieńki/kłody, stożki świerków, korony per paleta, plamki cienia
+function nowyAkumulator() {
+  return { trunks: [], cones: [], crowns: [[], [], [], []], cards: [[], [], [], []], blobs: [], rocks: [] };
+}
+const SUN_N = SUN_OFF.clone().normalize();       // do zapiekania „słońca" w kartach liści
+// plamka cienia kontaktowego położona PO STOKU (kwaternion z normalnej terenu) —
+// płaska plamka na zboczu wchodziła w ziemię z jednej strony, a z drugiej wisiała
+const _bn = new THREE.Vector3(), _bq = new THREE.Quaternion();
+function blobRec(x, z, sx, sz, ry = 0) {
+  const E = 0.35;
+  const dhx = (terrainH(x + E, z) - terrainH(x - E, z)) / (2 * E);
+  const dhz = (terrainH(x, z + E) - terrainH(x, z - E)) / (2 * E);
+  const q = new THREE.Quaternion().setFromUnitVectors(AX_Y, _bn.set(-dhx, 1, -dhz).normalize());
+  if (ry) q.multiply(_bq.setFromAxisAngle(AX_Y, ry));
+  return { x, y: terrainH(x, z) + 0.05, z, q, sx, sy: 1, sz };
 }
 
-// drzewo = pień + KORONA Z KART LIŚCI (zbierane do wspólnego bufora chunka)
-function makeTree(x, z, rng, out, karty, sway) {
+// drzewo = pień + korona z brył. NIC nie trafia do sceny bezpośrednio — rekordy
+// idą do akumulatora chunka (`acc`), a buildChunk składa z nich InstancedMeshe:
+// 1 draw call na pnie, 1 na stożki, 1 na paletę koron (zamiast 5-6 na KAŻDE drzewo).
+// `paletki` = dwie palety wybrane dla chunka (żeby nie robić 4 draw calli koron).
+function makeTree(x, z, rng, acc, paletki) {
   const g0 = terrainH(x, z);
-  const h = 2.6 + rng() * 2.0;
-  const iglaste = rng() < 0.28;
-  const tr = new THREE.Mesh(trunkGeo, trunkMat);
-  // GRUBSZY i krótszy pień — wcześniej był jak patyk
-  const grubosc = 1.9 + rng() * 0.7;
-  tr.scale.set(grubosc, h * (iglaste ? 0.5 : 0.42), grubosc);
-  tr.position.set(x, g0, z);
-  tr.castShadow = true; tr.receiveShadow = true;
-  scene.add(tr); out.push(tr);
-
-  if (iglaste) {                                   // świerk: stożki (zostają bryłami)
+  const typ = rng();
+  if (typ < 0.25) {                                // ŚWIERK: pień + 3 stożki
+    const h = 3.2 + rng() * 2.2, gr = 1.5 + rng() * 0.5;
+    acc.trunks.push({ x, y: g0, z, ry: rng() * 6.28, sx: gr, sy: h * 0.5, sz: gr });
     for (let i = 0; i < 3; i++) {
       const s = (1.5 - i * 0.35) * (0.75 + rng() * 0.3);
-      const c = new THREE.Mesh(coneGeo, pineMat);
-      c.scale.set(s, h * 0.55 - i * 0.28, s);
-      c.position.set(x, g0 + h * 0.32 + i * h * 0.28, z);
-      c.rotation.y = rng() * 3;
-      c.castShadow = true;
-      scene.add(c); out.push(c);
+      acc.cones.push({ x, y: g0 + h * 0.32 + i * h * 0.28, z, ry: rng() * 3,
+                       sx: s, sy: h * 0.55 - i * 0.28, sz: s });
     }
-  } else {
-    // ==== KORONA = SOLIDNE BRYŁY (czytelna sylwetka + PRAWDZIWY CIEŃ) ====
-    // Billboardowe karty nie rzucały cienia i rozłaziły się — bryły trzymają kształt.
-    const paleta = leafPalety[Math.floor(rng() * leafPalety.length)];
-    const cy = g0 + h * 0.44;
-    const bryly = [
-      [0, 0.62, 0, 1.00],                              // główna masa
-      [-0.62, 0.30, 0.34, 0.70],
-      [0.58, 0.26, -0.40, 0.66],
-      [0.10, 1.05, 0.14, 0.62],                        // czubek
-    ];
+    acc.blobs.push(blobRec(x, z, gr * 0.95, gr * 0.95));
+    return { c: 1, x, z, r: 0.42, top: 99 };
+  }
+  // ==== LIŚCIASTE: trzy sylwetki losowane z rng chunka (deterministycznie) ====
+  // korona = SOLIDNE BRYŁY (czytelna sylwetka + prawdziwy cień z shadow mapy)
+  let h, gr, skala, cy, hPnia, splasz, bryly;
+  if (typ < 0.62) {                                // DĄB — klasyk: kula z guzami
+    h = 2.6 + rng() * 2.0; gr = 1.9 + rng() * 0.7; skala = 1.25 + rng() * 0.55;
+    cy = g0 + h * 0.44; hPnia = h * 0.42; splasz = 0.9;
+    bryly = [[0, 0.62, 0, 1.00], [-0.62, 0.30, 0.34, 0.70], [0.58, 0.26, -0.40, 0.66], [0.10, 1.05, 0.14, 0.62]];
     if (rng() < 0.5) bryly.push([-0.20, 0.10, -0.62, 0.55]);
-    const skalaKorony = 1.25 + rng() * 0.55;
-    for (const [dx, dy, dz, s] of bryly) {
-      const b = new THREE.Mesh(leafBlobGeo, leafSolidMats[paleta]);
-      const r = s * skalaKorony;
-      b.scale.set(r * (1.05 + rng() * 0.2), r * (0.82 + rng() * 0.2), r * (1.05 + rng() * 0.2));
-      b.position.set(x + dx * skalaKorony, cy + dy * skalaKorony, z + dz * skalaKorony);
-      b.rotation.set(rng() * 3, rng() * 3, rng() * 3);
-      b.castShadow = true; b.receiveShadow = true;
-      scene.add(b); out.push(b);
-      sway.push({ mesh: b, faza: rng() * 6.28, bx: b.position.x, bz: b.position.z,
-                  amp: 0.05 + dy * 0.05 });           // im wyżej, tym mocniej się kołysze
+  } else if (typ < 0.82) {                         // SMUKŁE — wysoki cienki pień, korona w słup
+    h = 4.6 + rng() * 1.8; gr = 1.3 + rng() * 0.4; skala = 0.95 + rng() * 0.3;
+    cy = g0 + h * 0.50; hPnia = h * 0.52; splasz = 1.2;
+    bryly = [[0, 0.45, 0, 0.92], [0.12, 1.45, -0.10, 0.80], [-0.30, -0.05, 0.25, 0.62], [0.05, 2.25, 0.05, 0.58]];
+  } else {                                         // ROZŁOŻYSTE — niski gruby pień, parasol
+    h = 2.0 + rng() * 0.8; gr = 2.5 + rng() * 0.6; skala = 1.7 + rng() * 0.5;
+    cy = g0 + h * 0.75; hPnia = h * 0.62; splasz = 0.68;
+    bryly = [[0, 0.40, 0, 0.95], [-0.95, 0.22, 0.30, 0.70], [0.90, 0.28, -0.35, 0.72],
+             [0.15, 0.18, 0.95, 0.62], [-0.20, 0.12, -0.90, 0.60]];
+  }
+  acc.trunks.push({ x, y: g0, z, ry: rng() * 6.28, sx: gr, sy: hPnia, sz: gr });
+  const paleta = paletki[rng() < 0.5 ? 0 : 1];
+  const tint = 0.90 + rng() * 0.18;                // lekka różnica jasności między drzewami
+  for (const [dx, dy, dz, s] of bryly) {
+    const r = s * skala;
+    const bx = x + dx * skala, by = cy + dy * skala, bz = z + dz * skala;
+    const bsx = r * (1.05 + rng() * 0.2), bsy = r * splasz * (0.9 + rng() * 0.2), bsz = r * (1.05 + rng() * 0.2);
+    acc.crowns[paleta].push({ x: bx, y: by, z: bz, rx: rng() * 3, ry: rng() * 3, rz: rng() * 3,
+                              sx: bsx, sy: bsy, sz: bsz, tint });
+    // ==== KARTY LIŚCI na powierzchni bryły: to one robią „kłębiastą" koronę i ruch ====
+    // Bryła pod spodem daje sylwetkę, cień z shadow mapy i wypełnia prześwity; karty
+    // (billboardy w shaderze, kołysane per karta) dają puszystą krawędź jak w BotW.
+    // Walor zapieczony w instanceColor: strona od słońca + góra = ciepła i jasna,
+    // spód = chłodny i ciemny. Preferencja góry (u ≥ -0.6): spód korony i tak jest w cieniu.
+    const nK = Math.round(7 + r * 5);
+    for (let k = 0; k < nK; k++) {
+      const a = rng() * 6.283, u = rng() * 1.6 - 0.6, rr = Math.sqrt(Math.max(0, 1 - u * u));
+      const nx = Math.cos(a) * rr, ny = u, nz = Math.sin(a) * rr;
+      const wys = 0.9 + rng() * 0.3;
+      const px = bx + nx * bsx * wys, py = by + ny * bsy * wys, pz = bz + nz * bsz * wys;
+      const lit = Math.max(0, Math.min(1, (nx * SUN_N.x + ny * SUN_N.y + nz * SUN_N.z) * 0.5 + 0.5));
+      const hy = Math.max(0, Math.min(1, (py - (cy - skala * 0.6)) / (skala * 2.2)));
+      const v = (0.60 + 0.55 * (0.6 * lit + 0.4 * hy)) * tint;
+      const kol = new THREE.Color(v * (0.92 + 0.16 * lit), v, v * (1.06 - 0.22 * lit));
+      // amplituda szelestu: 0.5 w środku korony → 1.4 na zewnętrznej krawędzi (skala Z quada)
+      const ampK = 0.5 + 0.9 * Math.min(1, Math.hypot(px - x, (py - cy) * 0.7, pz - z) / (skala * 1.7));
+      const sc = Math.max(0.5, Math.min(1.4, r * (0.55 + rng() * 0.3)));
+      acc.cards[paleta].push({ x: px, y: py, z: pz, sx: sc, sy: sc * 0.82, sz: ampK, tint: kol });
     }
   }
-  return { c: 1, x, z, r: 0.42, top: 99 };          // kolizja pnia
+  acc.blobs.push(blobRec(x, z, gr * 0.9, gr * 0.9));
+  return { c: 1, x, z, r: Math.max(0.42, gr * 0.2), top: 99 };   // kolizja pnia
+}
+// PIEŃEK (do wskoczenia) i KŁODA (leży wzdłuż X albo Z — AABB kolizji jest osiowy)
+function makeStump(x, z, rng, acc) {
+  const g0 = terrainH(x, z), gr = 2.2 + rng() * 0.8, h = 0.35 + rng() * 0.25;
+  acc.trunks.push({ x, y: g0, z, ry: rng() * 6.28, sx: gr, sy: h, sz: gr });
+  acc.blobs.push(blobRec(x, z, gr * 0.85, gr * 0.85));
+  return { c: 1, x, z, r: gr * 0.24, top: g0 + h };
+}
+function makeLog(x, z, rng, acc) {
+  const g0 = terrainH(x, z), gr = 1.6 + rng() * 0.6, dl = 2.6 + rng() * 1.6;
+  const wzdluzX = rng() < 0.5, ry = (wzdluzX ? 0 : Math.PI / 2) + (rng() - 0.5) * 0.16;
+  // trunkGeo stoi na y=0; rz=90° kładzie go wzdłuż -X, potem ry wybiera kierunek
+  const r = gr * 0.22;
+  // po rz=90° walec biegnie w -X; po ry=90° w +Z — stąd różne znaki przesunięcia środka
+  acc.trunks.push({ x: x + (wzdluzX ? dl / 2 : 0), y: g0 + r * 0.8, z: z - (wzdluzX ? 0 : dl / 2),
+                    ry, rz: Math.PI / 2, sx: gr, sy: dl, sz: gr });
+  acc.blobs.push(blobRec(x, z, dl * 0.95, gr * 0.7, ry));
+  return { x, z, hw: wzdluzX ? dl / 2 : r * 1.3, hl: wzdluzX ? r * 1.3 : dl / 2, top: g0 + r * 1.8 };
+}
+// składa rekordy {x,y,z, rx/ry/rz albo q, sx,sy,sz, tint?} w JEDEN InstancedMesh
+const _io = new THREE.Object3D(), _ic = new THREE.Color();
+function flushInst(geo, mat, recs, rocks, cien = true, odbiera = cien) {
+  if (!recs.length) return null;
+  const inst = new THREE.InstancedMesh(geo, mat, recs.length);
+  recs.forEach((r, i) => {
+    _io.position.set(r.x, r.y, r.z);
+    if (r.q) _io.quaternion.copy(r.q); else _io.rotation.set(r.rx || 0, r.ry || 0, r.rz || 0);
+    _io.scale.set(r.sx, r.sy, r.sz);
+    _io.updateMatrix();
+    inst.setMatrixAt(i, _io.matrix);
+    if (r.tint !== undefined) inst.setColorAt(i, r.tint.isColor ? r.tint : _ic.setScalar(r.tint));
+  });
+  inst.instanceMatrix.needsUpdate = true;
+  if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+  inst.castShadow = cien; inst.receiveShadow = odbiera;
+  inst.computeBoundingSphere();                    // r160: sfera obejmuje instancje → działa frustum culling
+  scene.add(inst); rocks.push(inst);
+  return inst;
+}
+// PLAMKI CIENIA KONTAKTOWEGO CAŁEGO ŚWIATA = JEDEN InstancedMesh (1 draw call zamiast
+// 1 na chunk; przy 19 chunkach w kadrze to było 19 calli). Zbierane z `blobRecs`
+// wszystkich załadowanych chunków, przebudowywane tylko gdy zmienia się zbiór chunków
+// (ensureChunks przechodzi dalej niż `lastCC` tylko po przejściu granicy chunka).
+let worldBlobs = null;
+function rebuildBlobs() {
+  if (worldBlobs) { scene.remove(worldBlobs); worldBlobs.dispose(); worldBlobs = null; }
+  const recs = [];
+  for (const ch of chunkMap.values()) if (ch.blobRecs) for (const r of ch.blobRecs) recs.push(r);
+  if (!recs.length) return;
+  worldBlobs = new THREE.InstancedMesh(blobGeo, blobMat, recs.length);
+  recs.forEach((r, i) => {
+    _io.position.set(r.x, r.y, r.z); _io.quaternion.copy(r.q); _io.scale.set(r.sx, 1, r.sz);
+    _io.updateMatrix(); worldBlobs.setMatrixAt(i, _io.matrix);
+  });
+  worldBlobs.instanceMatrix.needsUpdate = true;
+  worldBlobs.frustumCulled = false;
+  scene.add(worldBlobs);
 }
 
 // ============ TRAWA — DYWAN ŹDŹBEŁ (BotW/Genshin style) ============
@@ -892,33 +1094,56 @@ function makeTree(x, z, rng, out, karty, sway) {
 // przebudowywana gdy gracz odejdzie od środka. Gradient w vertex colors + wiatr w shaderze.
 // ---- KĘPKA TRAWY: alfa-tekstura pęku źdźbeł (technika z forum three.js:
 // „image of a grass clump on a 2 triangle quad" — kilka razy taniej niż osobne źdźbła) ----
+// STYL ZELDA BotW / GENSHIN (życzenie właściciela): kępka = WIĄZKA długich, wąskich,
+// gładkich źdźbeł z gradientem WALOROWYM (ciemna nasada → soczysta zieleń → jasny
+// „rim" na czubku), jeden spójny odcień (nie pstrokate), płasko, bez fotorealizmu.
+// Pixel-artowe są postacie; trawa może być gładka — jak w referencji „pixel art na
+// tle stylizowanego 3D". ATLAS 2×1: dwie różne kępki w jednej teksturze, wybór per
+// instancja w vertex shaderze (makeBladeMaterial) — zero dodatkowych materiałów.
 function clumpTexture() {
-  const S = 128;
-  const c = document.createElement('canvas'); c.width = c.height = S;
+  const S = 128, W = S * 2;
+  const c = document.createElement('canvas'); c.width = W; c.height = S;
   const g = c.getContext('2d');
-  g.imageSmoothingEnabled = false;
-  const zdzbla = 16;
-  for (let i = 0; i < zdzbla; i++) {
-    const bx = 12 + (i / (zdzbla - 1)) * (S - 24) + (Math.random() - 0.5) * 6;
-    const wys = S * (0.42 + Math.random() * 0.5);
-    const szer = 5 + Math.random() * 5;
-    const wygiecie = (Math.random() - 0.5) * 26;
-    // gradient: ciemno u nasady, jasno na czubku
-    const gr = g.createLinearGradient(0, S, 0, S - wys);
-    const j = Math.random();
-    gr.addColorStop(0, j < 0.5 ? '#3f7f2a' : '#4a8f30');
-    gr.addColorStop(0.55, j < 0.5 ? '#6fbc45' : '#7cc94f');
-    gr.addColorStop(1, j < 0.5 ? '#a8e46a' : '#bdf07d');
-    g.fillStyle = gr;
-    g.beginPath();
-    g.moveTo(bx - szer / 2, S);
-    g.quadraticCurveTo(bx - szer / 2 + wygiecie * 0.5, S - wys * 0.55, bx + wygiecie, S - wys);
-    g.quadraticCurveTo(bx + szer / 2 + wygiecie * 0.5, S - wys * 0.55, bx + szer / 2, S);
-    g.closePath(); g.fill();
-  }
+  const rys = (ox, ile, seed, wysMin) => {
+    let s = seed;                                    // własny RNG = tekstura powtarzalna
+    const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    for (let i = 0; i < ile; i++) {
+      const bx = 6 + (i / (ile - 1)) * (S - 12) + (rnd() - 0.5) * 6;
+      const wys = S * (wysMin + rnd() * (0.98 - wysMin));
+      const gy = S - wys;                            // czubek
+      const lean = (rnd() - 0.5) * 14;               // pochylenie od nasady → prześwity między ostrzami
+      const wyg = (rnd() - 0.5) * 34;                // wygięcie czubka (± 17 px)
+      const szer = 3.6 + rnd() * 2.4;                // 3.6-6 px u nasady — mięsisty liść (referencje właściciela), nie nitka
+      // walor: nasada w cieniu, środek soczysty, czubek łapie światło (jasny rim);
+      // odcień jeden, różni się tylko jasnością (± 8%) między ostrzami
+      const j = 0.92 + rnd() * 0.16;
+      const col = (r, gg, b) => `rgb(${Math.min(255, r * j) | 0},${Math.min(255, gg * j) | 0},${Math.min(255, b * j) | 0})`;
+      const gr = g.createLinearGradient(0, S, 0, gy);
+      // PALETA Z REFERENCJI WŁAŚCICIELA (03.09): limonkowo-żółta, wysoka jasność,
+      // nasada tylko odrobinę ciemniejsza — nie ciemnozielona
+      gr.addColorStop(0.00, col(96, 158, 42));
+      gr.addColorStop(0.40, col(146, 208, 56));
+      gr.addColorStop(0.82, col(190, 236, 84));
+      gr.addColorStop(1.00, col(228, 250, 138));
+      g.fillStyle = gr;
+      // źdźbło = wąski liść: dwie krzywe od nasady do wspólnego czubka
+      const tx = bx + lean + wyg, mx = bx + lean * 0.5 + wyg * 0.28, my = S - wys * 0.55;
+      g.beginPath();
+      g.moveTo(ox + bx - szer / 2, S);
+      g.quadraticCurveTo(ox + mx - szer * 0.32, my, ox + tx, gy);
+      g.quadraticCurveTo(ox + mx + szer * 0.32, my, ox + bx + szer / 2, S);
+      g.closePath(); g.fill();
+    }
+  };
+  rys(0, 22, 12345, 0.50);                          // wariant A
+  rys(S, 24, 98765, 0.56);                          // wariant B: więcej, wyższych ostrzy
   const t = new THREE.CanvasTexture(c);
-  t.magFilter = t.minFilter = THREE.NearestFilter;
-  t.generateMipmaps = false;
+  // Gładko z bliska (Linear), Z DALEKA mipmapy: bez nich wąskie ostrza migotały
+  // jak śnieg na ekranie. Mipmapy + alphaTest skracają dalekie kępki — pasuje do
+  // wtapiania dywanu na skraju.
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
@@ -1181,6 +1406,7 @@ function updateTrample(dt) {
   trampleTex.needsUpdate = true;
 }
 function makeBladeMaterial(mapa = null, gietkosc = 1) {
+  const atlas = !mapa;                             // domyślna tekstura kępki = atlas 2×1
   const m = new THREE.MeshBasicMaterial({ map: mapa || clumpTexture(), alphaTest: 0.42,
     side: THREE.DoubleSide, vertexColors: true });
   addCloudShadow(m);
@@ -1198,6 +1424,8 @@ function makeBladeMaterial(mapa = null, gietkosc = 1) {
       sh.vertexShader.replace('#include <begin_vertex>',
       `#include <begin_vertex>
        vec3 iP = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
+       ${atlas ? '// atlas 2x1: lewa/prawa połowa tekstury wg hasha pozycji instancji\n' +
+         '       vMapUv.x = vMapUv.x * 0.5 + 0.5 * step(0.5, fract(sin(dot(iP.xz, vec2(41.31, 17.77))) * 2357.13));' : ''}
        float dC = distance(iP.xz, uCenter);
        float fade = 1.0 - smoothstep(uR - 22.0, uR - 0.5, dC);  // bardzo szerokie wtapianie
        transformed.y *= fade;
@@ -1209,8 +1437,13 @@ function makeBladeMaterial(mapa = null, gietkosc = 1) {
        vec2 tw = smoothstep(0.0, 0.04, tuv) * (1.0 - smoothstep(0.96, 1.0, tuv));
        vec4 tr = texture2D(uTr, tuv);
        float nac = tr.b * tw.x * tw.y;
+       // PORYW: długa fala (~90 j.) biegnąca po łące ~9 j./s; max(0,·)^3 = wąski
+       // grzbiet, między porywami trawa wraca do zwykłego kołysania
+       float gust = max(0.0, sin(uTime * 0.6 - iP.x * 0.055 - iP.z * 0.04));
+       gust = gust * gust * gust;
        float sw = sin(uTime * 2.2 + iP.x * 0.45 + iP.z * 0.35) * 0.28 * h * fade
-                + sin(uTime * 0.7 + iP.x * 0.08) * 0.10 * h * fade;   // druga, wolna fala
+                + sin(uTime * 0.7 + iP.x * 0.08) * 0.10 * h * fade    // druga, wolna fala
+                + gust * 0.15 * h * fade;
        sw *= 1.0 - nac * 0.85;                     // przygnieciona trawa nie kołysze się na wiatrze
        transformed.x += sw;
        transformed.z += sw * 0.45;
@@ -1236,7 +1469,9 @@ function makeBladeMaterial(mapa = null, gietkosc = 1) {
   };
   return m;
 }
-const GRASS_STEP = 0.66;
+// krok 0.60 (było 0.66) = ~21% gęściej; promień 52 (było 56) trzyma tę samą
+// liczbę komórek (~23.6 tys.) i ten sam koszt przebudowy
+const GRASS_STEP = 0.60;
 let GRASS_R = 24, GRASS_MAX = 14000;
 const grassCenter = new THREE.Vector2(1e9, 1e9);
 const waterKol = new THREE.Vector2(1e9, 1e9);
@@ -1253,7 +1488,7 @@ function makeField(mat, max) {
 }
 function initGrassField() {
   const maloMocy = matchMedia('(pointer:coarse)').matches || innerWidth < 700;
-  GRASS_R = maloMocy ? 34 : 56;
+  GRASS_R = maloMocy ? 31 : 52;
   GRASS_MAX = maloMocy ? 9000 : 26000;
   for (const f of [grassField, flowerField, stalkField]) if (f) { scene.remove(f); f.dispose(); }
   grassField  = makeField(bladeMat, GRASS_MAX);
@@ -1288,16 +1523,34 @@ function updateGrassField() {
       const x = gx * GRASS_STEP + (r1 - 0.5) * GRASS_STEP * 0.9;
       const z = gz * GRASS_STEP + (r2 - 0.5) * GRASS_STEP * 0.9;
       const y = terrainH(x, z);
-      if (y < WATER_Y + 0.12) continue;                          // nie w wodzie
+      const nadW = y - WATER_Y;                                  // wysokość nad lustrem wody
+      if (nadW < 0.03) continue;                                 // nie w wodzie (rośnie do samego brzegu)
       const b = biome(x, z);
       const r4 = hash2(gx + 555, gz + 999);
+      _gm.position.set(x, y - 0.02, z);
+      // ---- TRZCINY / SITOWIE tuż przy wodzie: wysokie, ciemnozielone łodygi na
+      // teksturze kłosów (barwę daje instanceColor). Osobny, wąski pas wysokości,
+      // żeby brzeg czytał się jako brzeg, a nie jako łysina obok tafli.
+      // RZADKO i w KĘPACH (r4 < 0.16): przy r4 < 0.5 wychodził jednolity płot łodyg
+      // wzdłuż całego brzegu, który zasłaniał piasek i wodę — trzcina ma być akcentem.
+      if (nadW < 0.20 && ns < maxS && r4 < 0.16) {
+        _gm.rotation.set((r2 - 0.5) * 0.14, r1 * Math.PI * 2, (r3 - 0.5) * 0.14);  // prawie pionowo
+        const h = 0.8 + r1 * 0.5;
+        _gm.scale.set(0.55 + r2 * 0.3, h, 0.55 + r2 * 0.3);
+        _gm.updateMatrix();
+        stalkField.setMatrixAt(ns, _gm.matrix);
+        const v = 0.85 + r3 * 0.3;
+        _gc.setRGB(0.20 * v, 0.47 * v, 0.20 * v);
+        stalkField.setColorAt(ns, _gc);
+        ns++;
+        continue;
+      }
       // ---- co rośnie w tej komórce: kwiatek / wysoka trawa / zwykła kępka ----
       // Kwiatki tylko w ŁANACH (plama szumu), inaczej wyglądają jak posypka.
       // KOLEJNOŚĆ WARUNKÓW MA ZNACZENIE: vnoise jest najdroższy, więc odpala się
       // dopiero po tanich testach — inaczej liczylibyśmy go ~28 tys. razy na przebudowę.
-      const kwiat = nk < maxK && r4 > 0.72 && b < 0.66 && vnoise(x / 15 - 5.5, z / 15 + 2.2) > 0.52;
-      const klos  = !kwiat && ns < maxS && b > 0.34 && r4 < 0.05;
-      _gm.position.set(x, y - 0.02, z);
+      const kwiat = nk < maxK && r4 > 0.72 && b < 0.66 && nadW > 0.4 && vnoise(x / 15 - 5.5, z / 15 + 2.2) > 0.52;
+      const klos  = !kwiat && ns < maxS && b > 0.34 && r4 < 0.05 && nadW > 0.5;
       if (kwiat) {
         _gm.rotation.set((r2 - 0.5) * 0.16, r1 * Math.PI * 2, (r3 - 0.5) * 0.16);
         const h = 0.62 + r1 * 0.26;                            // czubek ponad dywan trawy
@@ -1323,16 +1576,21 @@ function updateGrassField() {
         ns++;
         continue;
       }
-      const hgt = 0.55 + r1 * 0.35 - b * 0.10;                   // wysokość kępki
+      // BRZEG: kępki niskie tuż przy wodzie, pełnej wysokości ~0.6 j. nad lustrem
+      const brzeg = Math.min(1, (nadW - 0.03) / 0.6);
+      const hgt = (0.66 + r1 * 0.40 - b * 0.10) * (0.22 + 0.78 * brzeg);   // wysokość kępki (długie źdźbła à la BotW)
       // prawie pionowo (lekkie pochylenie) — inaczej wygląda jak rozsypana słoma
       _gm.rotation.set((r2 - 0.5) * 0.22, r1 * Math.PI * 2, (r3 - 0.5) * 0.22);  // różne kierunki
-      _gm.scale.set(0.95 + r2 * 0.5, hgt, 0.95 + r2 * 0.5);
+      _gm.scale.set(1.0 + r2 * 0.5, hgt, 1.0 + r2 * 0.5);
       _gm.updateMatrix();
       grassField.setMatrixAt(n, _gm.matrix);
-      // kolor: las = soczysta zieleń, sucha łąka = cieplejsza; delikatna wariacja
+      // kolor: las = soczysta zieleń, sucha łąka = cieplejsza; delikatna wariacja;
+      // przy wodzie cieplejsza/żółtawa (jak wyschnięty pas nad piaskiem)
       const plama = vnoise(x / 9 + 3.1, z / 9 + 8.4);            // miękkie łaty
-      const v = 0.86 + plama * 0.26 + r3 * 0.06;
-      _gc.setRGB((0.98 + b * 0.22) * v, (1.02 - b * 0.03) * v, (0.86 - b * 0.16) * v);
+      const v = 0.86 + plama * 0.26 + r3 * 0.06, cw = 1 - brzeg;
+      // mniej niebieskiego = limonka jak w referencjach (BotW/Genshin), nie „szpinak"
+      _gc.setRGB((1.02 + b * 0.18 + cw * 0.18) * v, (1.04 - b * 0.03 - cw * 0.04) * v,
+                 (0.70 - b * 0.14 - cw * 0.26) * v);
       grassField.setColorAt(n, _gc);
       n++;
     }
@@ -1439,6 +1697,28 @@ function dolnaKrawedz(img, size) {
   }
   return 0;
 }
+// ---- OSADZENIE SPRITE'A: PRZYCIEMNIENIE U STÓP ----
+// Zgłoszenie właściciela (03.09): postać „lata nad trawą". Sprite jest płaską
+// kartą o jednolitym oświetleniu, więc jego stopy są tak samo jasne jak głowa —
+// oko czyta to jako „nie dotyka ziemi". Pasmo ~14% wysokości nad stopami
+// ściemnia się do 0.72 (jak trawa u nasady), reszta rysunku bez zmian.
+// `stopyUV` = ile pustego arkusza jest pod stopami (footOff/size), bo pasmo ma
+// zaczynać się OD STÓP, a nie od dolnej krawędzi klatki. Uniform per materiał,
+// kod shadera identyczny → jeden program w cache, zero dodatkowego kosztu.
+function addStopyAO(mat, stopyUV) {
+  const stary = mat.onBeforeCompile;
+  const u = { value: stopyUV };
+  mat.onBeforeCompile = sh => {
+    if (stary) stary(sh);
+    sh.uniforms.uStopy = u;
+    sh.fragmentShader = 'uniform float uStopy;\n' + sh.fragmentShader.replace('#include <color_fragment>',
+      `#include <color_fragment>
+       diffuseColor.rgb *= mix(0.72, 1.0, smoothstep(uStopy - 0.02, uStopy + 0.14, vMapUv.y));`);
+  };
+  mat.needsUpdate = true;
+  return mat;
+}
+const LATAJACE = new Set(['kernello_boomello']);   // arkusze, które nie stoją na ziemi
 async function buildChar(name, anims) {
   const def = SPRITEDATA[name];
   const img = await loadImage(def.img);
@@ -1462,7 +1742,10 @@ async function buildChar(name, anims) {
         t.generateMipmaps = false;
         t.colorSpace = THREE.SRGBColorSpace;
         // cienie chmur także na postaciach (ten sam kod shadera = jeden program w cache)
-        mats.push(addCloudShadow(new THREE.MeshBasicMaterial({ map: t, alphaTest: 0.5, side: THREE.DoubleSide })));
+        // + przyciemnienie u stóp (osadzenie w trawie) — też jeden program, uniform per materiał
+        // (latające sprite'y — pizza/bumerang — dostają -1 = bez przyciemnienia)
+        mats.push(addStopyAO(addCloudShadow(new THREE.MeshBasicMaterial({ map: t, alphaTest: 0.5, side: THREE.DoubleSide })),
+                             LATAJACE.has(name) ? -1 : LIB[name].footOff / size));
       }
       entry.dirs[dir] = mats;
     }
@@ -1492,7 +1775,11 @@ unitGeo.translate(0, 0.5, 0);
 // Pivot geometrii siedzi w stopach (`unitGeo.translate(0, 0.5, 0)`), więc
 // pochylenie obraca sprite'a WOKÓŁ STÓP — nie odkleja się od ziemi.
 // 0 = stara wersja (pionowo), 1 = pełne obrócenie do kamery.
-let SPRITE_TILT = 1;
+// 0.7 (03.09): przy pełnym pochyleniu sprite KŁADŁ SIĘ na trawie za sobą (głowa
+// 1.5 j. za stopami, 34° od pionu) i czytał się jako naklejka na ekranie. Przy 0.7
+// zostaje ~10° do prostopadłości = skrót rysunku ~1.5% (niewidoczny), a postać
+// STOI w trawie zamiast nad nią leżeć. Strojenie na żywo: HORDA.setTilt(v).
+let SPRITE_TILT = 0.7;
 let tiltKat = 0;
 const _cdir = new THREE.Vector3();
 const AX_Y = new THREE.Vector3(0, 1, 0), AX_X = new THREE.Vector3(1, 0, 0), AX_Z = new THREE.Vector3(0, 0, 1);
@@ -1518,14 +1805,18 @@ function billboardQuat(q, roll = 0) {
 // dziedziczą pozycję, obrót, skalę i widoczność — `playerBB.mesh.visible = false`
 // przy trybie karabinu chowa je razem z ciałem, bez ani jednej linii synchronizacji.
 const _przezMaty = new Map();                    // materiał klatki + kolor → materiał „na wierzchu"
-function matNaWierzchu(src, kolor) {
-  const klucz = src.uuid + '|' + kolor;
+// `opacity` < 1 (03.09): kopia PEŁNOKRYJĄCA robiła z gracza naklejkę „nałożoną na
+// wszystko" (zgłoszenie właściciela) — zasłaniała trawę, drzewa i wrogów, którzy
+// fizycznie stoją przed nim. Półprzezroczysta sylwetka (0.72) mówi to, co trzeba:
+// „tu jesteś, ZA tym wrogiem", i zostawia głębię sceny nietkniętą.
+function matNaWierzchu(src, kolor, opacity = 1) {
+  const klucz = src.uuid + '|' + kolor + '|' + opacity;
   let m = _przezMaty.get(klucz);
   if (!m) {
     // ta sama TEKSTURA co oryginał (dzielona instancja = zero dodatkowego VRAM-u)
     m = new THREE.MeshBasicMaterial({
       map: src.map, color: kolor, alphaTest: 0.5, side: THREE.DoubleSide,
-      depthTest: false, depthWrite: false, transparent: true, fog: false,
+      depthTest: false, depthWrite: false, transparent: true, fog: false, opacity,
     });
     _przezMaty.set(klucz, m);
   }
@@ -1536,6 +1827,7 @@ function matNaWierzchu(src, kolor) {
 // `skala === 1` = brak obrysu (schowa sie dokladnie pod kolorowa kopia).
 let OBRYS_SKALA = 1.07;
 let OBRYS_KOLOR = 0x1b1b22;                      // ten sam kontur, co w calym pixel-arcie gry
+let KOPIA_KRYCIE = 0.72;                         // krycie sylwetki „przez hordę" (1 = stara naklejka)
 
 class Billboard {
   constructor(char, scaleMul = 1, naWierzchu = false) {
@@ -1548,7 +1840,9 @@ class Billboard {
     this.anim = null; this.t = 0; this.loop = true; this.done = false;
     this.facing = 0;
     this.shadow = new THREE.Mesh(blobGeo, blobMat);
-    this.shadow.scale.set(this.h * 0.5, 1, this.h * 0.3);
+    // cień kontaktowy szerszy niż stopy (0.56 wysokości) — to on „przykleja" postać
+    // do ziemi; przy 0.5×0.3 ginął w trawie i cała horda unosiła się nad łąką
+    this.shadow.scale.set(this.h * 0.56, 1, this.h * 0.34);
     scene.add(this.mesh); scene.add(this.shadow);
     if (naWierzchu) {
       this.obrys = new THREE.Mesh(unitGeo, null);
@@ -1600,8 +1894,8 @@ class Billboard {
     else if (f >= mats.length) { f = mats.length - 1; this.done = true; }
     this.mesh.material = mats[f];
     if (this.kopia) {
-      this.kopia.material = matNaWierzchu(mats[f], 0xffffff);
-      this.obrys.material = matNaWierzchu(mats[f], OBRYS_KOLOR);
+      this.kopia.material = matNaWierzchu(mats[f], 0xffffff, KOPIA_KRYCIE);
+      this.obrys.material = matNaWierzchu(mats[f], OBRYS_KOLOR, KOPIA_KRYCIE);
       // KOPIA WLACZA SIE TYLKO WTEDY, GDY JEST PO CO. `depthTest: false` ignoruje
       // CALY swiat, nie tylko horde — wiec gracz przebijal takze drzewa i regaly
       // (zgloszenie wlasciciela: „drzewa przenikaja"). Warunek: ktos stoi tuz przy
@@ -1745,13 +2039,15 @@ function updateLettuce(dt) {
   lettuce.visible = sznurki.visible = !!P.gliding;
   if (!P.gliding) return;
   const kolysanie = Math.sin(G.time * 5) * 0.12;
-  const czaszaY = P.y + 2.35 + Math.sin(G.time * 3) * 0.07;
+  // wysokości z `playerBB.h`, nie ze stałych — po PX2U 1/46 postać urosła o 20%
+  const hh = playerBB ? playerBB.h : 2.6;
+  const czaszaY = P.y + hh * 0.90 + Math.sin(G.time * 3) * 0.07;
   lettuce.position.set(P.pos.x, czaszaY, P.pos.z);
   // czasza jest bryłą obrotową, więc NIE billboardujemy jej do kamery — tylko
   // przechylamy na boki razem z kołysaniem lotu (obrót w Y daje ruch tekstury)
   lettuce.rotation.set(kolysanie * 0.5, G.time * 0.35, kolysanie);
   // uchwyty: od barków (P.y + 1.1) do rantu czaszy, kołyszą się z nią
-  const barki = P.y + 1.1;
+  const barki = P.y + hh * 0.42;
   sznurki.position.set(P.pos.x + kolysanie * 0.25, barki, P.pos.z);
   sznurki.scale.set(1.9, Math.max(0.2, czaszaY - 0.22 - barki), 1);
   billboardQuat(sznurki.quaternion, kolysanie * 0.8);
@@ -1843,10 +2139,10 @@ let DYM_PAL = { jasny: [244, 252, 202], sredni: [190, 220, 108], ciemny: [126, 1
 // `garby` trzymam MAŁE liczby i DUŻE promienie: 3-4 bąble dają czytelny obrys
 // kalafiora, a 6 małych zlewało się w amebę z kolcami.
 const DYM_KAFLE = [
-  { garby: 3, r0: 0.235, r1: 0.075, jag: 0.13, jag2: 0.07, dziury: 0.00, roz: 0.30 },
-  { garby: 4, r0: 0.215, r1: 0.070, jag: 0.15, jag2: 0.08, dziury: 0.00, roz: 0.31 },
-  { garby: 3, r0: 0.215, r1: 0.065, jag: 0.19, jag2: 0.11, dziury: 0.30, roz: 0.30 },
-  { garby: 3, r0: 0.195, r1: 0.060, jag: 0.22, jag2: 0.13, dziury: 0.38, roz: 0.29 },
+  { garby: 3, baza: 0.25, r0: 0.150, r1: 0.055, roz: 0.17, jag: 0.13, jag2: 0.07, dziury: 0.00 },
+  { garby: 4, baza: 0.23, r0: 0.135, r1: 0.050, roz: 0.18, jag: 0.15, jag2: 0.08, dziury: 0.00 },
+  { garby: 3, baza: 0.22, r0: 0.140, r1: 0.050, roz: 0.17, jag: 0.19, jag2: 0.11, dziury: 0.30 },
+  { garby: 3, baza: 0.20, r0: 0.130, r1: 0.045, roz: 0.16, jag: 0.22, jag2: 0.13, dziury: 0.38 },
 ];
 function dymAtlas() {
   const T = 112, S = T * 2;
@@ -1861,14 +2157,15 @@ function dymAtlas() {
     const K = DYM_KAFLE[ti], ox = (ti % 2) * T, oy = (ti >> 1) * T;
     let sd = ti * 9781 + 17;
     const rnd = () => { sd = (sd * 1664525 + 1013904223) | 0; return ((sd >>> 8) & 0xffffff) / 0xffffff; };
-    // garby rozstawione na łuku SZERSZYM niż wyższym (kłąb dymu jest przysadzisty),
-    // każdy z własnym cieniowaniem kulistym — stąd bryła, a nie płaska plama
-    const garby = [];
+    // KLASYCZNY PIXELOWY KŁĄB: jeden szeroki garb bazowy + 3-4 mniejsze bąble na
+    // łuku nad nim = zaokrąglona góra, przysadzisty spód. Wszystko z zapasem, żeby
+    // sylwetka NIE DOTYKAŁA krawędzi kafla (inaczej kłąb wygląda jak ucięty).
+    const garby = [{ x: 0.50 + (rnd() - 0.5) * 0.04, y: 0.60, r: K.baza }];
     for (let k = 0; k < K.garby; k++) {
       const u = K.garby === 1 ? 0.5 : k / (K.garby - 1);
       garby.push({
-        x: 0.5 + (u - 0.5) * K.roz * 2.0 + (rnd() - 0.5) * 0.05,
-        y: 0.54 - Math.sin(u * Math.PI) * 0.10 + (rnd() - 0.5) * 0.05,
+        x: 0.5 + (u - 0.5) * K.roz * 2.0 + (rnd() - 0.5) * 0.04,
+        y: 0.47 - Math.sin(u * Math.PI) * 0.075 + (rnd() - 0.5) * 0.035,
         r: K.r0 + rnd() * K.r1,
       });
     }
@@ -2111,7 +2408,7 @@ function updateSmrod() {
   const on = !!w && !G.fps.on && G.running;
   dymMesh.visible = on;
   if (!on) return;
-  const r = SKARPETA_R(w.lvl), u = dymMat.uniforms;
+  const r = SKARPETA_R(w.lvl) * rangeM(), u = dymMat.uniforms;   // dym = realny zasięg trucia (z Sokolim wzrokiem)
   u.uTime.value = G.time;
   u.uR.value = r;
   u.uCenter.value.set(P.pos.x, terrainH(P.pos.x, P.pos.z) + 0.05, P.pos.z);
@@ -2437,6 +2734,8 @@ function resetStats() {
     sokoPierwszy: false,                             // komunikat o klawiszu F raz na bieg
     smrodT: 0, smrodCd: 0, smrodTik: 0,              // aktywna aura Garlicina (klawisz G)
     vx: 0, vz: 0,
+    kbx: 0, kbz: 0,                                  // odrzut gracza (tarcza Lolliniego), gaśnie sam
+    coyoteT: 0, jumpBufT: 0,                         // coyote time i bufor skoku (patrz tryJump)
     weapons: [{ key: CHARS[charKey].startWpn || 'kule', lvl: 1, t: 0 }],   // max 3 sloty (broń z biblii)
     passives: {},                                // key -> poziom
     repeat: {},                                  // key -> ile razy wzięte (karty bez limitu)
@@ -2484,6 +2783,9 @@ const fireMul = () => Math.pow(1.12, P.passives.tempo || 0) * (1 + 0.03 * (P.rep
 // tego setny poziom oznaczałby krytyk na 100% (crit ×3 przestaje być zdarzeniem).
 const critC   = () => Math.min(0.75, 0.10 * (P.passives.krytyk || 0) + 0.02 * (P.repeat.pieprz || 0));
 const rangeF  = () => 14 * Math.pow(1.2, P.passives.zasieg || 0) * (1 + 0.04 * (P.repeat.bazylia || 0));
+// `rangeF()` jest ABSOLUTNY (14 j. bez pasywu) — do promieni innych niż zasięg Kul
+// używaj TEGO mnożnika (1.0 bez pasywu). Do 03.09 „Sokoli wzrok" czytały 4 bronie z 14.
+const rangeM  = () => rangeF() / 14;
 const magnetF = () => CHARS[charKey].mag * 2.6 * (1 + 0.20 * META.up.magnes) * Math.pow(1.35, P.passives.magnes || 0);
 const speedF  = () => CHARS[charKey].spd * 6.2 * (1 + 0.08 * META.up.szyb) * Math.pow(1.10, P.passives.buty || 0);
 const hasWeapon = k => P.weapons.find(w => w.key === k);
@@ -2504,16 +2806,26 @@ addEventListener('pagehide', flushMeta);
 const hasDjump = () => META.unlocked.djump || P.runDjump;
 const hasGlide = () => META.unlocked.glide || P.runGlide;
 let jumpHeld = false;                              // przytrzymanie = SZYBOWANIE
+// COYOTE TIME i BUFOR SKOKU (klasyka platformówek, 0.12 s = ~7 klatek):
+//  • coyote: przez chwilę po ZEJŚCIU z krawędzi skok wciąż liczy się „z ziemi" — gracz
+//    widzi krawędź później, niż ją mija. Ustawiany TYLKO przy spadnięciu, nigdy po skoku.
+//  • bufor: spacja wciśnięta tuż PRZED lądowaniem nie ginie, tylko odpala skok po nim.
+const COYOTE_CZAS = 0.12, JUMP_BUFOR = 0.12;
 function tryJump() {
   if (!G.running || G.paused) return;
-  if (!P.airborne) { P.vy = 8.2; P.airborne = true; AUDIO.sfx('skok'); }
+  if (!P.airborne || P.coyoteT > 0) { P.vy = 8.2; P.airborne = true; P.coyoteT = 0; AUDIO.sfx('skok'); }
   else if (hasDjump() && !P.usedDouble) {          // podwójny skok
     P.vy = 7.6; P.usedDouble = true;
     dmgPop(P.pos.x, P.y + 0.4, P.pos.z, 'HOP!', '#aaeeff', 1.1);
     AUDIO.sfx('skok');
   }
+  else P.jumpBufT = JUMP_BUFOR;                    // w locie bez podwójnego: zapamiętaj na lądowanie
 }
 addEventListener('keydown', e => {
+  // pole na kody (DEV) i inne pola TEKSTOWE: tam klawisze to tekst, nie sterowanie.
+  // Tylko tekstowe — suwaki głośności to też <input> i trzymają fokus po wyjściu z pauzy.
+  const tg = e.target;
+  if (tg && (tg.tagName === 'TEXTAREA' || (tg.tagName === 'INPUT' && /^(text|search|number|password|email|url)$/.test(tg.type)))) return;
   keys[e.code] = true;
   if (e.code === 'Space') { e.preventDefault(); if (!jumpHeld) tryJump(); jumpHeld = true; }
   if (e.code === KARABIN_KLAWISZ && G.running && !G.paused) startKarabin();
@@ -2540,13 +2852,32 @@ const MYSZ_CZULOSC = 0.0032;           // rad na piksel ruchu
 function chwycMysz() {
   if (!G.running || G.paused || G.dying) return;
   if (document.pointerLockElement === canvas) return;
-  try { canvas.requestPointerLock && canvas.requestPointerLock(); } catch { /* odmowa = zostaje drag */ }
+  // requestPointerLock zwraca PROMISE (Chrome) — odmowa przychodzi jako odrzucenie,
+  // nie wyjątek, więc bez `.catch` lądowała w `unhandledrejection` (SecurityError
+  // w podglądzie / iframe). Odmowa = zostaje przeciąganie, nic więcej.
+  try {
+    const p = canvas.requestPointerLock && canvas.requestPointerLock();
+    if (p && p.catch) p.catch(() => {});
+  } catch { /* odmowa = zostaje drag */ }
 }
 function puscMysz() {
   try { if (document.pointerLockElement) document.exitPointerLock(); } catch { /* nic */ }
 }
+let myszLockByl = false, pauzaZLocka = -1e9;   // do rozpoznania ESC „połkniętego" przez Pointer Lock
 document.addEventListener('pointerlockchange', () => {
   myszLock = document.pointerLockElement === canvas;
+  // ESC PRZY ZABLOKOWANYM KURSORZE: przeglądarka sama zwalnia blokadę i NIE dostarcza
+  // stronie keydown Escape (Chrome, Firefox, Safari). Handler pauzy na ESC nigdy go nie
+  // widział — gracz tracił kursor i grał dalej bez pauzy. Pauzujemy więc TU: utrata
+  // blokady w trakcie biegu bez naszego udziału (karty/menu wołają puscMysz same,
+  // ale wtedy G.paused już jest true albo overlay jest otwarty) = intencja „stop".
+  if (myszLockByl && !myszLock && G.running && !G.paused && !G.dying &&
+      document.getElementById('cardsOv').style.display !== 'flex' &&
+      document.getElementById('swapOv').style.display !== 'flex') {
+    pauzaZLocka = performance.now();             // gdyby jakaś przeglądarka jednak dostarczyła ESC
+    togglePause(true);
+  }
+  myszLockByl = myszLock;
 });
 // ruch myszy przy przechwyconym kursorze — bez wcisniętego przycisku
 addEventListener('mousemove', e => {
@@ -2577,7 +2908,10 @@ addEventListener('pointermove', e => {
     let dx = e.clientX - touch.cx, dy = e.clientY - touch.cy;
     const d = Math.hypot(dx, dy), m = Math.min(d, 45);
     if (d > 0) { dx /= d; dy /= d; }
-    touch.vx = dx * (m / 45); touch.vy = dy * (m / 45);
+    // martwa strefa 6 px (drżenie palca to nie ruch), reszta rozciągnięta do pełnego zakresu;
+    // długość wektora ≤ 1, więc skos nie jest szybszy od prostej (gałka wizualnie bez strefy)
+    const k = d < 6 ? 0 : Math.min(1, (d - 6) / 39);
+    touch.vx = dx * k; touch.vy = dy * k;
     knobEl.style.transform = `translate(calc(-50% + ${dx * m}px), calc(-50% + ${dy * m}px))`;
   } else if (camDrag.on && e.pointerId === camDrag.id && !myszLock) {
     camYaw -= (e.clientX - camDrag.lx) * 0.008;
@@ -2924,7 +3258,7 @@ const ENEMY_TYPES = {
     nm: 'Gummini Bouncini',
     ds: 'Żelkowy miś, który nie chodzi — on się odbija. Nie da się go odepchnąć, bo cała jego istota to sprężyna. Galaretowaty, uparty i lepki jak wyrzut sumienia.' },
   friesetti: { hp: 4, okrKol: 0xf6cd51, speed: 4.0, dmg: 1, scale: 0.95, xp: 2, walk: 'run', char: 'friesetti_spearetti',
-    bigXp: true,
+    bigXp: true, szarzuje: true,                   // telegraf 0.6 s → szarża ×3 → ogłuszenie (patrz FRIES_*)
     nm: 'Friesetti Spearetti',
     ds: 'Frytka-włócznik, szarżuje w porcjach po pięć. Chuda, długa i boleśnie szybka. Zostawia za sobą smugę soli i poczucie, że to była zła decyzja.' },
   sodino: { hp: 6, okrKol: 0x7a4426, speed: 2.5, dmg: 1, scale: 0.95, xp: 2, walk: 'run', char: 'sodino_explodino',
@@ -2973,12 +3307,23 @@ const hpScale = () => (1 + G.time / 60 * 0.55 + Math.pow(G.time / 300, 2) * 1.5)
 const spdScale = () => Math.min(1.5, 1 + G.time / 60 * 0.035);
 const dmgScale = () => G.time > 600 ? 3 : (G.time > 330 ? 2 : 1);               // 5.5 min → 2, 10 min → 3
 
-function spawnEnemy(type, angle = null, przy = null) {
+// ---- SZARŻA FRIESETTIEGO (biblia: „szarżują w liniach, telegraf 0.6 s") ----
+// Okno startu 8-12 j.: bliżej nie ma czasu na tell, dalej szarża 12 j. (4.0 × 3 × 1 s)
+// nie dobiegłaby. Cykl tell+szarża+ogłuszenie = 2.8 s pokrywa 12 j., marsz 4.0 × 2.8 = 11.2 j.
+// — tempo dochodzenia bez zmian, ale w postaci JEDNEGO czytelnego ataku do uniknięcia.
+const FRIES_MIN = 8, FRIES_MAX = 12;
+const FRIES_TELEGRAF = 0.6, FRIES_CZAS = 1.0, FRIES_MNOZNIK = 3, FRIES_OGLUSZENIE = 1.2, FRIES_CD = 3.5;
+// ---- TARCZA PILARSKA LOLLINIEGO: w fazie wirowania bije 0.9 j. dalej i ODRZUCA gracza ----
+const LOLLINI_TARCZA = 0.9, LOLLINI_ODRZUT = 10;   // 10 j./s z tłumieniem 7/s ≈ 1.4 j. odrzutu
+
+// `mozeElita = false` — potomki Marshmalliniego: elita to 6× HP i 12 monet, a mini
+// dostawało HP malucha z flagą elity (najszybsza kasa w grze, audyt 13.08).
+function spawnEnemy(type, angle = null, przy = null, mozeElita = true) {
   const T = ENEMY_TYPES[type];
   const a = angle === null ? Math.random() * Math.PI * 2 : angle;
   const r = 34 + Math.random() * 10;
   const hpMul = hpScale();
-  const elite = !T.boss && G.time > 60 && Math.random() < 0.06 + G.time / 60 * 0.015;
+  const elite = mozeElita && !T.boss && G.time > 60 && Math.random() < 0.06 + G.time / 60 * 0.015;
   const e = {
     type, T, elite,
     pos: przy ? new THREE.Vector3(przy.x, 0, przy.z)
@@ -3007,6 +3352,9 @@ function spawnEnemy(type, angle = null, przy = null) {
 function killEnemy(e, i) {
   if (e.dying) return;                             // strażnik: drugie wywołanie na tym
   G.kills++;                                       // samym wrogu powtarzało drop i podział
+  // Friesetti zabity w przysiadzie (tell) albo Lollini w ścisku wirowania: przywróć
+  // skalę sprite'a, bo animacja śmierci klonuje ją jako bazę (recenzja 03.09)
+  if (e.faz || e.T.wiruje) e.bb.mesh.scale.set(e.bb.h, e.bb.h, 1);
   document.getElementById('kills').innerHTML = ico('czaszka', 15) + ' ' + G.kills;
   // ---- BESTIARIUSZ: licznik zabitych per typ (zostaje na stałe w META) ----
   const pierwszyRaz = !META.bestiary[e.type];
@@ -3080,7 +3428,8 @@ function killEnemy(e, i) {
   // Marshmallini po śmierci DZIELI SIĘ na dwa mniejsze (wg biblii)
   if (e.T.dzieli && !e.mini) {
     for (const bok of [-1, 1]) {
-      const m = spawnEnemy(e.type, null, { x: e.pos.x + bok * 0.8, z: e.pos.z });
+      // `false` = potomek NIGDY nie jest elitą (miał HP malucha, a płacił 12 monet + XP ×4)
+      const m = spawnEnemy(e.type, null, { x: e.pos.x + bok * 0.8, z: e.pos.z }, false);
       if (m) { m.mini = true; m.hp = m.maxHp = e.T.hp * 0.5 * hpScale(); m.bb.mesh.scale.multiplyScalar(0.62); }
     }
   }
@@ -3548,6 +3897,36 @@ function dmgPop(x, ty, z, str, color = '#ffe066', scale = 1) {
 // wyświetlana liczba obrażeń (dopaminowa skala ×250, zaokrąglona do 10)
 const dmgNum = d => String(Math.max(50, Math.round(d * 250 / 10) * 10));
 
+// ============================== WSPÓLNY CIOS: zadajDmg ==============================
+// Do 03.09 krytyk (`critC`) liczyły TYLKO pociski z `G.shots` i karabin. Piorun,
+// Skarpeta, Czosnek, Tupnięcie, Wypad, Wiatrówka, Pizza, kiełki, Pipsini, wybuchy —
+// zero. Karta „Krytyk" i „Pieprz Nonny" były MARTWE dla większości buildów (ta sama
+// rodzina błędu co naprawiony `fireMul`). Od teraz KAŻDY cios w wroga idzie tą drogą:
+// krytyk ×3 z pomarańczowym, dużym popem (scale ≥ 1.5 = nie ginie w tłoku), iskra,
+// dźwięk 'kryt' (audio ma własny throttle), mocniejszy odrzut i zabójstwo w jednym miejscu.
+//   o.col / o.sc   — kolor i skala popu zwykłego trafienia (krytyk ma swój),
+//   o.kb / o.kbSila — kierunek odrzutu (Vector3, nie musi być znormalizowany) i siła,
+//   o.sfx          — dźwięk zwykłego trafienia (przy krytyku zamieniany na 'kryt'),
+//   o.noPop        — bez liczby (np. wróg już dostaje osobny napis),
+//   o.noKill       — nie wołaj killEnemy (pętla wołająca robi to sama).
+// Zwraca { dmg, crit, dead } — `dmg` już po krytyku (np. do wybuchu meteoru).
+// Dodając nową broń: NIGDY `e.hp -= x` na piechotę, zawsze `zadajDmg(e, x, {...})`.
+const _kbV = new THREE.Vector3();          // wektor roboczy dla `o.kb` — zero alokacji na cios
+function zadajDmg(e, dmg, o = {}) {
+  const crit = dmg > 0 && Math.random() < critC();   // nova Sodino ma dmg 0 — nie ma czego krytykować
+  if (crit) dmg *= 3;
+  e.hp -= dmg;
+  if (o.kb && !e.T.bezKb) e.kb.copy(o.kb).setY(0).normalize().multiplyScalar((o.kbSila == null ? 1 : o.kbSila) * (crit ? 1.5 : 1));
+  if (crit) spark(e.pos.x, e.ty + 1.5, e.pos.z);
+  if (!o.noPop || crit) dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), crit ? '#ff9d3f' : (o.col || '#ffe066'),
+                                crit ? Math.max(1.5, o.sc || 1) : (o.sc || 1));
+  if (crit) AUDIO.sfx('kryt');
+  else if (o.sfx) AUDIO.sfx(o.sfx);
+  const dead = e.hp <= 0;
+  if (dead && !o.noKill) killEnemy(e);
+  return { dmg, crit, dead };
+}
+
 // ---- serca-dropy ❤️ ----
 let heartMat = null;
 function makeHeart(x, z) {
@@ -3641,19 +4020,16 @@ const WEAPONS = {
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
-      const alive = G.enemies.filter(e => !e.dying && e.pos.distanceTo(P.pos) < 15);
+      const alive = G.enemies.filter(e => !e.dying && e.pos.distanceTo(P.pos) < 15 * rangeM());
       if (!alive.length) return;
       w.t = (2.8 - 0.25 * w.lvl) / fireMul();
       for (let b = 0; b < Math.ceil(w.lvl / 2); b++) {
         const e = alive[Math.floor(Math.random() * alive.length)];
+        if (e.dying) continue;                       // dwa gromy mogą wylosować tego samego
         boltFx(e.pos.x, e.ty, e.pos.z);
         AUDIO.sfx('piorun');
-        const bd = 3 * dmgAll();
-        e.hp -= bd;
-        dmgPop(e.pos.x, e.ty + 0.4, e.pos.z, dmgNum(bd), '#e8f4ff', 1.2);
         e.kb.set(0, 0, 0);
-        const j = G.enemies.indexOf(e);
-        if (e.hp <= 0 && j >= 0) killEnemy(e, j);
+        zadajDmg(e, 3 * dmgAll(), { col: '#e8f4ff', sc: 1.2 });
       }
     },
   },
@@ -3663,7 +4039,7 @@ const WEAPONS = {
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
-      const alive = G.enemies.filter(e => !e.dying && e.pos.distanceTo(P.pos) < 13);
+      const alive = G.enemies.filter(e => !e.dying && e.pos.distanceTo(P.pos) < 13 * rangeM());
       if (!alive.length) return;
       w.t = (3.6 - 0.25 * w.lvl) / fireMul();
       const e = alive[Math.floor(Math.random() * alive.length)];
@@ -3704,7 +4080,7 @@ const WEAPONS = {
       m.scale.set(0.9, 0.9, 1);
       scene.add(m);
       const dir = new THREE.Vector3(Math.sin(playerBB.facing), 0, Math.cos(playerBB.facing));
-      G.boomers.push({ mesh: m, dir, t: 0, dur: 1.6, dist: 8 + 0.6 * w.lvl, lvl: w.lvl, hit: new Set() });
+      G.boomers.push({ mesh: m, dir, t: 0, dur: 1.6, dist: (8 + 0.6 * w.lvl) * rangeM(), lvl: w.lvl, hit: new Set() });
     },
   },
   skarpeta: {
@@ -3721,7 +4097,7 @@ const WEAPONS = {
       w.t -= dt;
       if (w.t > 0) return;
       w.t = 0.7 / fireMul();
-      const r = SKARPETA_R(w.lvl), ad = (0.7 + 0.28 * w.lvl) * dmgAll();
+      const r = SKARPETA_R(w.lvl) * rangeM(), ad = (0.7 + 0.28 * w.lvl) * dmgAll();   // ten sam mnożnik co dym w `updateSmrod`
       // ŻADNEJ OBRĘCZY. `novaRing` rysował tu rozchodzące się koło co 0.7 s —
       // to był ten „okrąg", który właściciel odrzucił. Tempo trucia pokazuje
       // teraz „oddech" dymu: kłęby na 0.3 s puchną i jaśnieją (`uPuls`).
@@ -3730,11 +4106,7 @@ const WEAPONS = {
         const e = G.enemies[j];
         if (e.dying) continue;
         const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z;
-        if (dx * dx + dz * dz < r * r) {
-          e.hp -= ad;
-          dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(ad), '#a8e05f', 0.75);
-          if (e.hp <= 0) killEnemy(e, j);
-        }
+        if (dx * dx + dz * dz < r * r) zadajDmg(e, ad, { col: '#a8e05f', sc: 0.75 });
       }
     },
   },
@@ -3744,16 +4116,17 @@ const WEAPONS = {
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
-      const alive = G.enemies.filter(e => !e.dying && e.pos.distanceTo(P.pos) < 18);
+      const dl = 18 * rangeM();                        // długość promienia (Sokoli wzrok wydłuża)
+      const alive = G.enemies.filter(e => !e.dying && e.pos.distanceTo(P.pos) < dl);
       if (!alive.length) return;
       w.t = (2.2 - 0.15 * w.lvl) / fireMul();
       let far = alive[0], fd = 0;
       for (const e of alive) { const d = e.pos.distanceTo(P.pos); if (d > fd) { fd = d; far = e; } }
       const dir = far.pos.clone().sub(P.pos).setY(0).normalize();
-      // tracer poziomy
+      // tracer poziomy (boltGeo ma 14 j. długości — stąd dzielenie)
       const tr = new THREE.Mesh(boltGeo, boltMat.clone());
-      tr.scale.set(0.6, 18 / 14, 0.6);
-      tr.position.set(P.pos.x + dir.x * 9, terrainH(P.pos.x, P.pos.z) + 1.0, P.pos.z + dir.z * 9);
+      tr.scale.set(0.6, dl / 14, 0.6);
+      tr.position.set(P.pos.x + dir.x * dl / 2, terrainH(P.pos.x, P.pos.z) + 1.0, P.pos.z + dir.z * dl / 2);
       tr.rotation.set(Math.PI / 2, 0, -Math.atan2(dir.x, dir.z));
       scene.add(tr);
       G.bolts.push({ mesh: tr, t: 0 });
@@ -3763,14 +4136,11 @@ const WEAPONS = {
         if (e.dying) continue;
         const ex = e.pos.x - P.pos.x, ez = e.pos.z - P.pos.z;
         const along = ex * dir.x + ez * dir.z;
-        if (along < 0 || along > 18) continue;
+        if (along < 0 || along > dl) continue;
         const perp = Math.abs(ex * dir.z - ez * dir.x);
         if (perp < 0.9) {
-          e.hp -= wd;
-          e.kb.copy(dir).multiplyScalar(2);
           spark(e.pos.x, e.ty + 1.0, e.pos.z);
-          dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(wd), '#e0f0ff', 1);
-          if (e.hp <= 0) killEnemy(e, j);
+          zadajDmg(e, wd, { col: '#e0f0ff', kb: dir, kbSila: 2 });
         }
       }
     },
@@ -3784,7 +4154,7 @@ const WEAPONS = {
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
-      const alive = G.enemies.filter(e => !e.dying && e.pos.distanceTo(P.pos) < 16);
+      const alive = G.enemies.filter(e => !e.dying && e.pos.distanceTo(P.pos) < 16 * rangeM());
       if (!alive.length) return;
       w.t = (4.5 - 0.35 * w.lvl) / fireMul();
       const bb = new Billboard('kernello_boomello', 1.0);
@@ -3844,7 +4214,7 @@ const WEAPONS = {
         m.scale.set(0.85 * kapecAspect, 0.85, 1);
         scene.add(m);
         G.boomers.push({ mesh: m, dir: new THREE.Vector3(Math.sin(a), 0, Math.cos(a)),
-                         t: 0, dur: 1.5, dist: 6 + 0.5 * w.lvl, lvl: w.lvl + 1, hit: new Set() });
+                         t: 0, dur: 1.5, dist: (6 + 0.5 * w.lvl) * rangeM(), lvl: w.lvl + 1, hit: new Set() });
       }
     },
   },
@@ -3861,7 +4231,7 @@ const WEAPONS = {
       w.t -= dt;
       if (w.t > 0) return;
       w.t = (1.5 - 0.08 * w.lvl) / fireMul();
-      const zasieg = 3.4 + 0.4 * w.lvl, odrzut = 5 + w.lvl;
+      const zasieg = (3.4 + 0.4 * w.lvl) * rangeM(), odrzut = 5 + w.lvl;
       const fx = Math.sin(playerBB.facing), fz = Math.cos(playerBB.facing);
       const dmg = (2.5 + 0.8 * w.lvl) * (P.evo.selekcja ? 2 : 1) * dmgAll();
       let trafil = 0;
@@ -3872,12 +4242,9 @@ const WEAPONS = {
         const d = Math.hypot(dx, dz);
         if (d > zasieg || d < 1e-3) continue;
         if ((dx / d) * fx + (dz / d) * fz < 0.5) continue;      // stożek ~60°
-        e.hp -= dmg;
-        e.kb.set(dx / d, 0, dz / d).multiplyScalar(odrzut);
         if (P.evo.selekcja) e.stun = Math.max(e.stun || 0, 0.6);
-        dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), '#ff9d7a', 1.1);
+        zadajDmg(e, dmg, { col: '#ff9d7a', sc: 1.1, kb: _kbV.set(dx, 0, dz), kbSila: odrzut });
         trafil++;
-        if (e.hp <= 0) killEnemy(e, j);
       }
       novaRing(P.pos.x + fx * zasieg * 0.5, P.pos.z + fz * zasieg * 0.5, zasieg * 0.55);
       if (trafil) { AUDIO.sfx('wybuch'); G.shake = Math.max(G.shake, 0.12); }
@@ -3978,7 +4345,7 @@ function sadzKielek(x, z) {
 function updatePestki(dt, lvl) {
   for (const p of G.pestki) {
     // ---- cel: najbliższy wróg w promieniu, inaczej wracamy do gracza ----
-    let cel = null, najl = PIPS_ZASIEG;
+    let cel = null, najl = PIPS_ZASIEG * rangeM();
     for (const e of G.enemies) {
       if (e.dying) continue;
       const d = e.pos.distanceTo(p.pos);
@@ -4013,11 +4380,8 @@ function updatePestki(dt, lvl) {
       const e = G.enemies[j];
       if (e.dying || e.orbCd > 0) continue;
       if (e.pos.distanceTo(p.pos) > 0.85) continue;
-      const dmg = 1.2 * dmgAll();
-      e.hp -= dmg; e.orbCd = 0.4 / fireMul();          // Pipsini tez slucha Tempa
-      e.kb.copy(e.pos).sub(p.pos).setY(0).normalize().multiplyScalar(1.8);
-      dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), '#c9f07a', 0.85);
-      if (e.hp <= 0) killEnemy(e, j);
+      e.orbCd = 0.4 / fireMul();          // Pipsini tez slucha Tempa
+      zadajDmg(e, 1.2 * dmgAll(), { col: '#c9f07a', sc: 0.85, kb: _kbV.copy(e.pos).sub(p.pos), kbSila: 1.8 });
     }
     // ---- sadzenie ----
     p.sadzT -= dt;
@@ -4038,10 +4402,8 @@ function updatePestki(dt, lvl) {
       for (let j = G.enemies.length - 1; j >= 0; j--) {
         const e = G.enemies[j];
         if (e.dying) continue;
-        if (e.pos.distanceTo(k.pos) > (P.evo.jablon ? 1.9 : 1.4)) continue;
-        e.hp -= dmg;
-        dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), '#a8e05f', 0.7);
-        if (e.hp <= 0) killEnemy(e, j);
+        if (e.pos.distanceTo(k.pos) > (P.evo.jablon ? 1.9 : 1.4) * rangeM()) continue;
+        zadajDmg(e, dmg, { col: '#a8e05f', sc: 0.7 });
       }
     }
     if (k.t > zycie) { scene.remove(k.mesh); G.kielki.splice(i, 1); }
@@ -4226,7 +4588,7 @@ function updateKrzaki(dt) {
     k.cd -= dt;
     if (k.cd > 0) continue;
     // cel: najbliższy wróg w zasięgu krzaka (nie gracza — krzak walczy sam za siebie)
-    let cel = null, naj = KRZAK_ZASIEG(k.lvl);
+    let cel = null, naj = KRZAK_ZASIEG(k.lvl) * rangeM();
     for (const e of G.enemies) {
       if (e.dying) continue;
       const d = e.pos.distanceTo(k.pos);
@@ -4283,11 +4645,7 @@ function updateSmrodGracza(dt) {
     const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z;
     const d = Math.hypot(dx, dz) || 1;
     if (d > SMROD_R) continue;
-    if (bije) {
-      e.hp -= dmg;
-      dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), '#c9f07a', 0.7);
-      if (e.hp <= 0) { killEnemy(e, i); continue; }   // petla od konca, wiec splice jest bezpieczny
-    }
+    if (bije && zadajDmg(e, dmg, { col: '#c9f07a', sc: 0.7 }).dead) continue;   // petla od konca, wiec splice jest bezpieczny
     // im blizej gracza, tym mocniej wypycha — inaczej wrogowie tuz przy postaci
     // (czyli ci, o ktorych chodzi) ruszaliby sie najmniej
     const s = SMROD_SILA * dt * (1.15 - 0.5 * (d / SMROD_R));
@@ -4450,10 +4808,10 @@ function updateCzosnki(dt, lvl) {
       if (e.dying) continue;
       const dx = czubek.x - e.pos.x, dz = czubek.z - e.pos.z;
       if (dx * dx + dz * dz < rr && e.orbCd <= 0) {
-        e.hp -= oDmg; e.orbCd = 0.5 / fireMul();       // czosnek tez slucha Tempa
-        e.kb.copy(e.pos).sub(P.pos).setY(0).normalize().multiplyScalar(2.6);
+        e.orbCd = 0.5 / fireMul();       // czosnek tez slucha Tempa
+        // noKill: zabójstwo robi linia niżej (po szarpnięciu linki), jak dotąd
+        zadajDmg(e, oDmg, { col: '#eaffd0', sc: 0.9, kb: _kbV.copy(e.pos).sub(P.pos), kbSila: 2.6, noKill: true });
         spark(e.pos.x, e.ty + 1.0, e.pos.z);
-        dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(oDmg), '#eaffd0', 0.9);
         // SZARPNIĘCIE: czubek traci prędkość i napęd na moment staje
         const dl = Math.hypot(dx, dz) || 1e-6;
         czubek.px = czubek.x + (dx / dl) * 0.22;
@@ -4492,7 +4850,7 @@ function updateCzosnki(dt, lvl) {
 }
 
 const stompLvl = () => { const w = hasWeapon('tupniecie'); return w ? w.lvl : 0; };
-const stompRad = l => 3 + l * 0.7 + (P.evo.sejsm ? 2 : 0);
+const stompRad = l => (3 + l * 0.7 + (P.evo.sejsm ? 2 : 0)) * rangeM();   // Sokoli wzrok poszerza falę
 const stompDmg = l => l * 1.5 * (P.evo.sejsm ? 2 : 1) * dmgAll();
 
 // ============================== PASYWY (bufy zbierane kartami) ==============================
@@ -4743,15 +5101,16 @@ async function loadDecoMats() {
   const defs = [
     // [plik, wysokość, gdzie: true=las / false=łąka / null=wszędzie, waga]
     // (drzewa są teraz PRAWDZIWE 3D — patrz makeTree)
-    ['assets/rock1.png', 1.1, null, 1.2], ['assets/rock2.png', 1.0, null, 1],
-    ['assets/bush1.png', 1.2, true, 2.5], ['assets/bush3.png', 1.1, null, 2],
-    ['assets/trawa_kepa.png', 0.8, false, 3], ['assets/kwiat1.png', 0.6, false, 3],
-    ['assets/kwiat2.png', 0.6, false, 3], ['assets/scarecrow.png', 1.6, false, 0.3],
+    // 5. pole = szerokość plamki cienia kontaktowego wzgl. szerokości sprite'a (0 = bez)
+    ['assets/rock1.png', 1.1, null, 1.2, 0.80], ['assets/rock2.png', 1.0, null, 1, 0.85],
+    ['assets/bush1.png', 1.2, true, 2.5, 0.70], ['assets/bush3.png', 1.1, null, 2, 0.60],
+    ['assets/trawa_kepa.png', 0.8, false, 3, 0], ['assets/kwiat1.png', 0.6, false, 3, 0.55],
+    ['assets/kwiat2.png', 0.6, false, 3, 0.55], ['assets/scarecrow.png', 1.6, false, 0.3, 0.45],
   ];
   decoMats = [];
-  for (const [src, h, forest, weight] of defs) {
+  for (const [src, h, forest, weight, cien] of defs) {
     const { mat, w, h: ih } = await flatMat(src);
-    decoMats.push({ mat, aspect: w / ih, h, forest, weight });
+    decoMats.push({ mat, aspect: w / ih, h, forest, weight, cien });
   }
 }
 
@@ -4801,8 +5160,20 @@ function buildChunk(cx, cz) {
     if (MAPS[mapKey].indoor) {                   // market: jasna podłoga
       cr = cg = cb = 0.96 + 0.04 * hash2(Math.round(wx), Math.round(wz));
     } else {
-      cr = 0.90 + b * 0.32; cg = 1.04; cb = 0.60 - b * 0.14;   // ton jak źdźbła
-      if (h < WATER_Y + 0.5) { cr *= 0.72; cg *= 0.78; cb *= 0.62; }
+      // grunt ciemniejszy od CZUBKÓW źdźbeł (ton jak ich środek): jaśniejszy „dywan"
+      // pod kępkami spłaszczał trawę i postać stała NA nim zamiast W trawie
+      cr = 0.70 + b * 0.24; cg = 0.95; cb = 0.36 - b * 0.08;   // limonkowy grunt pod limonkową trawą
+      // BRZEG = PIASEK/MUŁ (ciepły beż), nie ciemna zieleń: ciemny pas bez źdźbeł
+      // czytał się na zrzutach jak płycizna i postać „stała na wodzie".
+      // Mnożniki > 1 są celowe — tekstura gruntu jest limonkowa (mało czerwieni
+      // i niebieskiego), więc beż trzeba z niej „wyciągnąć". Pas wąski (0.35 j.
+      // wysokości), pod wodą stopniowo ciemniejszy = dno.
+      const piasek = Math.min(1, Math.max(0, (WATER_Y + 0.35 - h) / 0.30));
+      if (piasek > 0) {
+        const glab = h < WATER_Y ? Math.min(0.55, (WATER_Y - h) * 0.3) : 0;
+        const pr = 1.95 * (1 - glab), pg = 0.80 * (1 - glab), pb = 2.0 * (1 - glab * 0.8);
+        cr += (pr - cr) * piasek; cg += (pg - cg) * piasek; cb += (pb - cb) * piasek;
+      }
     }
     cols[i * 3] = cr; cols[i * 3 + 1] = cg; cols[i * 3 + 2] = cb;
   }
@@ -4814,6 +5185,7 @@ function buildChunk(cx, cz) {
   scene.add(mesh);
   const rng = chunkRng(cx, cz);
   const deco = [], rocks = [], solids = [], spills = [], leaves = [], sway = [];
+  let blobRecs = null;                           // plamki cienia kontaktowego (→ rebuildBlobs)
   const shelves = [];                            // regały do przewrócenia (tylko market)
   let grass = null;
 
@@ -4950,38 +5322,25 @@ function buildChunk(cx, cz) {
         }
       }
     }
-    // ======== ŁĄKI: DRZEWA (pnie + karty liści) + dekoracje ========
+    // ======== ŁĄKI: DRZEWA (pnie + bryły koron), PIEŃKI, KŁODY, GŁAZY + dekoracje ========
+    // Wszystkie bryły chunka idą do akumulatora i wychodzą jako po JEDNYM InstancedMeshu
+    // na rodzaj: pnie, stożki, korony (per paleta, max 2 na chunk), głazy, plamki cienia.
+    // Wcześniej każde drzewo = 5-6 meshy = 5-6 draw calli; teraz cały las chunka to ~5.
     const las = biome(wx0, wz0) <= 0.45;
+    const acc = nowyAkumulator();
+    const paletki = [Math.floor(rng() * 3), rng() < 0.15 ? 3 : Math.floor(rng() * 3)];
     const nTrees = las ? 4 + Math.floor(rng() * 4) : (rng() < 0.5 ? 1 : 0);
-    const karty = [];
     for (let i = 0; i < nTrees; i++) {
       const x = wx0 + (rng() - 0.5) * CHUNK, z = wz0 + (rng() - 0.5) * CHUNK;
       if (terrainH(x, z) < WATER_Y + 0.5) continue;
-      solids.push(makeTree(x, z, rng, rocks, karty, sway));
+      solids.push(makeTree(x, z, rng, acc, paletki));
     }
-    // wszystkie liście chunka → po jednej InstancedMesh na paletę (mało draw calli)
-    if (karty.length) {
-      const _o = new THREE.Object3D();
-      for (let mi = 0; mi < leafCardMats.length; mi++) {
-        const grupa = karty.filter(k => k.mat === mi);
-        if (!grupa.length) continue;
-        const inst = new THREE.InstancedMesh(leafCardGeo, leafCardMats[mi], grupa.length);
-        const _kol = new THREE.Color();
-        grupa.forEach((k, i) => {
-          _o.position.set(k.x, k.y, k.z);
-          _o.rotation.set(0, 0, 0);                 // obrót załatwia billboard w shaderze
-          _o.scale.set(k.sc, k.sc * 0.82, 1);
-          _o.updateMatrix();
-          inst.setMatrixAt(i, _o.matrix);
-          _kol.setScalar(k.cien);                   // spód korony ciemniejszy = głębia
-          inst.setColorAt(i, _kol);
-        });
-        inst.instanceMatrix.needsUpdate = true;
-        if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
-        inst.frustumCulled = false;
-        scene.add(inst);
-        leaves.push(inst);
-      }
+    // pieńki i kłody: w lesie częściej (ścinka), na łące pojedynczo; nie na spawnie
+    const nPienki = las ? Math.floor(rng() * 3) : (rng() < 0.3 ? 1 : 0);
+    for (let i = 0; i < nPienki; i++) {
+      const x = wx0 + (rng() - 0.5) * CHUNK * 0.9, z = wz0 + (rng() - 0.5) * CHUNK * 0.9;
+      if (terrainH(x, z) < WATER_Y + 0.5 || (Math.abs(x) < 8 && Math.abs(z) < 8)) continue;
+      solids.push(rng() < 0.5 ? makeStump(x, z, rng, acc) : makeLog(x, z, rng, acc));
     }
     const nDeco = 4 + Math.floor(rng() * 4);
     for (let i = 0; i < nDeco; i++) {
@@ -4993,29 +5352,59 @@ function buildChunk(cx, cz) {
       let roll = rng() * tw, pick = cands[0];
       for (const d of cands) { roll -= d.weight; if (roll <= 0) { pick = d; break; } }
       const m = new THREE.Mesh(unitGeo, pick.mat);
-      m.position.set(x, terrainH(x, z) - 0.04, z);
-      m.scale.set(pick.h * pick.aspect, pick.h, 1);
-      m.rotation.y = camYaw;
+      const w = pick.h * pick.aspect;
+      m.position.set(x, terrainH(x, z) - 0.05, z);
+      m.scale.set(w, pick.h, 1);
+      billboardQuat(m.quaternion);                 // jak sprite'y postaci: yaw + pochylenie do kamery
       scene.add(m);
       deco.push(m);
+      // cień kontaktowy — bez niego krzak/kwiatek „wisiał" nad trawą (postacie mają plamkę)
+      if (pick.cien) acc.blobs.push(blobRec(x, z, w * pick.cien, w * pick.cien * 0.55));
     }
-    if (rng() < 0.4) {                            // głaz 3D
+    if (rng() < 0.45) {                           // GRUPA GŁAZÓW: 1 duży + 0-2 mniejsze obok
       const x = wx0 + (rng() - 0.5) * CHUNK, z = wz0 + (rng() - 0.5) * CHUNK;
       if (terrainH(x, z) > WATER_Y + 0.3) {
-        const s = 0.5 + rng() * 1.6;
-        const m = new THREE.Mesh(rockGeo, rockMat);
-        m.scale.set(s * (1 + rng() * .5), s * (0.55 + rng() * .3), s);
-        m.position.set(x, terrainH(x, z) + s * 0.2, z);
-        m.rotation.y = rng() * 7;
-        m.castShadow = true; m.receiveShadow = true;
-        scene.add(m);
-        rocks.push(m);
-        // niski głaz — do przeskoczenia!
-        solids.push({ c: 1, x, z, r: s * 0.9, top: terrainH(x, z) + s * 0.75 });
+        const s0 = 0.7 + rng() * 1.5, n = 1 + Math.floor(rng() * 2.6);
+        let a = rng() * 6.28;
+        for (let i = 0; i < n; i++) {
+          const s = i === 0 ? s0 : s0 * (0.35 + rng() * 0.35);
+          const d = i === 0 ? 0 : s0 * (1.0 + rng() * 0.5) + s;
+          const rx = x + Math.cos(a) * d, rz = z + Math.sin(a) * d;
+          a += 1.6 + rng() * 1.5;
+          const g = terrainH(rx, rz);
+          acc.rocks.push({ x: rx, y: g + s * 0.2, z: rz,
+                           rx: (rng() - 0.5) * 0.4, ry: rng() * 7, rz: (rng() - 0.5) * 0.4,
+                           sx: s * (1 + rng() * .5), sy: s * (0.55 + rng() * .3), sz: s, tint: rockTint(rng) });
+          acc.blobs.push(blobRec(rx, rz, s * 2.4, s * 2.0));
+          // niski głaz — do przeskoczenia!
+          solids.push({ c: 1, x: rx, z: rz, r: s * 0.9, top: g + s * 0.75 });
+        }
+        // KAMYKI wokół grupy (rumosz), bez kolizji — ten sam InstancedMesh co głazy,
+        // więc zero dodatkowych draw calli; tylko tam, gdzie są głazy (chunk bez
+        // głazów nie dostaje osobnego mesha kamyków — to kosztowało +1 call/chunk)
+        const nKam = 3 + Math.floor(rng() * 5);
+        for (let i = 0; i < nKam; i++) {
+          const ka = rng() * 6.28, kd = s0 * (1.6 + rng() * 2.2);
+          const kx = x + Math.cos(ka) * kd, kz = z + Math.sin(ka) * kd;
+          if (terrainH(kx, kz) < WATER_Y + 0.3) continue;
+          const s = 0.18 + rng() * 0.22;
+          acc.rocks.push({ x: kx, y: terrainH(kx, kz) + s * 0.25, z: kz, rx: rng() * 3, ry: rng() * 7, rz: 0,
+                           sx: s * (1 + rng() * .6), sy: s * 0.7, sz: s, tint: rockTint(rng) });
+        }
       }
     }
+    // ---- akumulator → InstancedMeshe (wszystkie do `rocks`: ensureChunks je dispose'uje) ----
+    flushInst(trunkGeo, trunkMat, acc.trunks, rocks);
+    flushInst(coneGeo, pineMat, acc.cones, rocks);
+    // korony: rzucają cień, ale go NIE odbierają — self-shadowing z PCF robił na
+    // bryłach ciemne, poszarpane łaty (stylizacja = czysta bryła + własny gradient)
+    for (let p = 0; p < 4; p++) flushInst(leafBlobGeo, leafSolidMats[p], acc.crowns[p], rocks, true, false);
+    // karty liści: billboard w shaderze → shadow mapa ich nie ogarnia (cień daje bryła pod nimi)
+    for (let p = 0; p < 4; p++) flushInst(leafCardGeo, leafCardMats[p], acc.cards[p], rocks, false, false);
+    flushInst(rockGeo, rockMat, acc.rocks, rocks);
+    blobRecs = acc.blobs;                            // → rebuildBlobs() po ensureChunks
   }
-  return { mesh, deco, rocks, solids, spills, grass, leaves, sway, shelves };
+  return { mesh, deco, rocks, solids, spills, grass, leaves, sway, shelves, blobRecs };
 }
 
 // czy punkt jest na rozlanej wodzie (market) — wtedy ŚLIZG
@@ -5137,6 +5526,7 @@ function ensureChunks() {
     if (ch.leaves) for (const l of ch.leaves) { scene.remove(l); l.dispose(); }
     chunkMap.delete(key);
   }
+  rebuildBlobs();                                // plamki cienia wszystkich chunków = 1 InstancedMesh
 }
 
 // ============================== SKRZYNIE ==============================
@@ -5499,6 +5889,7 @@ function odswiezKarabinBtn() {
   if (im && !im.style.backgroundImage) im.style.backgroundImage = `url(${icon('celownik', 5)})`;
 }
 function startKarabin() {
+  if (!G.running || G.paused || G.dying) return;    // przycisk/pad nie mogą odpalić go z menu ani pauzy
   const F = G.fps;
   if (F.on) { F.t = Math.min(F.max, F.t + 8); toastBuff('KARABIN DOŁADOWANY'); return; }
   if (!P.karabinMa) return;                          // nie ma czego odpalać
@@ -5629,15 +6020,9 @@ function updateKarabinPoc(dt) {
       const rr = KARABIN_R + (e.T.boss ? 0.9 : 0);
       const dx = px - e.pos.x, dz = pz - e.pos.z, dy = py - (e.ty + 0.8);
       if (dx * dx + dz * dz + dy * dy > rr * rr) continue;
-      let dmg = KARABIN_DMG * dmgAll();
-      const crit = Math.random() < critC();
-      if (crit) dmg *= 3;
-      e.hp -= dmg; s.hit.add(e);
-      if (!e.T.bezKb) e.kb.copy(s.dir).setY(0).multiplyScalar(crit ? 1.6 : 1.0);
+      s.hit.add(e);
       spark(e.pos.x, e.ty + 1.2, e.pos.z);
-      dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), crit ? '#ff9d3f' : '#fff3b0', crit ? 1.5 : 1);
-      AUDIO.sfx(crit ? 'kryt' : 'traf');
-      if (e.hp <= 0) killEnemy(e);
+      zadajDmg(e, KARABIN_DMG * dmgAll(), { col: '#fff3b0', sfx: 'traf', kb: s.dir, kbSila: 1.0 });
       if (s.pierce-- <= 0) { dead = true; break; }
     }
     if (dead) { scene.remove(s.mesh); G.karabinPoc.splice(i, 1); }
@@ -5689,11 +6074,9 @@ function nova(x, z, r, dmg) {
     if (e.dying) continue;
     const dx = e.pos.x - x, dz = e.pos.z - z;
     if (dx * dx + dz * dz < r * r) {
-      e.hp -= dmg;
-      e.kb.set(dx, 0, dz).normalize().multiplyScalar(4.5);
       spark(e.pos.x, e.ty + 1.0, e.pos.z);
-      dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), '#ffb56e', 0.85);
-      if (e.hp <= 0) killEnemy(e, j);
+      // dmg 0 (wybuch Sodino) = sam odrzut, bez liczby
+      zadajDmg(e, dmg, { col: '#ffb56e', sc: 0.85, kb: _kbV.set(dx, 0, dz), kbSila: 4.5, noPop: dmg <= 0 });
     }
   }
 }
@@ -5834,6 +6217,7 @@ function updatePadajace(dt) {
                                   Math.abs(pz - s.solid.z) < s.solid.hl + 0.4;
       if (wSrodku(P.pos.x, P.pos.z) && P.y < s.solid.top) {
         P.y = s.solid.top; P.vy = 0; P.airborne = false; P.usedDouble = false;
+        P.jumpBufT = 0;                            // inaczej bufor odpaliłby skok sekundy później
       }
       for (const e of G.enemies) if (!e.dying && wSrodku(e.pos.x, e.pos.z) && e.ty < s.solid.top) e.ty = s.solid.top;
       G.padajace.splice(i, 1);
@@ -5873,8 +6257,11 @@ function update(dt) {
   }
 
   // ---- obrót kamery klawiszami ----
-  if (keys.KeyQ) camYaw += 2.2 * dt;
-  if (keys.KeyE) camYaw -= 2.2 * dt;
+  // 2.6 rad/s = tyle, co pełne wychylenie prawego drążka pada (spójność); 90° w 0.6 s.
+  // Mysz przy 0.0032 rad/px robi 90° w ~490 px, czyli jednym ruchem — klawisze zawsze
+  // będą wolniejsze, ale 2.2 (90° w 0.71 s) czytało się jak „kamera się zacina".
+  if (keys.KeyQ) camYaw += 2.6 * dt;
+  if (keys.KeyE) camYaw -= 2.6 * dt;
 
   // ---- ruch gracza (względem kamery) ----
   let mx = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
@@ -5906,6 +6293,12 @@ function update(dt) {
   P.vz += (wz * spd - P.vz) * Math.min(1, grip * dt);
   P.pos.x += P.vx * dt;
   P.pos.z += P.vz * dt;                  // mapa bez końca — zero klamry
+  if (P.kbx || P.kbz) {                  // ODRZUT GRACZA (tarcza Lolliniego): niezależny od sterowania, gaśnie sam
+    P.pos.x += P.kbx * dt; P.pos.z += P.kbz * dt;
+    const f = Math.max(0, 1 - dt * 7);
+    P.kbx *= f; P.kbz *= f;
+    if (Math.abs(P.kbx) + Math.abs(P.kbz) < 0.05) P.kbx = P.kbz = 0;
+  }
   solveSolids(P.pos, 0.4, P.y);          // regały/pnie/głazy odpychają
   const pTy = terrainH(P.pos.x, P.pos.z);
   ensureChunks();
@@ -5923,6 +6316,8 @@ function update(dt) {
   const ground = supportY(P.pos.x, P.pos.z, P.y);
   if (P.airborne) {
     P.vy -= 22 * dt;
+    if (P.coyoteT > 0) P.coyoteT -= dt;
+    if (P.jumpBufT > 0) P.jumpBufT -= dt;
     // LIŚĆ SAŁATY: przytrzymanie skoku podczas opadania = powolne szybowanie
     P.gliding = hasGlide() && jumpHeld && P.vy < -0.6;
     if (P.gliding) P.vy = Math.max(P.vy, -1.5);
@@ -5942,10 +6337,12 @@ function update(dt) {
         nova(P.pos.x, P.pos.z, stompRad(stompLvl()), stompDmg(stompLvl()));
         if (wT) wT.t = Math.max(wT.t, prog);
       }
+      // BUFOR SKOKU: spacja z ostatnich 0.12 s lotu odpala skok od razu po lądowaniu
+      if (P.jumpBufT > 0) { P.jumpBufT = 0; P.vy = 8.2; P.airborne = true; AUDIO.sfx('skok'); }
     }
   } else {
     P.gliding = false;
-    if (ground < P.y - 0.5) { P.airborne = true; P.vy = 0; }   // zszedłeś z krawędzi → SPADASZ
+    if (ground < P.y - 0.5) { P.airborne = true; P.vy = 0; P.coyoteT = COYOTE_CZAS; }   // zszedłeś z krawędzi → SPADASZ (coyote time)
     else P.y = ground;                                          // podążanie za terenem
   }
   if (P.shieldCd > 0) P.shieldCd -= dt;
@@ -6081,6 +6478,33 @@ function update(dt) {
     if (e.ty < WATER_Y - 0.04) es *= 0.7;               // woda spowalnia też ich
     if (G.buff.key === 'slow') es *= 0.6;
     if (G.buff.key === 'mroz') es = 0;                  // MROŻONKI: horda staje na kilka sekund
+    // ---- SZARŻA FRIESETTIEGO: tell 0.6 s (przysiad + okrąg + „!"), potem ×3 po PROSTEJ, potem ogłuszenie ----
+    // Do 03.09 „szarża" to było samo `speed: 4.0` — zero windupu, zero tellu, nic do uniknięcia.
+    // Kierunek zamrażamy w chwili startu: krok w bok i frytka przelatuje obok, po czym leży
+    // ogłuszona 1.2 s — to jest okno na cios, którego dotąd nie było.
+    if (e.T.szarzuje) {
+      e.szarzaCd = (e.szarzaCd == null ? 1.5 : e.szarzaCd) - dt;
+      if (!e.faz && e.szarzaCd <= 0 && es > 0 && d > FRIES_MIN && d < FRIES_MAX && P.y - e.ty < 1.2) {
+        e.faz = 'tell'; e.fazT = FRIES_TELEGRAF;
+        novaRing(e.pos.x, e.pos.z, 1.1);                                   // okrąg pod stopami
+        dmgPop(e.pos.x, e.ty + 0.6, e.pos.z, '!', '#f6cd51', 1.4);
+      }
+      if (e.faz === 'tell') {
+        e.fazT -= dt; es = 0;
+        const k = 1 - e.fazT / FRIES_TELEGRAF;                             // przysiad przed wyskokiem
+        e.bb.mesh.scale.set(e.bb.h * (1 + 0.22 * k), e.bb.h * (1 - 0.18 * k), 1);
+        if (e.fazT <= 0) {
+          e.faz = 'szarza'; e.fazT = FRIES_CZAS;
+          e.szDir = P.pos.clone().sub(e.pos).setY(0).normalize();          // po prostej, na gracza
+          e.bb.mesh.scale.set(e.bb.h, e.bb.h, 1);                          // Billboard.update nie rusza skali
+          AUDIO.sfx('piorun');                                             // świst startu
+        }
+      } else if (e.faz === 'szarza') {
+        e.fazT -= dt;
+        if (es > 0) { to.copy(e.szDir); es *= FRIES_MNOZNIK; }
+        if (e.fazT <= 0) { e.faz = null; e.stun = FRIES_OGLUSZENIE; e.szarzaCd = FRIES_CD; }
+      }
+    }
     // wspinaczka na mesę = powolutku (chwila oddechu dla gracza na górce)
     const wspin = terrainH(e.pos.x + to.x * 0.7, e.pos.z + to.z * 0.7) - e.ty;
     if (wspin > 0.18) es *= 0.35;
@@ -6111,7 +6535,8 @@ function update(dt) {
       // Lollini kręci się jak piła TARCZOWA — ale że to billboard, symulujemy to
       // ściskaniem w poziomie (jak obracający się dysk oglądany z boku) + chwile spoczynku
       const cykl = (G.time * 0.55 + e.faza) % 3.0;
-      if (cykl < 1.9) {                                  // faza wirowania
+      e.wirujeTeraz = cykl < 1.9 && es > 0;              // tarcza bije dalej i odrzuca (niżej); zamrożony/ogłuszony nie wiruje
+      if (e.wirujeTeraz) {                               // faza wirowania
         const spin = Math.cos(G.time * 9 + e.faza);
         e.bb.mesh.scale.x = e.bb.h * (0.32 + 0.68 * Math.abs(spin));
       } else {
@@ -6167,7 +6592,10 @@ function update(dt) {
     e.orbCd -= dt;
     e.bb.update(dt, e.pos, e.ty);
     if (e.ring) e.ring.position.set(e.pos.x, e.ty + 0.06, e.pos.z);
-    if (d < 0.9 + (e.T.boss ? 0.8 : 0) && P.iframes <= 0 && P.y - e.ty < 1.0 && !ciosPochloniety()) {
+    // Lollini w fazie wirowania sięga o LOLLINI_TARCZA dalej — „wolny, ale nie właź pod tarczę"
+    // było dotąd tylko podpowiedzią na ekranie ładowania, w kodzie kręcił się wyłącznie sprite.
+    const tarcza = e.wirujeTeraz ? LOLLINI_TARCZA : 0;
+    if (d < 0.9 + (e.T.boss ? 0.8 : 0) + tarcza && P.iframes <= 0 && P.y - e.ty < 1.0 && !ciosPochloniety()) {
       const tarczaLvl = P.passives.tarcza || 0;
       if (tarczaLvl > 0 && P.shieldCd <= 0) {           // 🛡️ tarcza zjada cios
         P.shieldCd = [30, 24, 18][tarczaLvl - 1];
@@ -6181,6 +6609,11 @@ function update(dt) {
         drawHearts();
         AUDIO.sfx('hurt');
         G.shake = 0.35;
+        if (tarcza) {                                       // TARCZA PILARSKA wyrzuca gracza z zasięgu
+          const kx = P.pos.x - e.pos.x, kz = P.pos.z - e.pos.z, kl = Math.hypot(kx, kz) || 1;
+          P.kbx = kx / kl * LOLLINI_ODRZUT; P.kbz = kz / kl * LOLLINI_ODRZUT;
+          G.shake = 0.5;
+        }
         const v = document.getElementById('vign');
         v.style.opacity = 1; setTimeout(() => v.style.opacity = 0, 180);
         if (P.hp <= 0) return startDeath();
@@ -6216,16 +6649,12 @@ function update(dt) {
       const rr = e.T.boss ? 1.4 : 0.75;
       const dx = s.mesh.position.x - e.pos.x, dz = s.mesh.position.z - e.pos.z;
       if (dx * dx + dz * dz < rr * rr) {
-        let dmg = (s.dmg || 1) * dmgAll();
-        const crit = Math.random() < critC();
-        if (crit) { dmg *= 3; spark(e.pos.x, e.ty + 1.5, e.pos.z); }
-        e.hp -= dmg; s.hit.add(e);
-        e.kb.copy(s.dir).multiplyScalar(crit ? 2.6 : 1.6);
+        s.hit.add(e);
         spark(e.pos.x, e.ty + 1.1, e.pos.z);
-        dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), crit ? '#ff9d3f' : '#ffe066', crit ? 1.5 : 1);
-        AUDIO.sfx(crit ? 'kryt' : 'traf');
-        if (P.evo.meteor) boomQ.push({ x: e.pos.x, z: e.pos.z, dmg: dmg * 0.6 });
-        if (e.hp <= 0) killEnemy(e, j);
+        const c = zadajDmg(e, (s.dmg || 1) * dmgAll(), { col: '#ffe066', sfx: 'traf', kb: s.dir, kbSila: 1.6 });
+        // obrażenia BAZOWE (bez krytyka pocisku) — nova rzuca krytyk sama; z `c.dmg`
+        // wybuch mógł wyjść ×9 (recenzja 03.09)
+        if (P.evo.meteor) boomQ.push({ x: e.pos.x, z: e.pos.z, dmg: (s.dmg || 1) * dmgAll() * 0.6 });
         if (s.pierce-- <= 0) { dead = true; break; }
       }
     }
@@ -6265,12 +6694,8 @@ function update(dt) {
       const dx = x - e.pos.x, dz = z - e.pos.z;
       if (dx * dx + dz * dz < 1.1) {
         B.hit.add(e);
-        const rd = (2 + 0.5 * B.lvl) * dmgAll();
-        e.hp -= rd;
-        e.kb.set(dx, 0, dz).normalize().multiplyScalar(-2.4);
         spark(e.pos.x, e.ty + 1.0, e.pos.z);
-        dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(rd), '#d9b3ff', 1);
-        if (e.hp <= 0) killEnemy(e, j);
+        zadajDmg(e, (2 + 0.5 * B.lvl) * dmgAll(), { col: '#d9b3ff', kb: _kbV.set(-dx, 0, -dz), kbSila: 2.4 });
       }
     }
   }
@@ -6552,19 +6977,13 @@ function update(dt) {
   camera.lookAt(P.pos.x + fx * patrzD, P.y + 1.3 + kf * (Math.tan(F.pitch) * patrzD + 0.32),
                 P.pos.z + fz * patrzD);
 
-  // ---- kołysanie koron drzew ----
-  for (const ch of chunkMap.values()) {
-    if (!ch.sway || !ch.sway.length) continue;
-    for (const s2 of ch.sway) {
-      const w = Math.sin(G.time * 1.15 + s2.faza) * s2.amp;
-      s2.mesh.position.x = s2.bx + w;
-      s2.mesh.position.z = s2.bz + w * 0.45;
-    }
-  }
+  // (kołysanie koron drzew przeszło do shadera — korony są instancjonowane per chunk)
 
-  // ---- dekoracje twarzą do kamery ----
+  // ---- dekoracje twarzą do kamery: ten sam kwaternion co sprite'y postaci (yaw +
+  // pochylenie do osi kamery) — pionowe billboardy obok pochylonych postaci wyglądały
+  // jak przyklejone do ziemi kartoniki ----
   for (const ch of chunkMap.values())
-    for (const m of ch.deco) m.rotation.y = camYaw;
+    for (const m of ch.deco) billboardQuat(m.quaternion);
 
   windU.value = G.time;
   cloudOffU.value.set(G.time * CLOUD_SPD * 0.004, G.time * CLOUD_SPD * 0.0022);
@@ -7106,6 +7525,9 @@ if (loadTip) {
     renderStats(); renderShop(); renderBestiary(); renderChars();
   };
   addEventListener('keydown', e => {
+    // 400 ms po pauzie z `pointerlockchange`: gdyby przeglądarka jednak dostarczyła ESC,
+    // nie odpauzuj tego, co właśnie zapauzowaliśmy (patrz komentarz przy pointerlockchange)
+    if (e.code === 'Escape' && performance.now() - pauzaZLocka < 400) return;
     if (e.code === 'Escape' && G.running &&
         document.getElementById('cardsOv').style.display !== 'flex' &&
         document.getElementById('swapOv').style.display !== 'flex') togglePause(!G.paused);

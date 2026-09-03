@@ -342,6 +342,11 @@
   /* ====== telefon: PION — pasek broni wyżej, przyciski większe ====== */
   @media (max-width:520px){
     #wpns{bottom:calc(150px + env(safe-area-inset-bottom,0px))}   /* nad przyciskiem skoku */
+    /* pauza PRZY CZASZKACH (prawa strona): translateX(-140px) od środka dawało przy
+       375 px [47..81] px, czyli 7×15 px na „POZIOM" i 14×13 px na „RANGA"; wariant
+       „na prawo od zegara" (+44 px) wchodził w rząd serc (top 42, do 8 serc = x 111..263).
+       Tu: x 269..303, między sercami a licznikiem czaszek (~323). */
+    #pauseBtn{left:auto;right:12px;transform:translateX(-60px)}
   }
 
   /* sterowanie dotykowe */
@@ -595,6 +600,6 @@
     addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
   }
 </script>
-<script type="module" src="main.js?v=145"></script>
+<script type="module" src="main.js?v=148"></script>
 </body>
 </html>
