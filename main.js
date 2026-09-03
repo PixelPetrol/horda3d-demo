@@ -749,49 +749,36 @@ coneGeo.translate(0, 0.5, 0);
 
 // ---- KARTY LIŚCI: kępka liści na quadzie z alfą (pixel art) ----
 function leafCardTexture(odcien) {
-  const c = document.createElement('canvas'); c.width = c.height = 96;
+  const S = 128;
+  const c = document.createElement('canvas'); c.width = c.height = S;
   const g = c.getContext('2d');
-  g.imageSmoothingEnabled = false;
-  // POJEDYNCZY LIŚĆ: spiczasty, z ząbkowaną krawędzią i nerwem (nie owalna plamka)
-  const SK = 96 / 64;                                       // skala wzgl. dawnego 64 px
-  const listek = (x0, y0, dl0, kat, kolor, jasny) => {
-    const x = x0 * SK, y = y0 * SK, dl = dl0 * SK;
-    g.save(); g.translate(x, y); g.rotate(kat);
-    const sz = dl * 0.52;
-    g.fillStyle = kolor;
-    g.beginPath();
-    g.moveTo(0, -dl / 2);                                  // czubek
-    for (let i = 1; i <= 6; i++) {                         // prawa krawędź z ząbkami
-      const t = i / 6, zab = (i % 2 ? 1.0 : 0.78);
-      g.lineTo(Math.sin(t * Math.PI) * sz * zab, -dl / 2 + t * dl);
-    }
-    for (let i = 5; i >= 0; i--) {                         // lewa krawędź
-      const t = i / 6, zab = (i % 2 ? 1.0 : 0.78);
-      g.lineTo(-Math.sin(t * Math.PI) * sz * zab, -dl / 2 + t * dl);
-    }
-    g.closePath(); g.fill();
-    g.strokeStyle = jasny; g.lineWidth = 1;                // nerw główny
-    g.beginPath(); g.moveTo(0, -dl / 2 + 1); g.lineTo(0, dl / 2 - 1); g.stroke();
-    g.restore();
-  };
-  // kępka: listki rozłożone promieniście, ciemniejsze w środku
-  const listki = 22;
-  for (let i = 0; i < listki; i++) {
-    const a = (i / listki) * Math.PI * 2 + Math.random() * 0.5;
-    const r = 6 + Math.random() * 18;
-    const x = 32 + Math.cos(a) * r, y = 34 + Math.sin(a) * r * 0.8;
-    const j = Math.random();
-    const kol = j < 0.32 ? odcien[0] : (j < 0.72 ? odcien[1] : odcien[2]);
-    listek(x, y, 13 + Math.random() * 9, a + Math.PI / 2 + (Math.random() - .5), kol, odcien[2]);
+  // KĘPA LISTKÓW JAK W ASSETACH „STYLIZED TREE" Z REFERENCJI WŁAŚCICIELA (03.09):
+  // kilkadziesiąt małych owalnych listków zbitych w okrągłą chmurkę o POSTRZĘPIONYM
+  // brzegu, trzy tony ułożone góra→dół (światło / półton / cień), malowane w kolejności
+  // ciemne → jasne, żeby jasne czubki leżały NA ciemnym spodzie. Karta = jedna kępa;
+  // korona to kilkadziesiąt takich kart na kuli, więc listki muszą być czytelne,
+  // a nie mikroskopijne (stąd 9-15 px przy 128 px kafla).
+  let sd = 7331;
+  const rnd = () => { sd = (sd * 1664525 + 1013904223) >>> 0; return sd / 4294967296; };
+  const listki = [];
+  for (let i = 0; i < 64; i++) {
+    const a = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * 46;
+    const x = S / 2 + Math.cos(a) * r, y = S / 2 + 4 + Math.sin(a) * r * 0.9;
+    listki.push({ x, y, rot: rnd() * Math.PI, dl: 9 + rnd() * 6, sz: 4.5 + rnd() * 2.5, j: rnd() });
   }
-  for (let i = 0; i < 8; i++) {                            // wypełnienie środka
-    const a = Math.random() * Math.PI * 2, r = Math.random() * 9;
-    listek(32 + Math.cos(a) * r, 34 + Math.sin(a) * r, 12 + Math.random() * 6,
-      Math.random() * Math.PI * 2, odcien[0], odcien[1]);
+  // ton z wysokości w kafelku (+ szczypta losowości): góra jasna, dół ciemny
+  const ton = l => { const t = (l.y - 20) / (S - 40) + (l.j - 0.5) * 0.35; return t < 0.36 ? 2 : (t < 0.68 ? 1 : 0); };
+  listki.sort((a, b) => ton(a) - ton(b));                   // ciemne najpierw
+  for (const l of listki) {
+    g.save(); g.translate(l.x, l.y); g.rotate(l.rot);
+    g.fillStyle = odcien[ton(l)];
+    g.beginPath(); g.ellipse(0, 0, l.sz, l.dl, 0, 0, Math.PI * 2); g.fill();
+    g.restore();
   }
   const t = new THREE.CanvasTexture(c);
-  t.magFilter = t.minFilter = THREE.NearestFilter;
-  t.generateMipmaps = false;
+  t.magFilter = THREE.LinearFilter;                          // miękkie płaty, nie piksele
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
@@ -842,9 +829,10 @@ function initLeafCards() {
   // JAŚNIEJSZE palety niż dawne (#2f6b28…) — karty są nieoświetlone (MeshBasic), więc
   // cały walor pochodzi z tekstury × instanceColor; ciemna tekstura = czarna korona.
   const palety = [
-    ['#3f8f32', '#63b948', '#94dd5e'],   // soczysta zieleń
-    ['#4a9c39', '#76cc4e', '#a8e86a'],   // jaśniejsza
-    ['#3a7f3d', '#5cb258', '#86d276'],   // chłodna
+    // tony = pasma toon bryły (cień / półton / światło) w tych samych limonkach co `bazy`
+    ['#4d9a3c', '#7cc84c', '#b4ea6a'],   // soczysta zieleń
+    ['#579f40', '#8ad452', '#c2f074'],   // jaśniejsza
+    ['#458f3f', '#6cbf4c', '#a2e068'],   // chłodna
     ['#8a6a22', '#c09a34', '#e8c650'],   // jesienna (rzadka)
   ];
   leafCardMats = palety.map((p, i) => makeLeafMaterial(p, i === 3 ? 0.16 : 0.13));
@@ -874,12 +862,16 @@ function addCrownSway(mat) {
 // ==== SOLIDNA KORONA: bryła z cieniowaniem góra-dół zapieczonym w wierzchołkach ====
 const leafPalety = [0, 1, 2, 3];
 const leafBlobGeo = (() => {
-  const g = new THREE.IcosahedronGeometry(1, 1);      // 80 ścian — tanio, a trzyma kształt
-  // nieregularność: rozrusz wierzchołki, żeby nie była to idealna kula
+  // 320 ścian (detail 2): przy gładkich normalnych i cieniowaniu pasmowym granice
+  // pasm biegną po łagodnych łukach, a nie po widocznych trójkątach (detail 1)
+  const g = new THREE.IcosahedronGeometry(1, 2);
+  // nieregularność O DUŻEJ SKALI (szum, nie hash per wierzchołek): kłąb ma być
+  // puchaty jak poduszka, nie kolczasty jak kasztan
   const p = g.attributes.position;
   for (let i = 0; i < p.count; i++) {
-    const s = 0.82 + hash2(Math.round(p.getX(i) * 97), Math.round(p.getZ(i) * 89)) * 0.36;
-    p.setXYZ(i, p.getX(i) * s, p.getY(i) * s, p.getZ(i) * s);
+    const px = p.getX(i), py = p.getY(i), pz = p.getZ(i);
+    const s = 0.88 + vnoise(px * 1.4 + py * 0.9 + 3.1, pz * 1.4 - py * 0.7 + 7.7) * 0.24;
+    p.setXYZ(i, px * s, py * s, pz * s);
   }
   g.computeVertexNormals();
   // GŁADKIE NORMALNE: PolyhedronGeometry jest nieindeksowany (każda ściana ma własne
@@ -904,11 +896,13 @@ const leafBlobGeo = (() => {
   // z ciemnozielonym „ground" dolna połowa kuli i tak dostaje mało światła.
   const kol = new Float32Array(p.count * 3);
   for (let i = 0; i < p.count; i++) {
+    // gradient góra-dół ŁAGODNY (0.80→1.06): walor robi teraz cieniowanie pasmowe
+    // w shaderze (addWrapLight → toon), vertex colors dają tylko dryf barwy
     const t = Math.max(0, Math.min(1, p.getY(i) * 0.5 + 0.5));
-    const v = 0.62 + t * 0.55;
-    kol[i * 3] = v * (0.90 + 0.18 * t);
+    const v = 0.80 + t * 0.26;
+    kol[i * 3] = v * (0.92 + 0.14 * t);
     kol[i * 3 + 1] = v;
-    kol[i * 3 + 2] = v * (1.08 - 0.22 * t);
+    kol[i * 3 + 2] = v * (1.06 - 0.18 * t);
   }
   g.setAttribute('color', new THREE.BufferAttribute(kol, 3));
   return g;
@@ -922,9 +916,9 @@ function initLeafSolids() {
   // `emissive` podnosi stronę zacienioną, żeby spód nie zapadał w czerń.
   // Kołysanie idzie w shaderze (addWind czyta instanceMatrix) — korony są
   // instancjonowane per chunk (patrz buildChunk), więc nie ma już pętli JS po bryłach.
-  const bazy = [0x74c94a, 0x86d452, 0x5fb84c, 0xd6a63c];   // 3 zielenie + jesienna
+  const bazy = [0x9ce25a, 0xaaea62, 0x84d454, 0xd6a63c];   // 3 zielenie (limonka jak trawa) + jesienna
   leafSolidMats = bazy.map(c => addCloudShadow(addWrapLight(addCrownSway(new THREE.MeshLambertMaterial({
-    color: c, vertexColors: true, emissive: 0x1c4218 })), 0.55)));   // emissive niżej, bo wrap już rozjaśnia cień
+    color: c, vertexColors: true, emissive: 0x14301a })))));   // emissive nisko: cień robi pasmo toon
 }
 // PÓŁ-LAMBERT („wrap lighting", Valve): dotNL → dotNL*(1-w)+w. Bryła oświetlona jest
 // miękko dookoła zamiast twardej granicy dzień/noc — od strony przeciwnej do słońca
@@ -937,9 +931,13 @@ function addWrapLight(mat, w = 0.5) {
     // ⚠️ onBeforeCompile dostaje shader z NIEROZWINIĘTYMI `#include` (resolveIncludes
     // odpala się dopiero w WebGLProgram), więc podmiana samej linii Lamberta trafiała
     // w nic i wrap był no-opem (recenzja 03.09). Rozwijamy chunk ręcznie i podmieniamy w nim.
+    // TOON W TRZECH PASMACH (referencje właściciela: Genshin/BotW — twarde, ale nie
+    // ostre granice światła na koronie): cień 0.42 → półton 0.72 → światło 1.0.
+    // Gładki Lambert dawał „zieloną kartoflę" bez formy; pasma dają bryłę i kłębiastość.
     const chunk = THREE.ShaderChunk.lights_lambert_pars_fragment.replace(
       'float dotNL = saturate( dot( geometryNormal, directLight.direction ) );',
-      `float dotNL = saturate( dot( geometryNormal, directLight.direction ) * ${(1 - w).toFixed(3)} + ${w.toFixed(3)} );`);
+      `float rawNL = dot( geometryNormal, directLight.direction );
+       float dotNL = 0.55 + 0.25 * smoothstep( -0.05, 0.10, rawNL ) + 0.20 * smoothstep( 0.30, 0.44, rawNL );`);
     sh.fragmentShader = sh.fragmentShader.replace('#include <lights_lambert_pars_fragment>', chunk);
   };
   mat.needsUpdate = true;
@@ -983,20 +981,23 @@ function makeTree(x, z, rng, acc, paletki) {
   // ==== LIŚCIASTE: trzy sylwetki losowane z rng chunka (deterministycznie) ====
   // korona = SOLIDNE BRYŁY (czytelna sylwetka + prawdziwy cień z shadow mapy)
   let h, gr, skala, cy, hPnia, splasz, bryly;
-  if (typ < 0.62) {                                // DĄB — klasyk: kula z guzami
-    h = 2.6 + rng() * 2.0; gr = 1.9 + rng() * 0.7; skala = 1.25 + rng() * 0.55;
-    cy = g0 + h * 0.44; hPnia = h * 0.42; splasz = 0.9;
-    bryly = [[0, 0.62, 0, 1.00], [-0.62, 0.30, 0.34, 0.70], [0.58, 0.26, -0.40, 0.66], [0.10, 1.05, 0.14, 0.62]];
-    if (rng() < 0.5) bryly.push([-0.20, 0.10, -0.62, 0.55]);
-  } else if (typ < 0.82) {                         // SMUKŁE — wysoki cienki pień, korona w słup
-    h = 4.6 + rng() * 1.8; gr = 1.3 + rng() * 0.4; skala = 0.95 + rng() * 0.3;
-    cy = g0 + h * 0.50; hPnia = h * 0.52; splasz = 1.2;
-    bryly = [[0, 0.45, 0, 0.92], [0.12, 1.45, -0.10, 0.80], [-0.30, -0.05, 0.25, 0.62], [0.05, 2.25, 0.05, 0.58]];
-  } else {                                         // ROZŁOŻYSTE — niski gruby pień, parasol
-    h = 2.0 + rng() * 0.8; gr = 2.5 + rng() * 0.6; skala = 1.7 + rng() * 0.5;
-    cy = g0 + h * 0.75; hPnia = h * 0.62; splasz = 0.68;
-    bryly = [[0, 0.40, 0, 0.95], [-0.95, 0.22, 0.30, 0.70], [0.90, 0.28, -0.35, 0.72],
-             [0.15, 0.18, 0.95, 0.62], [-0.20, 0.12, -0.90, 0.60]];
+  // PIEŃ MA BYĆ WIDOCZNY (referencje 03.09: wyraźny brązowy pień, korona nad nim, nie na
+  // ziemi) — środek korony wyżej (cy ≈ 0.62 h), pień do 0.6 h, kłęby korony w zwartej,
+  // zaokrąglonej sylwetce (górny duży + boczne + czubek), zamiast rozrzuconych guzów.
+  if (typ < 0.62) {                                // DĄB — zwarta kula na widocznym pniu
+    h = 3.4 + rng() * 2.0; gr = 2.2 + rng() * 0.8; skala = 1.25 + rng() * 0.5;
+    cy = g0 + h * 0.62; hPnia = h * 0.60; splasz = 0.88;
+    bryly = [[0, 0.55, 0, 1.00], [-0.62, 0.30, 0.30, 0.72], [0.60, 0.28, -0.34, 0.70],
+             [0.05, 1.05, 0.10, 0.66], [-0.10, 0.20, -0.66, 0.60], [0.12, 0.22, 0.66, 0.58]];
+  } else if (typ < 0.82) {                         // SMUKŁE — wysoki pień, korona w słup
+    h = 5.0 + rng() * 1.8; gr = 1.5 + rng() * 0.4; skala = 1.0 + rng() * 0.3;
+    cy = g0 + h * 0.56; hPnia = h * 0.58; splasz = 1.15;
+    bryly = [[0, 0.45, 0, 0.92], [0.10, 1.40, -0.08, 0.82], [-0.28, 0.00, 0.22, 0.64], [0.05, 2.15, 0.05, 0.60]];
+  } else {                                         // ROZŁOŻYSTE — gruby pień, szeroki parasol
+    h = 2.8 + rng() * 0.9; gr = 2.8 + rng() * 0.6; skala = 1.7 + rng() * 0.5;
+    cy = g0 + h * 0.80; hPnia = h * 0.70; splasz = 0.70;
+    bryly = [[0, 0.40, 0, 0.95], [-0.95, 0.22, 0.30, 0.72], [0.90, 0.28, -0.35, 0.72],
+             [0.15, 0.18, 0.95, 0.64], [-0.20, 0.12, -0.90, 0.62]];
   }
   acc.trunks.push({ x, y: g0, z, ry: rng() * 6.28, sx: gr, sy: hPnia, sz: gr });
   const paleta = paletki[rng() < 0.5 ? 0 : 1];
@@ -1005,27 +1006,34 @@ function makeTree(x, z, rng, acc, paletki) {
     const r = s * skala;
     const bx = x + dx * skala, by = cy + dy * skala, bz = z + dz * skala;
     const bsx = r * (1.05 + rng() * 0.2), bsy = r * splasz * (0.9 + rng() * 0.2), bsz = r * (1.05 + rng() * 0.2);
+    // BRYŁA = WYPEŁNIACZ (0.78 rozmiaru): zatyka prześwity między kartami i rzuca cień
+    // z shadow mapy. Sylwetkę i fakturę korony robią KARTY (jak w assetach „stylized
+    // tree" z referencji właściciela 03.09) — wcześniej było odwrotnie (duża gładka
+    // kula + kilka kart) i korona czytała się jako plastikowa piłka z naklejkami.
     acc.crowns[paleta].push({ x: bx, y: by, z: bz, rx: rng() * 3, ry: rng() * 3, rz: rng() * 3,
-                              sx: bsx, sy: bsy, sz: bsz, tint });
-    // ==== KARTY LIŚCI na powierzchni bryły: to one robią „kłębiastą" koronę i ruch ====
-    // Bryła pod spodem daje sylwetkę, cień z shadow mapy i wypełnia prześwity; karty
-    // (billboardy w shaderze, kołysane per karta) dają puszystą krawędź jak w BotW.
-    // Walor zapieczony w instanceColor: strona od słońca + góra = ciepła i jasna,
-    // spód = chłodny i ciemny. Preferencja góry (u ≥ -0.6): spód korony i tak jest w cieniu.
-    const nK = Math.round(7 + r * 5);
+                              sx: bsx * 0.78, sy: bsy * 0.78, sz: bsz * 0.78, tint });
+    // ==== KARTY LIŚCI: kilkadziesiąt kęp na powłoce kłębu, cieniowane KULIŚCIE od
+    // środka CAŁEJ KORONY (nie kłębu) — dzięki temu drzewo ma jedną spójną formę:
+    // wierzch od słońca jasny, spód ciemny, jak w referencji. Trzy pasma toon
+    // (te same co bryła). Rozkład preferuje górę (u ∈ [-0.8, 1]), bo spód i tak jest w cieniu.
+    const nK = Math.round(16 + r * 12);
+    const kcx = x, kcy = cy + skala * 0.5, kcz = z;         // środek korony do cieniowania
     for (let k = 0; k < nK; k++) {
-      const a = rng() * 6.283, u = rng() * 1.6 - 0.6, rr = Math.sqrt(Math.max(0, 1 - u * u));
+      const a = rng() * 6.283, u = rng() * 1.8 - 0.8, rr = Math.sqrt(Math.max(0, 1 - u * u));
       const nx = Math.cos(a) * rr, ny = u, nz = Math.sin(a) * rr;
-      const wys = 0.9 + rng() * 0.3;
+      const wys = 0.72 + rng() * 0.33;
       const px = bx + nx * bsx * wys, py = by + ny * bsy * wys, pz = bz + nz * bsz * wys;
-      const lit = Math.max(0, Math.min(1, (nx * SUN_N.x + ny * SUN_N.y + nz * SUN_N.z) * 0.5 + 0.5));
-      const hy = Math.max(0, Math.min(1, (py - (cy - skala * 0.6)) / (skala * 2.2)));
-      const v = (0.60 + 0.55 * (0.6 * lit + 0.4 * hy)) * tint;
-      const kol = new THREE.Color(v * (0.92 + 0.16 * lit), v, v * (1.06 - 0.22 * lit));
+      // normalna „korony" = kierunek od środka korony do karty
+      let kx = px - kcx, ky = (py - kcy) * 1.15, kz = pz - kcz;
+      const kl = Math.hypot(kx, ky, kz) || 1; kx /= kl; ky /= kl; kz /= kl;
+      const rawNL = kx * SUN_N.x + ky * SUN_N.y + kz * SUN_N.z;
+      const pasmo = rawNL > 0.35 ? 1.0 : (rawNL > -0.05 ? 0.78 : 0.52);
+      const v = (0.40 + 0.60 * pasmo) * tint;
+      const kol = new THREE.Color(v * (0.94 + 0.12 * pasmo), v, v * (1.04 - 0.16 * pasmo));
       // amplituda szelestu: 0.5 w środku korony → 1.4 na zewnętrznej krawędzi (skala Z quada)
       const ampK = 0.5 + 0.9 * Math.min(1, Math.hypot(px - x, (py - cy) * 0.7, pz - z) / (skala * 1.7));
-      const sc = Math.max(0.5, Math.min(1.4, r * (0.55 + rng() * 0.3)));
-      acc.cards[paleta].push({ x: px, y: py, z: pz, sx: sc, sy: sc * 0.82, sz: ampK, tint: kol });
+      const sc = Math.max(0.55, Math.min(1.7, r * (0.62 + rng() * 0.3)));
+      acc.cards[paleta].push({ x: px, y: py, z: pz, sx: sc, sy: sc * 0.9, sz: ampK, tint: kol });
     }
   }
   acc.blobs.push(blobRec(x, z, gr * 0.9, gr * 0.9));
@@ -1553,8 +1561,10 @@ function updateGrassField() {
       const klos  = !kwiat && ns < maxS && b > 0.34 && r4 < 0.05 && nadW > 0.5;
       if (kwiat) {
         _gm.rotation.set((r2 - 0.5) * 0.16, r1 * Math.PI * 2, (r3 - 0.5) * 0.16);
-        const h = 0.62 + r1 * 0.26;                            // czubek ponad dywan trawy
-        _gm.scale.set(0.85 + r2 * 0.3, h, 0.85 + r2 * 0.3);
+        // MNIEJSZE kwiatki (referencje 03.09: drobne stokrotki w trawie, nie papierowe
+        // gwiazdy wielkości głowy postaci — przy 0.85-1.15 szerokości tak to wyglądało)
+        const h = 0.56 + r1 * 0.22;                            // czubek ledwo ponad dywan trawy
+        _gm.scale.set(0.5 + r2 * 0.2, h, 0.5 + r2 * 0.2);
         _gm.updateMatrix();
         flowerField.setMatrixAt(nk, _gm.matrix);
         const pal = KWIAT_KOL[Math.floor(vnoise(x / 33 + 11.7, z / 33 - 4.2) * 3.999)];

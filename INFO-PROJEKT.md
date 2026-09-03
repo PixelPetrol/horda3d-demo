@@ -1139,13 +1139,19 @@ kazał ZOSTAWIĆ — to była inna wersja.)
   (per paleta, max 2 palety/chunk), karty liści, głazy+kamyki, plamki cienia → po JEDNYM
   InstancedMeshu na rodzaj. Wcześniej każde drzewo = 5-6 meshy. Wszystko w `ch.rocks`
   (ensureChunks dispose'uje). `computeBoundingSphere()` na instancjach → frustum culling.
-- **Drzewa**: 3 sylwetki liściaste (dąb / smukłe / rozłożyste) + świerk, losowane z rng
-  chunka. Korona = bryły (`leafBlobGeo` z uśrednionymi normalnymi = „plusz") w jasnych
-  paletach + **karty liści na powierzchni bryły** z walorem zapieczonym w instanceColor
-  (strona od słońca ciepła/jasna, spód chłodny). **Ruch liści w shaderze** (`makeLeafMaterial`):
-  oddech całej korony + dwie fale szelestu z fazą po pozycji karty, amplituda rośnie ku
-  krawędzi (siedzi w skali Z quada), lekki trzepot obrotowy. Bryły kołysze `addCrownSway`.
-  `addWrapLight` (pół-Lambert) rozjaśnia stronę zacienioną. Korony rzucają cień, nie odbierają.
+- **Drzewa** (trzy podejścia w jeden dzień — właściciel dwa pierwsze odrzucił: „jak kapusta",
+  „plastikowa piłka z naklejkami"; przesłał referencje typu asset „Stylized Tree"):
+  3 sylwetki liściaste (dąb / smukłe / rozłożyste) + świerk z rng chunka, **pień widoczny**
+  (cy ≈ 0.62 h). Korona = **KILKADZIESIĄT KART** (`16 + 12r` na kłąb) z teksturą kępy
+  64 owalnych listków o postrzępionym brzegu (`leafCardTexture`, 3 tony góra→dół),
+  cieniowanych **kuliście od środka całej korony** w 3 pasmach toon zapieczonych
+  w instanceColor; bryła `leafBlobGeo` (ikosaedr detail 2, szum vnoise) zmniejszona do
+  0.78 = tylko wypełniacz prześwitów i źródło cienia z shadow mapy. `addWrapLight` to
+  teraz **toon 3-pasmowy** (0.55/0.80/1.0) podmieniany w ROZWINIĘTYM `ShaderChunk`
+  (onBeforeCompile dostaje nierozwinięte `#include` — recenzja 03.09). **Ruch liści
+  w shaderze** (`makeLeafMaterial`): oddech całej korony + dwie fale szelestu z fazą po
+  pozycji karty, amplituda rośnie ku krawędzi (skala Z quada), lekki trzepot. Bryły
+  kołysze `addCrownSway`. Korony rzucają cień, nie odbierają. Kwiatki zmniejszone (0.5-0.7).
 - **Cień kontaktowy pod dekoracjami, pniami, głazami** = `rebuildBlobs()` — JEDEN
   InstancedMesh plamek dla całego świata, przebudowywany w `ensureChunks` (tylko przy
   zmianie zbioru chunków), plamki położone po stoku (`blobRec` z normalnej terenu).
