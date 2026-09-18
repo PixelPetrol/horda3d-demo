@@ -4,6 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>VEGGIE FAMIGLIA — Brainrot Survivors</title>
+<!-- ================= PWA =================
+     WSZYSTKIE ŚCIEŻKI RELATYWNE. Gra stoi raz na GitHub Pages w PODKATALOGU
+     (/horda3d-demo/), raz na itch.io pod losowym adresem html.itch.zone — każde
+     `/coś` wskazałoby tam korzeń cudzego serwera i nic by się nie wczytało.
+     `apple-*` to jedyna droga do pełnego ekranu na iPhonie: Safari nie daje
+     Fullscreen API stronom, ale „Dodaj do ekranu początkowego" chowa pasek adresu. -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0e1420">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Veggie Famiglia">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="assets/pwa/icon-192.png">
+<link rel="icon" href="assets/pwa/icon-192.png" sizes="192x192" type="image/png">
 <style>
   /* ================= CZCIONKA UI =================
      JERSEY 10 (OFL, self-hosted). Pixelify Sans wyleciał, bo miał NIECZYTELNE
@@ -96,7 +110,8 @@
   #bossNm.on{opacity:1;transform:scale(1)}
   #bossNm small{display:block;font-size:.42em;color:#ff9d7a;letter-spacing:2px;margin-top:6px}
   /* pasek HP bossa: twarde krawedzie, bez zaokraglen — jak reszta UI */
-  #bossHp{position:fixed;left:50%;top:78px;transform:translateX(-50%);z-index:7;display:none;
+  /* `fixed` liczy się od viewportu, nie od przesuniętego o notch `#hud` — stąd własny env() */
+  #bossHp{position:fixed;left:50%;top:calc(78px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:7;display:none;
       width:min(72vw,520px);flex-direction:column;align-items:center;gap:3px;pointer-events:none}
   #bossHp.on{display:flex}
   #bossHp .bn{font-weight:800;font-size:13px;color:#ffd75e;text-shadow:2px 2px 0 #1b1b22;
@@ -107,7 +122,7 @@
       background:repeating-linear-gradient(90deg,#e0453c 0 6px,#ff7a6e 6px 12px);
       transition:width .12s}
   #bossHp .bl{font-size:11px;color:#dfe6f2;text-shadow:2px 2px 0 #1b1b22}
-  @media (max-height:520px){ #bossHp{top:52px;width:min(56vw,380px)} }
+  @media (max-height:520px){ #bossHp{top:calc(52px + env(safe-area-inset-top,0px));width:min(56vw,380px)} }
   #vign{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;
       background:radial-gradient(ellipse at center,transparent 55%,rgba(255,0,0,.55) 100%);transition:opacity .1s}
   /* ================= TRYB KARABINU (pierwsza osoba) =================
@@ -147,6 +162,77 @@
       border-radius:0;background:#2b3550;color:#fff;
       display:none;align-items:center;justify-content:center;pointer-events:auto;cursor:pointer;
       box-shadow:-3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+
+  /* ===== GAMEPAD =====
+     KAPSLE PRZYCISKÓW. Emoji i znaki ✕○□△ odpadają z dwóch powodów: czcionka UI
+     (Jersey 10) ich nie ma, a nawet gdyby miała — fallback systemowy wstawiłby
+     obcy, gładki glif obok pixelowego UI. Stąd kapsel = kwadracik z konturem 3 px
+     (jak `.wp` w HUD), a symbole PlayStation rysujemy KSZTAŁTAMI (border, obrót). */
+  .gpk{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;
+      box-sizing:border-box;min-width:18px;height:18px;padding:0 3px;font-size:13px;font-weight:800;
+      line-height:1;letter-spacing:0;color:#101725;background:#dfe6f2;
+      box-shadow:-3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  .gpk+.gpk{margin-left:9px}
+  .gpk.a{background:#7ee787} .gpk.b{background:#ff8b7a}
+  .gpk.x{background:#8fd3ff} .gpk.y{background:#ffd75e}
+  /* bumpery/spusty/Start: napis dwuznakowy, więc niższy font i szerszy kapsel */
+  .gpk.sh{background:#c3ccdb;font-size:10px;min-width:24px;letter-spacing:.5px}
+  .gpk i{display:block;position:relative;width:10px;height:10px}
+  .gpk i.psK{border:2px solid #101725;border-radius:50%}
+  .gpk i.psS{border:2px solid #101725}
+  .gpk i.psT{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;
+      border-bottom:10px solid #101725}
+  .gpk i.psX::before,.gpk i.psX::after{content:'';position:absolute;left:-1px;top:4px;
+      width:12px;height:2px;background:#101725}
+  .gpk i.psX::before{transform:rotate(45deg)} .gpk i.psX::after{transform:rotate(-45deg)}
+  /* strzałki D-pada — ten sam trójkąt z bordera, obrócony na cztery strony */
+  .gpk i.dpL,.gpk i.dpP,.gpk i.dpG,.gpk i.dpD{width:0;height:0}
+  .gpk i.dpL{border-top:5px solid transparent;border-bottom:5px solid transparent;border-right:9px solid #101725}
+  .gpk i.dpP{border-top:5px solid transparent;border-bottom:5px solid transparent;border-left:9px solid #101725}
+  .gpk i.dpG{border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #101725}
+  .gpk i.dpD{border-left:5px solid transparent;border-right:5px solid transparent;border-top:9px solid #101725}
+
+  /* PODPOWIEDZI W BIEGU. Jeden rząd na dole, bo na desktopie #jbtn/#karabinBtn są
+     ukryte (to przyciski dotykowe) i nie ma ich czym podpisać. Widoczny WYŁĄCZNIE
+     przy żywym padzie — na klawiaturze byłby kłamstwem, a na telefonie śmieciem. */
+  #padHud{position:fixed;left:50%;transform:translateX(-50%);z-index:7;
+      bottom:calc(10px + env(safe-area-inset-bottom,0px));
+      display:none;gap:14px;align-items:center;padding:5px 11px;
+      background:rgba(8,12,20,.62);color:#dfe6f2;font-size:11.5px;letter-spacing:.5px;
+      text-shadow:0 2px 4px #000;pointer-events:none;white-space:nowrap}
+  #padHud.on{display:flex}
+  #padHud span{display:inline-flex;align-items:center;gap:5px}
+  /* STOPKA OVERLAYA: „A wybierz · B wstecz". z-index 11 = NAD .ov (10). */
+  #padFoot{position:fixed;left:0;right:0;bottom:0;z-index:11;display:none;
+      justify-content:center;flex-wrap:wrap;gap:18px;align-items:center;
+      padding:8px 10px calc(8px + env(safe-area-inset-bottom,0px));
+      background:rgba(8,12,20,.94);color:#dfe6f2;font-size:12.5px;letter-spacing:.5px;
+      pointer-events:none;box-shadow:0 -3px 0 0 #1b1b22}
+  #padFoot.on{display:flex}
+  #padFoot span{display:inline-flex;align-items:center;gap:6px}
+  /* stopka leży NA overlayu, więc overlay musi jej zrobić miejsce — inaczej ostatni
+     przycisk (np. „Menu" na ekranie końca) chowa się pod paskiem podpowiedzi */
+  body.pad-foot .ov{padding-bottom:calc(58px + env(safe-area-inset-bottom,0px))}   /* stopka pada sama ma env() — overlay musi zrobić tyle samo miejsca */
+  @media (max-height:520px){ #padFoot{font-size:11px;padding:5px 8px;gap:12px} }
+
+  /* zakładka STEROWANIE — rzędy dzielą wygląd z suwakami dźwięku (.snd) */
+  #ctrlBox{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:8px}
+  #ctrlBox b.gpv{width:auto;min-width:52px;display:inline-flex;align-items:center;
+      justify-content:flex-end;gap:9px;color:#dfe6f2;font-size:12px}
+  /* `.snd b` (licznik procentów przy suwakach głośności) ma sztywne width:46px
+     I ZŁOTY KOLOR, a jest bardziej szczegółowe niż `.gpk` — rozciągało kapsel na pół
+     rzędu i malowało literę na złoto, czyli prawie niewidocznie na jasnym tle.
+     Stąd te trzy nadpisania z `#ctrlBox` (wyższa waga niż `.snd b`). */
+  #ctrlBox .snd b.gpk{width:auto;text-align:center;color:#101725;font-size:13px}
+  #ctrlBox .snd b.gpk.sh{font-size:10px}
+  #ctrlBox .btn2{margin:0;padding:5px 13px;font-size:12px;
+      box-shadow:inset 0 3px 0 0 #46557a, inset 0 -3px 0 0 #1a2135,
+        -3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  #ctrlBox .btn2:active{transform:translateY(3px)}
+  /* rząd w trybie nasłuchu („naciśnij przycisk") — złoty, jak zaznaczenie padem */
+  #ctrlBox .snd.czeka{background:#4a3a14}
+  #ctrlBox .snd.czeka label{color:#ffd75e}
+  .btn2.sel{background:#4a3a14;color:#ffd75e}
 
   /* ================= EKRANY ================= */
   /* justify-content:center + overflow-y:auto to PUŁAPKA: przy treści wyższej niż ekran
@@ -349,6 +435,59 @@
     #pauseBtn{left:auto;right:12px;transform:translateX(-60px)}
   }
 
+  /* ===== PELNY EKRAN / PWA =====
+     NOTCH: `viewport-fit=cover` + `apple-mobile-web-app-status-bar-style:black-translucent`
+     wpuszczają grę POD wycięcie i pasek stanu, więc górny pasek XP i cały rząd
+     liczników trafiały pod notch (telefon w poziomie: pod bok wycięcia).
+     Zamiast dopisywać `env()` do kilkunastu elementów HUD-u przesuwamy JEDEN
+     kontener: `#hud` ma `inset:0`, a dzieci są `position:absolute`, czyli liczą
+     się od jego KRAWĘDZI — wystarczy ją wciągnąć o bezpieczne marginesy.
+     DÓŁ ZOSTAJE NA 0 CELOWO: `#wpns` ma już własne `env(safe-area-inset-bottom)`
+     i podwójne liczenie podniosłoby pasek broni o ~34 px ponad zmierzone miejsce. */
+  #hud{top:env(safe-area-inset-top,0px);left:env(safe-area-inset-left,0px);
+      right:env(safe-area-inset-right,0px);bottom:0}
+  /* #pauseBtn jest `position:fixed` (poza #hud), więc bezpieczny margines bierze sam */
+  #pauseBtn{top:calc(18px + env(safe-area-inset-top,0px))}
+  /* Przycisk pełnego ekranu: DRUGI W KOLUMNIE pod pauzą, nie obok.
+     Obok się nie mieści — rząd serc (`#hearts`, top 42) sięga przy 375 px do x≈263,
+     a pauza stoi 269..303, czyli na lewo od pauzy jest już zajęte. Pod pauzą
+     (y 58..92) wolne: `#tier` zaczyna się dopiero ~x 313. */
+  #fsBtn{position:fixed;top:calc(58px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-140px);
+      z-index:7;width:34px;height:34px;border-radius:0;background:#2b3550;
+      display:none;align-items:center;justify-content:center;pointer-events:auto;cursor:pointer;
+      -webkit-tap-highlight-color:transparent;
+      box-shadow:-3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  #fsBtn:active{background:#39456b}
+  @media (pointer:coarse){ #fsBtn{display:flex} }
+  @media (max-width:520px){
+    #fsBtn{left:auto;right:calc(12px + env(safe-area-inset-right,0px));transform:translateX(-60px)}
+    #pauseBtn{right:calc(12px + env(safe-area-inset-right,0px))}
+  }
+  /* Ikona „pełny ekran" = CZTERY NAROŻNIKI. W `icons.js` nie ma nic pasującego,
+     a emoji odpadają (wymóg właściciela), więc rysujemy ją CSS-em: ramka z
+     `inset box-shadow` + dwie listwy w kolorze TŁA PRZYCISKU wycinające środki
+     boków. `background:inherit` w łańcuchu przycisk → .fsIco → ::before/::after
+     sprawia, że listwy same nadążają za zmianą tła (hover, :active). */
+  .fsIco{position:relative;display:inline-block;width:18px;height:18px;box-sizing:border-box;
+      background:inherit;box-shadow:inset 0 0 0 3px #dfe6f2;vertical-align:middle}
+  .fsIco::before{content:'';position:absolute;left:5px;right:5px;top:-1px;bottom:-1px;background:inherit}
+  .fsIco::after{content:'';position:absolute;top:5px;bottom:5px;left:-1px;right:-1px;background:inherit}
+  #fsBtn.on .fsIco{box-shadow:inset 0 0 0 3px #ffd75e}     /* w pełnym ekranie = złota */
+  /* przyciski ekranu w zakładce „Dźwięk i ekran" */
+  #ekranBox{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:10px}
+  #ekranBox .btn2{display:inline-flex;align-items:center;gap:8px}
+  #ekranBox .info{font-size:clamp(10px,2.8vw,12px);color:#9fd08a;max-width:420px;line-height:1.5}
+  /* PODPOWIEDŹ DLA iPHONE'A pod przyciskiem GRAJ. Safari nie daje stronom
+     Fullscreen API — jedyny pełny ekran na iOS to ikona na ekranie początkowym.
+     Pokazywana RAZ (META.ui.pwaHint) i nigdy nie blokuje gry. */
+  #pwaHint{pointer-events:auto;display:none;align-items:center;gap:8px;margin:2px auto 10px;
+      max-width:min(88vw,430px);padding:8px 12px;background:rgba(20,28,44,.92);
+      font-size:clamp(10px,2.9vw,12.5px);line-height:1.45;color:#dfe6f2;text-align:left;
+      box-shadow:-3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  #pwaHint.on{display:flex}
+  #pwaHint b{color:#ffd75e}
+  #pwaHint .x{flex:0 0 auto;cursor:pointer;padding:0 4px;color:#9aa0a8;font-weight:800}
+
   /* sterowanie dotykowe */
   #stick{position:fixed;z-index:7;width:110px;height:110px;border-radius:0;background:rgba(255,255,255,.07);
       display:none;pointer-events:none;
@@ -490,6 +629,13 @@
 <div id="karabinBtn"><div class="kimg"></div><div>KARABIN</div><div class="klaw">R</div></div>
 <div id="stawBtn"><div class="kimg"></div><div class="lad"></div><div class="klaw">F</div><div class="pas"><b></b></div></div>
 <div id="pauseBtn"></div>
+<!-- przełącznik pełnego ekranu w biegu — widoczny TYLKO na dotyku (CSS: pointer:coarse) -->
+<div id="fsBtn" title="Pełny ekran"><i class="fsIco"></i></div>
+<!-- podpowiedzi pada: rząd w biegu (#padHud) i stopka w overlayach (#padFoot).
+     Treść wypełnia main.js (padHudOdswiez / padFootOdswiez) — pokazują się TYLKO
+     przy żywym padzie, gasną po 4 s bez wejścia albo po ruchu myszy/klawiatury. -->
+<div id="padHud"></div>
+<div id="padFoot"></div>
 
 <!-- ================= MENU GŁÓWNE =================
      HIERARCHIA (życzenie właściciela): logo → jeden duży GRAJ → drugorzędny rząd
@@ -505,6 +651,11 @@
   <div id="playCta">
     <button class="bigbtn" id="btnStart">GRAJ</button>
     <p id="wybor">Mapa: <b id="selMapNm">Łąki</b> · Postać: <b id="selCharNm">Kasia</b></p>
+    <!-- podpowiedź dla iPhone'a (pokazuje main.js raz — META.ui.pwaHint) -->
+    <div id="pwaHint">
+      <span>Pełny ekran na iPhone: <b>Udostępnij</b> → <b>Dodaj do ekranu początkowego</b>.</span>
+      <span class="x" id="pwaHintX">X</span>
+    </div>
   </div>
 
   <div id="tabs">
@@ -516,6 +667,7 @@
     <div class="tab" data-tab="sklep" data-ico="sklep">Sklep</div>
     <div class="tab" data-tab="dzwiek" data-ico="glosnik">Dźwięk</div>
     <div class="tab" data-tab="staty" data-ico="wykres">Statystyki</div>
+    <div class="tab" data-tab="sterowanie" data-ico="strzalka">Sterowanie</div>
   </div>
 
   <div class="panel on" id="p-graj"></div>
@@ -539,7 +691,7 @@
     <div class="grid" id="shopItems"></div>
   </div>
   <div class="panel" id="p-dzwiek">
-    <h2>DŹWIĘK</h2>
+    <h2>DŹWIĘK I EKRAN</h2>
     <p>Muzyka rusza po pierwszym kliknięciu — tak wymagają przeglądarki.
        W menu gra motyw główny, w biegu utwór losowany, przy bossie osobny kawałek.
        Efekty są generowane na żywo (nie ważą nic), więc bez obaw o pakiet.</p>
@@ -552,12 +704,28 @@
         <input id="volEfe" type="range" min="0" max="100" step="1" value="70"><b id="volEfeV">70%</b></div>
       <button class="btn2" id="btnMute">WYCISZ WSZYSTKO</button>
     </div>
+    <!-- EKRAN. `#btnInstall` jest ukryty do czasu `beforeinstallprompt` (tylko
+         Chrome/Android; iOS i desktop go nie wysyłają), a `#btnFs` znika tam,
+         gdzie Fullscreen API nie istnieje — main.js decyduje, nie CSS. -->
+    <div id="ekranBox">
+      <button class="btn2" id="btnFs"><i class="fsIco"></i><span>PEŁNY EKRAN</span></button>
+      <button class="btn2" id="btnInstall" style="display:none">ZAINSTALUJ GRĘ</button>
+      <div class="info" id="ekranInfo">Na telefonie pełny ekran włącza się też sam po dotknięciu GRAJ.</div>
+    </div>
   </div>
   <div class="panel" id="p-staty"><h2>STATYSTYKI</h2><div id="statsList"></div></div>
+  <!-- STEROWANIE: rzędy generuje main.js (renderSterowanie), bo glify muszą się
+       przerysować po podłączeniu pada innej rodziny i po każdej zmianie mapowania -->
+  <div class="panel" id="p-sterowanie">
+    <h2>STEROWANIE</h2>
+    <p>Podpowiedzi same dopasują się do rodziny pada (Xbox, PlayStation, Switch, Steam Deck).
+       Bez pada gra chodzi na klawiaturze i myszy dokładnie jak dotąd.</p>
+    <div id="ctrlBox"></div>
+  </div>
 
   <p id="startFoot">Klawiatura: <b>WASD</b> ruch · <b>SPACJA</b> skok · <b>Q/E</b> obrót · <b>ESC</b> pauza<br>
      Telefon: lewa połowa = joystick · prawa = obrót kamery · przycisk skoku po prawej<br>
-     Kontroler: lewy drążek ruch · prawy kamera · <b>A</b> skok/wybór · <b>B</b> wstecz · <b>START</b> pauza<br>
+     Kontroler: lewy drążek ruch · prawy kamera · pełne mapowanie w zakładce <b>Sterowanie</b><br>
      Masz Liść sałaty? <b>PRZYTRZYMAJ skok w locie</b> — szybujesz i uciekasz hordzie</p>
 </div>
 
@@ -600,6 +768,6 @@
     addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
   }
 </script>
-<script type="module" src="main.js?v=149"></script>
+<script type="module" src="main.js?v=150"></script>
 </body>
 </html>

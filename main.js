@@ -147,6 +147,49 @@ const DEV = location.search.includes('dev=1')
   || ((location.hostname === 'localhost' || location.hostname === '127.0.0.1')
       && location.port === '8123');
 
+// ============================== STATYSTYKI GRACZY (GoatCounter) ==============================
+// Decyzja właściciela (18.09): „potrzebuję statystyk, ile osób zagrało". GoatCounter =
+// darmowy, bez ciasteczek i bez zgody RODO, jeden skrypt. Odsłona strony liczy się sama
+// (unikalni gracze), a my dokładamy ZDARZENIA: start biegu (postać/mapa) i koniec biegu
+// (powód + kubełek minut). Kardynalność ścieżek jest mała celowo — GoatCounter grupuje
+// po `path`, więc każdy wariant to osobny licznik w panelu.
+// `kod` = nazwa konta, np. 'veggie' dla https://veggie.goatcounter.com — WPISUJE
+// WŁAŚCICIEL po założeniu konta. Pusty kod = nic nie ładujemy, gra działa normalnie.
+// `allow_frame: true` jest KONIECZNE: itch.io uruchamia grę w iframe, a domyślnie
+// count.js nie liczy w ramce. Na DEV (port 8123) nie liczymy nic.
+const STATY = {
+  kod: 'veggiefaniglia',                           // konto właściciela (18.09) → https://veggiefaniglia.goatcounter.com
+  kolejka: [],
+  zdarzenie(sciezka, tytul = '') {
+    if (!STATY.kod || DEV) return;
+    STATY.kolejka.push({ path: sciezka, title: tytul, event: true });
+    STATY.wyslij();
+  },
+  wyslij() {
+    const gc = window.goatcounter;
+    if (!gc || typeof gc.count !== 'function') return;     // skrypt jeszcze się ładuje — poczeka w kolejce
+    while (STATY.kolejka.length) {
+      const z = STATY.kolejka.shift();
+      try { gc.count(z); } catch { STATY.kolejka.length = 0; }
+    }
+  },
+  start() {
+    if (!STATY.kod || DEV) return;
+    // `allow_local: true` — Capacitor na Androidzie serwuje z `http://localhost` (bez portu,
+    // więc to NIE jest DEV) i bez tej flagi count.js po cichu odrzucałby wszystko z telefonów
+    window.goatcounter = { allow_frame: true, allow_local: true, endpoint: `https://${STATY.kod}.goatcounter.com/count` };
+    const s = document.createElement('script');
+    s.async = true; s.src = 'https://gc.zgo.at/count.js';
+    s.onload = () => STATY.wyslij();
+    s.onerror = () => { STATY.kolejka.length = 0; };        // adblock — trudno, gra bez statystyk
+    document.head.appendChild(s);
+  },
+};
+// kubełek minut do ścieżki zdarzenia „koniec biegu" (0-1, 1-2, …, 10+)
+const kubelekMinut = t => t >= 600 ? '10+' : Math.floor(t / 60) + '-' + (Math.floor(t / 60) + 1);
+STATY.start();
+window.STATY = STATY;                              // PWA (`appinstalled`) woła STATY.zdarzenie z innego miejsca
+
 // ============================== SCENA ==============================
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
@@ -272,6 +315,123 @@ addEventListener('resize', () => {
   if (typeof przeliczWylot === 'function') przeliczWylot();   // wylot lufy zmienia miejsce z rozmiarem okna
 });
 addEventListener('orientationchange', () => setTimeout(fitCamera, 250));
+
+// ============================== PEŁNY EKRAN / PWA ==============================
+// Gra chodzi w OBU orientacjach (decyzja właściciela), więc nigdzie nie blokujemy
+// obrotu — `fitCamera()` ma osobne warianty kamery dla pionu i poziomu.
+// Pełny ekran WŁĄCZA SIĘ SAM tylko na dotyku i tylko z gestu (GRAJ / JESZCZE RAZ):
+// przeglądarki odrzucają `requestFullscreen()` poza gestem, a na desktopie
+// zabranie komuś paska zakładek bez pytania to chamstwo.
+const DOTYK = matchMedia('(pointer:coarse)').matches || navigator.maxTouchPoints > 0;
+// iPad od iPadOS 13 udaje w UA Macintosha — poznajemy go po dotyku na „Macu"
+const IOS = (/iPhone|iPad|iPod/.test(navigator.userAgent)
+  || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1)) && !window.MSStream;
+const czyPelnyEkran = () => !!document.fullscreenElement;
+// „Już jesteśmy bez paska adresu" — dodana do ekranu początkowego (PWA/iOS)
+const czyStandalone = () => matchMedia('(display-mode: standalone)').matches
+  || matchMedia('(display-mode: fullscreen)').matches
+  || navigator.standalone === true;
+// iOS Safari daje Fullscreen API TYLKO elementom <video>, więc tam to jest false
+const mozePelnyEkran = () => !!document.fullscreenEnabled && !!document.documentElement.requestFullscreen;
+
+function wejdzPelnyEkran() {
+  if (!mozePelnyEkran() || czyPelnyEkran() || czyStandalone()) return;
+  // ZWRACA PROMISE. Odmowa (podgląd w iframe bez `allow="fullscreen"`, brak gestu)
+  // musi przejść po cichu — nieobsłużone odrzucenie ląduje w `window.__err`
+  // i zaśmieca scenariusze testera.
+  // `try` PONAD promisą: starsze webview potrafią rzucić synchronicznie na samym
+  // słowniku opcji — a to już byłby prawdziwy wyjątek w handlerze GRAJ.
+  try { document.documentElement.requestFullscreen({ navigationUI: 'hide' })?.catch(() => {}); }
+  catch { /* nie ma pełnego ekranu — gra leci dalej w oknie */ }
+}
+function wyjdzPelnyEkran() {
+  if (!document.fullscreenElement || !document.exitFullscreen) return;
+  try { document.exitFullscreen()?.catch(() => {}); } catch { /* nieważne */ }
+}
+const sprobujPelnyEkran = () => { if (DOTYK) wejdzPelnyEkran(); };
+const przelaczPelnyEkran = () => { czyPelnyEkran() ? wyjdzPelnyEkran() : wejdzPelnyEkran(); };
+
+function odswiezFsBtn() {
+  const w = czyPelnyEkran();
+  const hud = document.getElementById('fsBtn');
+  if (hud) hud.classList.toggle('on', w);
+  const men = document.getElementById('btnFs');
+  const nap = men && men.querySelector('span');
+  if (nap) nap.textContent = w ? 'WYJDŹ Z PEŁNEGO EKRANU' : 'PEŁNY EKRAN';
+}
+// Wejście/wyjście zmienia wysokość okna, ale `resize` po `fullscreenchange`
+// NIE ZAWSZE przychodzi (i bywa wcześniej niż nowe wymiary), więc przeliczamy sami.
+addEventListener('fullscreenchange', () => setTimeout(() => {
+  camera.aspect = innerWidth / innerHeight;
+  applyResolution();
+  fitCamera();
+  if (typeof przeliczWylot === 'function') przeliczWylot();
+  odswiezFsBtn();
+}, 60));
+
+// ---- instalacja (Chrome/Android; iOS i desktopowe Safari tego nie wysyłają) ----
+let pwaPrompt = null;
+addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();                    // bez tego Chrome pokaże swój pasek zamiast naszego przycisku
+  pwaPrompt = e;
+  const b = document.getElementById('btnInstall');
+  if (b) b.style.display = '';
+});
+addEventListener('appinstalled', () => {
+  pwaPrompt = null;
+  const b = document.getElementById('btnInstall');
+  if (b) b.style.display = 'none';
+  window.STATY?.zdarzenie?.('install-pwa');
+});
+
+// ---- service worker (tylko po to, żeby gra była INSTALOWALNA) ----
+// NIE na localhoście: podgląd deweloperski przeżyłby przeładowanie z SW w tle,
+// a ten potrafi podać stary plik mimo `?cb=`. NIE z `file://` (Electron/Steam)
+// ani z Capacitora — tam nie ma czego instalować.
+// NIE w ramce (itch.io): na html.itch.zone PWA i tak się nie zainstaluje, a SW dokładałby
+// przeskok przez swój wątek do każdego żądania assetu (recenzja 18.09).
+if (location.protocol.startsWith('http')
+    && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'
+    && window.top === window.self) {
+  addEventListener('load', () => { navigator.serviceWorker?.register('./sw.js').catch(() => {}); });
+}
+
+// Wołane z sekwencji startowej (po `loadMeta`, bo podpowiedź dla iPhone'a
+// zapisuje się w META.ui.pwaHint).
+function initEkranUI() {
+  const hud = document.getElementById('fsBtn');
+  const men = document.getElementById('btnFs');
+  const inf = document.getElementById('ekranInfo');
+  if (!mozePelnyEkran() || czyStandalone()) {
+    // Przełącznik, który nic nie robi, jest gorszy niż jego brak
+    if (hud) hud.style.display = 'none';
+    if (men) men.style.display = 'none';
+    if (inf) inf.textContent = czyStandalone()
+      ? 'Gra chodzi jako aplikacja — pasek adresu już nie zabiera miejsca.'
+      : 'Ta przeglądarka nie daje stronom pełnego ekranu. Na iPhone: Udostępnij → Dodaj do ekranu początkowego.';
+  } else {
+    if (hud) hud.onclick = przelaczPelnyEkran;
+    if (men) men.onclick = przelaczPelnyEkran;
+    if (inf && !DOTYK) inf.textContent = 'Na komputerze pełny ekran włącza się tylko tym przyciskiem (albo F11).';
+    odswiezFsBtn();
+  }
+  const inst = document.getElementById('btnInstall');
+  if (inst) inst.onclick = () => {
+    if (!pwaPrompt) return;
+    const p = pwaPrompt; pwaPrompt = null;
+    inst.style.display = 'none';
+    p.prompt()?.catch(() => {});
+  };
+  // podpowiedź dla iPhone'a — RAZ w życiu zapisu, pod przyciskiem GRAJ, nieblokująca
+  const hint = document.getElementById('pwaHint');
+  const hintX = document.getElementById('pwaHintX');
+  if (hintX) hintX.onclick = () => hint.classList.remove('on');
+  if (hint && IOS && !czyStandalone() && !mozePelnyEkran() && !META.ui.pwaHint) {
+    hint.classList.add('on');
+    META.ui.pwaHint = true;
+    saveMeta();
+  }
+}
 
 // -------- tekstura trawy --------
 function grassTexture() {
@@ -2473,6 +2633,15 @@ function updateAura() {
 }
 
 // ============================== META (localStorage) ==============================
+// DOMYŚLNE MAPOWANIE PADA stoi TU, a nie w sekcji KONTROLER, bo `loadMeta()` woła
+// się od razu przy starcie modułu — `const` niżej siedziałby jeszcze w TDZ.
+// Indeksy = układ `standard` Gamepad API: 0 A, 1 B, 2 X, 3 Y, 4 LB, 5 RB, 6 LT,
+// 7 RT, 8 Back, 9 Start. Opis rodzin i glifów: sekcja KONTROLER.
+const PAD_MAP_DOM = { skok: 0, karabin: 2, wieza: 3, smrod: 5, kamera: 4, pauza: 9 };
+// DRUGIE WEJŚCIE na te same akcje — nie da się ich przemapować i o to chodzi:
+// spusty leżą pod palcami wskazującymi, więc karabin/wieżyczka są osiągalne bez
+// puszczania drążków, a Back/Select to pauza na handheldach bez przycisku Start.
+const PAD_ALT = { karabin: 7, wieza: 6, pauza: 8 };
 const META_KEY = 'horda3d_meta_v1';
 function loadMeta() {
   const def = () => ({
@@ -2483,6 +2652,14 @@ function loadMeta() {
     st: { kills: 0, runs: 0, time: 0, best: 0, bestKills: 0, bosses: 0, coins: 0, chests: 0, skrzynki: 0, lvl: 0 },
     bestiary: {},                                  // typ wroga -> ile razy zabity (bestiariusz)
     audio: { muz: 0.15, glos: 0.9, efe: 0.7, mute: 0 },   // głośności i wyciszenie (zakładka Dźwięk)
+    // KONTROLER (zakładka Sterowanie). `map` trzyma INDEKSY przycisków w układzie
+    // `standard` Gamepad API — nie litery, bo te same indeksy noszą u Nintendo inne
+    // napisy (patrz PAD_GLIFY) i zapis przeniósłby się między padami błędnie.
+    pad: { map: { ...PAD_MAP_DOM }, czulosc: 1, invY: 0, wibracje: 1 },
+    // JEDNORAZOWE PODPOWIEDZI UI. `pwaHint` = czy pokazaliśmy już iPhone'owi, że
+    // pełny ekran robi się przez „Dodaj do ekranu początkowego" (Safari nie ma
+    // Fullscreen API dla stron). Raz pokazane = nigdy więcej.
+    ui: { pwaHint: false },
   });
   try {
     const m = JSON.parse(localStorage.getItem(META_KEY)) || {};
@@ -2498,6 +2675,10 @@ function loadMeta() {
       bestiary: Object.assign(d.bestiary, m.bestiary),
       // stare zapisy nie mają ustawień dźwięku — biorą domyślne
       audio: Object.assign(d.audio, m.audio),
+      // pad: dopełniamy PO KLUCZU, bo dojście nowej akcji (np. smrodu) nie może
+      // skasować mapowania, które gracz już sobie przestawił
+      pad: Object.assign(d.pad, m.pad, { map: Object.assign(d.pad.map, m.pad && m.pad.map) }),
+      ui: Object.assign(d.ui, m.ui),     // stare zapisy: podpowiedzi jeszcze niepokazane
     };
   } catch { return def(); }
 }
@@ -2954,24 +3135,130 @@ addEventListener('pointercancel', endTouch);
 }
 
 // ============================== KONTROLER (Gamepad API) ==============================
-// Handheldy (Retroid Pocket) + pady Xbox/PS. Mapowanie: lewy drążek = ruch,
-// prawy = obrót kamery, A(0) = skok (przytrzymanie = szybowanie), B(1) = wstecz,
-// Start(9) = pauza, D-pad = nawigacja po menu.
-const PAD = { on: false, mx: 0, mz: 0, jump: false, prev: [], navT: 0 };
+// Handheldy (Retroid, Steam Deck) + pady Xbox/PS/Switch. Lewy drążek = ruch, prawy
+// = kamera (i celowanie w karabinie), reszta wg `META.pad.map` (zakładka Sterowanie).
+// CAŁA gra ma dać się przejść bez myszy: menu, karty, wymiennik, pauza, koniec biegu,
+// a nawet suwaki głośności — dlatego `navItems` łapie też `input[type=range]`.
+const PAD = {
+  on: false, mx: 0, mz: 0, jump: false, prev: [], navT: 0,
+  rodzina: 'generic',                              // xbox | ps | switch | deck | generic
+  akt: 0,                                          // ile sekund jeszcze pokazujemy podpowiedzi
+  uczy: null,                                      // tryb nasłuchu przy zmianie mapowania
+  hpBylo: null,                                    // do wykrycia trafienia gracza (wibracje)
+  sygHud: '', sygFoot: '',                         // co aktualnie wisi w podpowiedziach
+};
 const PAD_DZ = 0.18;                               // martwa strefa drążków
+const PAD_ZANIK = 4;                               // po tylu sekundach bez pada podpowiedzi gasną
 let gpSel = null;                                  // zaznaczony kafelek menu
+
+// WSZYSTKIE TEKSTY PADA W JEDNYM MIEJSCU — etap 2 (PL/EN) podmieni tę jedną tablicę
+// zamiast szukać napisów po kilkunastu szablonach.
+const PAD_TXT = {
+  wybierz: 'wybierz', wstecz: 'wstecz', wznow: 'wznów', zakladki: 'zakładki', zmiana: 'zmiana',
+  skok: 'skok', karabin: 'karabin', wieza: 'wieżyczka', smrod: 'smród', pauza: 'pauza',
+  kamera: 'kamera za plecy', czulosc: 'Czułość prawego drążka', inwersja: 'Odwróć pion (karabin)',
+  wibracje: 'Wibracje', zmien: 'Zmień', domyslne: 'PRZYWRÓĆ DOMYŚLNE',
+  nasluch: 'naciśnij przycisk…', anuluj: 'anuluj', zajety: 'Ten przycisk jest zajęty na stałe', wl: 'WŁ.', wyl: 'WYŁ.',
+  polaczony: 'KONTROLER: ', odlaczony: 'Kontroler odłączony', ustawione: 'Przypisano: ',
+};
+
+// RODZINA PADA po `gp.id`. Chrome podaje „Xbox Wireless Controller (STANDARD GAMEPAD
+// Vendor: 045e Product: 02fd)", Firefox samo „045e-02fd-…" — stąd i nazwy, i vendor id.
+// Valve SPRAWDZAMY PIERWSZY: Steam Deck potrafi przedstawiać się jako pad Xboxa
+// (emulacja XInput), więc odwrotna kolejność nigdy by go nie rozpoznała.
+function padRodzina(id) {
+  const s = String(id || '').toLowerCase();
+  if (/valve|steam/.test(s)) return 'deck';
+  if (/xbox|xinput|045e/.test(s)) return 'xbox';
+  if (/sony|playstation|dualshock|dualsense|054c/.test(s)) return 'ps';
+  if (/nintendo|pro controller|joy-?con|057e/.test(s)) return 'switch';
+  return 'generic';
+}
+// symbole PlayStation jako KSZTAŁTY CSS — czcionka UI (Jersey 10) nie ma tych glifów,
+// a systemowy fallback wstawiłby gładki znak obok pixelowego interfejsu
+const PS_KSZ = { x: '<i class="psX"></i>', k: '<i class="psK"></i>', s: '<i class="psS"></i>', t: '<i class="psT"></i>' };
+// [klasa koloru, treść]. UWAGA NA SWITCHA: fizyczne A/B i X/Y są tam ZAMIENIONE
+// względem układu `standard`, więc przycisk o indeksie 0 podpisujemy „B", nie „A"
+// (inaczej podpowiedź kazałaby graczowi cisnąć nie ten guzik, co trzeba).
+const PAD_GLIFY = {
+  xbox: { 0: ['a', 'A'], 1: ['b', 'B'], 2: ['x', 'X'], 3: ['y', 'Y'],
+          4: ['sh', 'LB'], 5: ['sh', 'RB'], 6: ['sh', 'LT'], 7: ['sh', 'RT'], 8: ['sh', 'BACK'], 9: ['sh', 'START'] },
+  ps:   { 0: ['a', PS_KSZ.x], 1: ['b', PS_KSZ.k], 2: ['x', PS_KSZ.s], 3: ['y', PS_KSZ.t],
+          4: ['sh', 'L1'], 5: ['sh', 'R1'], 6: ['sh', 'L2'], 7: ['sh', 'R2'], 8: ['sh', 'CRE'], 9: ['sh', 'OPT'] },
+  switch: { 0: ['', 'B'], 1: ['', 'A'], 2: ['', 'Y'], 3: ['', 'X'],
+          4: ['sh', 'L'], 5: ['sh', 'R'], 6: ['sh', 'ZL'], 7: ['sh', 'ZR'], 8: ['sh', '-'], 9: ['sh', '+'] },
+};
+// D-pad (12-15) wygląda tak samo na każdym padzie — strzałki rysowane kształtem CSS,
+// wspólne dla wszystkich rodzin, więc siedzą poza `PAD_GLIFY`
+const PAD_DPAD = { 12: 'dpG', 13: 'dpD', 14: 'dpL', 15: 'dpP' };
+function padKapsel(i) {
+  if (PAD_DPAD[i]) return `<b class="gpk sh"><i class="${PAD_DPAD[i]}"></i></b>`;
+  const tab = PAD_GLIFY[PAD.rodzina === 'deck' ? 'xbox' : PAD.rodzina];
+  const g = tab && tab[i];
+  if (!g) return `<b class="gpk">${i}</b>`;        // nieznana rodzina/przycisk = goły numer
+  return `<b class="gpk ${g[0]}">${g[1]}</b>`;
+}
+// glyph akcji z `META.pad.map` — do HUD-u, stopki i zakładki Sterowanie
+function padGlyph(akcja) {
+  const i = META.pad.map[akcja];
+  return i == null ? '' : padKapsel(i);
+}
+
+// WIBRACJE. Firefox i Safari nie mają `vibrationActuator`, a Chrome zwraca PROMISE,
+// który przy odpiętym padzie odrzuca się — bez `.catch` leciałoby to prosto
+// w `unhandledrejection` (ta sama pułapka, co przy Pointer Locku).
+function padWibruj(sila, ms) {
+  if (!META.pad.wibracje) return;
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  for (const p of pads) {
+    if (!p || p.connected === false) continue;
+    const a = p.vibrationActuator;
+    if (!a || !a.playEffect) continue;              // pad bez silników nie blokuje kolejnego, który je ma
+    try {
+      const r = a.playEffect('dual-rumble', {
+        duration: ms, startDelay: 0,
+        strongMagnitude: Math.min(1, sila), weakMagnitude: Math.min(1, sila * 0.7),
+      });
+      if (r && r.catch) r.catch(() => {});
+    } catch { /* przeglądarka bez wibracji — trudno */ }
+    return;                                        // tylko pierwszy pad, nie cała szuflada
+  }
+}
+// KRYTYKI IDĄ SERIAMI (aury biją co 0.25 s w kilkunastu wrogów naraz), więc bez
+// tego dławika pad warczałby bez przerwy i zjadał baterię handhelda
+let _krytWibT = 0;
+function padWibrujKryt() {
+  const t = performance.now();
+  if (t - _krytWibT < 150) return;
+  _krytWibT = t;
+  padWibruj(0.22, 45);
+}
+
+// „Pad żyje" — podpowiedzi mają się pokazywać TYLKO wtedy, gdy gracz faktycznie
+// trzyma pada. Ruch myszy albo klawisz gasi je od razu (gracz przesiadł się z powrotem).
+function padZywy() { PAD.on = true; PAD.akt = PAD_ZANIK; }
+function padMartwy() {
+  if (!PAD.on && !PAD.akt) return;
+  PAD.on = false; PAD.akt = 0;
+  padHudOdswiez(); padFootOdswiez();
+}
+addEventListener('mousemove', () => { if (PAD.on) padMartwy(); });
+addEventListener('keydown', () => { if (PAD.on) padMartwy(); });
 
 function padToast(txt) {
   toastBuff(txt);
   setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2500);
 }
 addEventListener('gamepadconnected', e => {
-  PAD.on = true;
-  padToast('KONTROLER: ' + String(e.gamepad && e.gamepad.id || 'pad').slice(0, 22));
+  padZywy();
+  PAD.rodzina = padRodzina(e.gamepad && e.gamepad.id);
+  renderSterowanie();                              // glify w zakładce muszą pasować do NOWEGO pada
+  padToast(PAD_TXT.polaczony + String(e.gamepad && e.gamepad.id || 'pad').slice(0, 22));
 });
 addEventListener('gamepaddisconnected', () => {
-  PAD.on = false; PAD.mx = PAD.mz = 0; PAD.jump = false; PAD.prev = [];
-  padToast('Kontroler odłączony');
+  PAD.on = false; PAD.akt = 0; PAD.mx = PAD.mz = 0; PAD.jump = false; PAD.prev = []; PAD.uczy = null;
+  padHudOdswiez(); padFootOdswiez();
+  padToast(PAD_TXT.odlaczony);
 });
 
 // martwa strefa + ruch proporcjonalny (po odjęciu strefy skala rośnie do 1)
@@ -2987,7 +3274,13 @@ function topOverlay() {
   for (const o of document.querySelectorAll('.ov')) if (o.offsetWidth) ov = o;
   return ov;
 }
-const navItems = ov => [...ov.querySelectorAll('.tab,.tile,.card,.bigbtn,.btn2')].filter(el => el.offsetWidth);
+// `input[type=range]` i `select` SĄ tu celowo: bez nich suwaki głośności i czułości
+// byłyby jedynymi miejscami w grze, do których trzeba myszy (a to wywraca cały punkt
+// „Steam Deck bez klawiatury"). Pola TEKSTOWE zostają poza listą — padem i tak nie ma
+// czym w nie wpisać, a jedyne takie pole (kod DEV) wylatuje z drzewa w wydaniu.
+const navItems = ov => [...ov.querySelectorAll('.tab,.tile,.card,.bigbtn,.btn2,input[type=range],select')]
+  .filter(el => el.offsetWidth);
+const jestSuwak = el => el && el.tagName === 'INPUT' && el.type === 'range';
 function gpMark(el) {
   if (gpSel === el) return;
   if (gpSel) gpSel.classList.remove('gp-sel');
@@ -3003,8 +3296,14 @@ function gpMove(items, dx, dy) {
     if (el === gpSel) continue;
     const r = el.getBoundingClientRect();
     const x = r.left + r.width / 2 - ax, y = r.top + r.height / 2 - ay;
-    const along = x * dx + y * dy, side = Math.abs(x * dy - y * dx);
+    const along = x * dx + y * dy;
     if (along < 6) continue;                       // tylko w tę stronę
+    // ODCHYLENIE BOCZNE liczone do KRAWĘDZI kandydata, nie do jego środka: szeroki
+    // suwak czułości (444 px) miał środek 60 px w bok od kolumny przycisków „Zmień",
+    // więc D-dół przeskakiwał go na rzecz przełącznika niżej (tester 18.09). Element,
+    // który leży „pod kursorem" w poprzek, ma odchylenie 0.
+    const cx = Math.min(Math.max(ax, r.left), r.right), cy = Math.min(Math.max(ay, r.top), r.bottom);
+    const side = dy ? Math.abs(cx - ax) : Math.abs(cy - ay);
     const d = along + side * 2.2;
     if (d < bd) { bd = d; best = el; }
   }
@@ -3018,20 +3317,174 @@ function gpBack(ov) {                              // B = wstecz / zamknij
     if (t && !t.classList.contains('sel')) t.click();
   }                                                // karty/wymiennik: trzeba wybrać
 }
+// SUWAK PADEM: lewo/prawo = ±5% ZAKRESU (nie ±1 krok — przy 0-100 gracz kręciłby
+// głośność sto razy). `input` musi polecieć ręcznie, bo zmiana `value` z kodu
+// nie generuje zdarzeń, a na nich wiszą i audio.js, i czułość drążka.
+function gpSuwak(el, dir) {
+  const min = +el.min || 0, max = el.max === '' ? 100 : +el.max;
+  const krok = Math.max(+el.step || 1, Math.round((max - min) * 0.05));
+  el.value = Math.max(min, Math.min(max, (+el.value) + dir * krok));
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+// LB/RB = poprzednia/następna zakładka menu. Zakładka „Graj" jest ukryta (ma własny
+// duży przycisk), więc filtrujemy po offsetWidth — inaczej pad zatrzymywałby się
+// na niewidocznym elemencie i wyglądałoby to na zawieszenie.
+function gpZakladka(dir) {
+  const tabs = [...document.querySelectorAll('#tabs .tab')].filter(t => t.offsetWidth);
+  if (!tabs.length) return;
+  let i = tabs.findIndex(t => t.classList.contains('sel'));
+  if (i < 0) i = dir > 0 ? -1 : 0;
+  const t = tabs[(i + dir + tabs.length) % tabs.length];
+  t.click();
+  gpMark(t);
+}
+
+// ---- PODPOWIEDZI PRZYCISKÓW ----
+// Rysujemy je TYLKO przy żywym padzie i tylko wtedy, gdy akcja ma sens (smród
+// pokazujemy wyłącznie Garlicinowi, karabin dopiero po znalezieniu go w skrzyni) —
+// martwa podpowiedź uczy gracza ignorować cały pasek.
+const padWiersz = (akcja, txt) => `<span>${padGlyph(akcja)}${txt}</span>`;
+// `ov` można podać z zewnątrz, gdy wywołujący już je policzył (`topOverlay()` to
+// zapytanie do DOM-u, a tu jesteśmy co klatkę). Po `togglePause`/`gpBack` overlay
+// mógł się właśnie otworzyć albo zamknąć — tam liczymy je na nowo, bez argumentu.
+function padHudOdswiez(ov = topOverlay()) {
+  const el = document.getElementById('padHud');
+  if (!el) return;
+  const widok = PAD.on && G.running && !G.paused && !G.dying && !ov;
+  if (!widok) { el.classList.remove('on'); PAD.sygHud = ''; return; }
+  const kar = !!P.karabinMa || G.fps.on, sm = charKey === 'garlicino';
+  const syg = PAD.rodzina + '|' + kar + sm + JSON.stringify(META.pad.map);
+  if (syg !== PAD.sygHud) {
+    PAD.sygHud = syg;
+    el.innerHTML = padWiersz('skok', PAD_TXT.skok)
+      + (kar ? padWiersz('karabin', PAD_TXT.karabin) : '')
+      + padWiersz('wieza', PAD_TXT.wieza)
+      + (sm ? padWiersz('smrod', PAD_TXT.smrod) : '')
+      + padWiersz('pauza', PAD_TXT.pauza);
+  }
+  el.classList.add('on');
+}
+function padFootOdswiez(ov = topOverlay()) {
+  const el = document.getElementById('padFoot');
+  if (!el) return;
+  if (!PAD.on || !ov) {
+    el.classList.remove('on'); document.body.classList.remove('pad-foot');
+    PAD.sygFoot = ''; return;
+  }
+  const syg = PAD.rodzina + '|' + ov.id + '|' + (PAD.uczy ? 'u' : '') + (jestSuwak(gpSel) ? 's' : '');
+  if (syg !== PAD.sygFoot) {
+    PAD.sygFoot = syg;
+    // karty i wymiennik NIE MAJĄ wyjścia wstecz (trzeba wybrać ulepszenie), więc
+    // nie obiecujemy tam „B wstecz" — obietnica bez pokrycia gorsza niż jej brak
+    const bezWstecz = ov.id === 'cardsOv' || ov.id === 'swapOv';
+    // w trybie nasłuchu („naciśnij przycisk") stopka mówi tylko to, co ma sens: B anuluje
+    el.innerHTML = PAD.uczy ? `<span>${padKapsel(1)}${PAD_TXT.anuluj}</span>`
+      : `<span>${padKapsel(0)}${PAD_TXT.wybierz}</span>`
+      + (bezWstecz ? '' : `<span>${padKapsel(1)}${PAD_TXT.wstecz}</span>`)
+      + (ov.id === 'startOv' ? `<span>${padKapsel(4)}${padKapsel(5)}${PAD_TXT.zakladki}</span>` : '')
+      + (ov.id === 'pauseOv' ? `<span>${padGlyph('pauza')}${PAD_TXT.wznow}</span>` : '')
+      + (jestSuwak(gpSel) ? `<span>${padKapsel(14)}${padKapsel(15)}${PAD_TXT.zmiana}</span>` : '');
+  }
+  el.classList.add('on');
+  document.body.classList.add('pad-foot');         // overlay robi miejsce na stopkę
+}
+
+// KONIEC NASŁUCHU przy zmianie mapowania. `i == null` = anulowane (B albo upłynęło 5 s).
+function padKoniecNauki(i) {
+  const a = PAD.uczy && PAD.uczy.akcja;
+  PAD.uczy = null;
+  // PRZYCISKI ZAJĘTE NA STAŁE: B (wstecz), LB/RB (zakładki), D-pad (nawigacja) i stałe
+  // alternatywy z PAD_ALT (RT/LT/Back). Przypisanie np. skoku do RT dawałoby skok
+  // + karabin z jednego naciśnięcia, bo `akcja()` sprawdza mapę I alternatywy (recenzja 18.09).
+  const ZAJETE = [1, 4, 5, 12, 13, 14, 15, ...Object.values(PAD_ALT)];
+  if (i != null && ZAJETE.includes(i)) { padToast(PAD_TXT.zajety); i = null; }
+  if (a && i != null) {
+    // ZAMIANA, nie duplikat: gdyby ten przycisk siedział już pod inną akcją, jedno
+    // naciśnięcie odpalałoby obie naraz (smród + wieżyczka), czego nikt nie chce.
+    // Akcja, której guzik zabraliśmy, dostaje ten zwolniony przez nas.
+    const stary = META.pad.map[a];
+    for (const k of Object.keys(META.pad.map)) if (k !== a && META.pad.map[k] === i) META.pad.map[k] = stary;
+    META.pad.map[a] = i;
+    saveMeta();
+  }
+  PAD.sygHud = PAD.sygFoot = '';                   // podpowiedzi muszą pokazać NOWY przycisk
+  renderSterowanie();
+}
+// AIM ASSIST (lekki). Nie strzela za gracza — tylko domyka ostatnie stopnie, gdy
+// drążek STOI (wychylenie < 0.15). Szarpanie kamerą w trakcie celowania byłoby
+// walką z graczem, a to najgorsze, co aim assist może zrobić.
+// Rusza DOKŁADNIE TYMI zmiennymi, z których `karabinStrzal` liczy tor pocisku:
+// `camYaw` i `G.fps.pitch` (kierunek = (-sin yaw·cos pit, sin pit, -cos yaw·cos pit)).
+const AIM_STOZEK = Math.cos(6 * Math.PI / 180);
+function padAimAssist(dt) {
+  const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+  const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);
+  let cel = null, best = 1e9;
+  for (const e of G.enemies) {
+    if (e.dying) continue;
+    const dx = e.pos.x - cx, dz = e.pos.z - cz;
+    const d = Math.hypot(dx, dz);
+    if (d < 4 || d > 30) continue;                 // wróg na wyciągnięcie ręki i tak wypełnia celownik
+    if ((dx * fx + dz * fz) / d < AIM_STOZEK) continue;
+    if (d < best) { best = d; cel = e; }           // najbliższy w stożku = ten, o którego chodzi
+  }
+  if (!cel) return;
+  const dx = cel.pos.x - cx, dz = cel.pos.z - cz, dp = Math.hypot(dx, dz);
+  const k = Math.min(1, dt * 2.5);
+  let rozn = Math.atan2(-dx, -dz) - camYaw;
+  rozn = Math.atan2(Math.sin(rozn), Math.cos(rozn));   // normalizacja do (-π, π]
+  camYaw += rozn * k;
+  dodajPitch((Math.atan2(cel.ty + 0.8 - cy, dp) - G.fps.pitch) * k);
+}
 
 // odpytywanie padów MUSI iść co klatkę (stan nie przychodzi zdarzeniami)
 function pollPads(dt) {
+  // TRAFIENIE GRACZA = spadek HP. Obrażenia lecą z pięciu różnych miejsc (kontakt,
+  // kamikaze, regał, boss, kolce), więc zamiast pięciu haczyków pilnujemy tu jednej
+  // liczby — leczenie (wzrost) świadomie nie wibruje.
+  if (PAD.hpBylo != null && P.hp < PAD.hpBylo) padWibruj(0.95, 120);
+  PAD.hpBylo = P.hp;
+
   const pads = navigator.getGamepads ? navigator.getGamepads() : [];
   let gp = null;
   for (const p of pads) if (p && p.connected !== false) { gp = p; break; }
-  if (!gp) { PAD.mx = PAD.mz = 0; return; }
+  if (!gp) {
+    PAD.mx = PAD.mz = 0;
+    if (PAD.uczy) padKoniecNauki(null);            // pad wypięty w trakcie nasłuchu = anuluj
+    if (PAD.on) padMartwy();
+    return;
+  }
+  const rodz = padRodzina(gp.id);
+  if (rodz !== PAD.rodzina) {                      // przepięcie pada w locie = inne glify
+    PAD.rodzina = rodz; PAD.sygHud = PAD.sygFoot = '';
+    renderSterowanie();
+  }
   const B = gp.buttons || [], ax = gp.axes || [];
-  const btn = i => !!(B[i] && (B[i].pressed || B[i].value > 0.5));
+  const btn = i => !!(B[i] && (B[i].pressed || B[i].value > 0.5));   // spusty analogowe: próg 0.5
   const hit = i => btn(i) && !PAD.prev[i];         // zbocze narastające
+  const akcja = a => hit(META.pad.map[a]) || (PAD_ALT[a] != null && hit(PAD_ALT[a]));
   const [lx, ly] = padStick(ax[0] || 0, ax[1] || 0);
   const [rx, ry] = padStick(ax[2] || 0, ax[3] || 0);   // ry = celowanie w pionie (tylko tryb karabinu)
-  const ov = topOverlay();
+  const zapisz = () => { for (let i = 0; i < B.length; i++) PAD.prev[i] = btn(i); };
 
+  // ŻYWY PAD = podpowiedzi na ekranie. Bez tego wisiałyby przy kimś, kto od kwadransa
+  // gra na klawiaturze (pad leży podłączony obok).
+  let ruch = Math.abs(lx) + Math.abs(ly) + Math.abs(rx) + Math.abs(ry) > 0;
+  if (!ruch) for (let i = 0; i < B.length; i++) if (btn(i)) { ruch = true; break; }
+  if (ruch) padZywy();
+  else if (PAD.akt > 0 && (PAD.akt -= dt) <= 0) PAD.on = false;
+
+  // ---- NASŁUCH przy zmianie mapowania: pad NIE steruje wtedy niczym innym ----
+  if (PAD.uczy) {
+    if ((PAD.uczy.t -= dt) <= 0) padKoniecNauki(null);
+    else for (let i = 0; i < B.length; i++) if (hit(i)) { padKoniecNauki(i === 1 ? null : i); break; }
+    zapisz();
+    padHudOdswiez(); padFootOdswiez();
+    return;
+  }
+
+  const ov = topOverlay();
   if (ov) {                                        // ---- nawigacja po menu/overlayu ----
     PAD.mx = PAD.mz = 0;
     if (PAD.jump) { PAD.jump = false; jumpHeld = false; }
@@ -3042,23 +3495,104 @@ function pollPads(dt) {
     if (!dx && !dy && (Math.abs(lx) > 0.5 || Math.abs(ly) > 0.5)) {
       if (Math.abs(lx) > Math.abs(ly)) dx = Math.sign(lx); else dy = Math.sign(ly);
     }
+    // NA SUWAKU lewo/prawo ZMIENIA WARTOŚĆ, a nie skacze do sąsiada — inaczej
+    // głośności i czułości nie dałoby się ustawić niczym poza myszą.
+    const suw = jestSuwak(gpSel);
     if (!dx && !dy) PAD.navT = 0;
-    else if ((PAD.navT -= dt) <= 0) { gpMove(items, dx, dy); PAD.navT = 0.22; }
-    if (hit(0) && gpSel) gpSel.click();
+    else if ((PAD.navT -= dt) <= 0) {
+      if (suw && dx) { gpSuwak(gpSel, dx); PAD.navT = 0.11; }   // szybciej: suwak ma 20 kroków
+      else { gpMove(items, dx, dy); PAD.navT = 0.22; }
+    }
+    if (hit(0) && gpSel && !suw) { gpSel.click(); AUDIO.sfx('klik'); }   // pad nie robi pointerdown, więc dźwięk ręcznie
     if (hit(1)) gpBack(ov);
-    if (hit(9) && ov.id === 'pauseOv') togglePause(false);
+    if (ov.id === 'startOv') {                     // LB/RB = zakładka w lewo/w prawo
+      if (hit(4)) gpZakladka(-1);
+      if (hit(5)) gpZakladka(1);
+    }
+    if (akcja('pauza') && ov.id === 'pauseOv') togglePause(false);
   } else {                                         // ---- sterowanie w grze ----
     if (gpSel) gpMark(null);
     PAD.mx = lx; PAD.mz = ly;
-    camYaw -= rx * 2.6 * dt;
-    if (G.fps.on && ry) dodajPitch(-ry * 1.3 * dt);
-    if (hit(0)) { PAD.jump = true; jumpHeld = true; tryJump(); }
-    if (PAD.jump && !btn(0)) { PAD.jump = false; jumpHeld = false; }
-    if (hit(2)) startKarabin();                      // X = karabin (jeśli leży w kieszeni)
-    if (hit(3)) postawWiezyczke();                   // Y = postaw Sokowirówkę
-    if (hit(9)) togglePause(true);
+    // KRZYWA CZUŁOŚCI ^1.6: przy małych wychyleniach kamera pełznie (celowanie),
+    // przy pełnym drążku chodzi tak samo szybko jak dotąd. Liniowy drążek jest
+    // albo za wolny na obrót, albo za szybki na poprawkę — nie ma między tym środka.
+    const czul = META.pad.czulosc || 1;
+    const krzywa = v => Math.sign(v) * Math.pow(Math.abs(v), 1.6);
+    camYaw -= krzywa(rx) * 2.6 * dt * czul;
+    if (G.fps.on) {
+      if (ry) dodajPitch(-krzywa(ry) * 1.3 * dt * czul * (META.pad.invY ? -1 : 1));
+      // TYLKO gdy gracz naprawdę gra padem (`PAD.on`) i nie trzyma kursora (mysz):
+      // `pollPads` leci dla każdego WPIĘTEGO pada, a drążki w spoczynku dają 0 —
+      // bez tego warunku gracz na myszy z padem leżącym obok dostawał auto-aim
+      // walczący z jego celowaniem (recenzja 18.09).
+      if (PAD.on && !myszLock && Math.hypot(rx, ry) < 0.15) padAimAssist(dt);
+    }
+    if (akcja('skok')) { PAD.jump = true; jumpHeld = true; tryJump(); }
+    if (PAD.jump && !btn(META.pad.map.skok)) { PAD.jump = false; jumpHeld = false; }
+    if (akcja('karabin')) startKarabin();
+    if (akcja('wieza')) postawWiezyczke();
+    if (akcja('smrod')) odpalSmrod();
+    if (akcja('kamera') && playerBB) camYaw = playerBB.facing + Math.PI;   // kamera za plecy
+    if (akcja('pauza')) togglePause(true);
   }
-  for (let i = 0; i < B.length; i++) PAD.prev[i] = btn(i);
+  zapisz();
+  padHudOdswiez(ov); padFootOdswiez(ov);           // `ov` już policzone wyżej — bez drugiego i trzeciego reflow na klatkę
+}
+
+// ---- ZAKŁADKA „STEROWANIE" ----
+// Rzędy budujemy z kodu, a nie w index.html, bo ten sam indeks przycisku nosi inny
+// napis na każdej rodzinie pada — po przepięciu kontrolera cała lista musi się
+// przerysować. Wygląd dzielimy z suwakami dźwięku (`.snd`), żeby nie mnożyć stylów.
+const PAD_AKCJE = ['skok', 'karabin', 'wieza', 'smrod', 'kamera', 'pauza'];
+function renderSterowanie() {
+  const box = document.getElementById('ctrlBox');
+  if (!box) return;
+  // zaznaczenie padem przeżywa przebudowę: inaczej po każdej zmianie mapowania
+  // kursor odskakiwał na początek menu i trzeba go było przywozić z powrotem
+  const bylo = gpSel && (gpSel.dataset && gpSel.dataset.padZmien
+    ? `[data-pad-zmien="${gpSel.dataset.padZmien}"]` : (gpSel.id ? '#' + gpSel.id : null));
+  const wl = v => (v ? PAD_TXT.wl : PAD_TXT.wyl);
+  box.innerHTML = PAD_AKCJE.map(a => {
+    const czeka = PAD.uczy && PAD.uczy.akcja === a;
+    return `<div class="snd${czeka ? ' czeka' : ''}"><label>${PAD_TXT[a]}</label>` +
+      `<b class="gpv">${czeka ? PAD_TXT.nasluch : padGlyph(a)}</b>` +
+      `<button class="btn2" data-pad-zmien="${a}">${PAD_TXT.zmien}</button></div>`;
+  }).join('')
+    + `<div class="snd"><label>${PAD_TXT.czulosc}</label>` +
+      `<input id="padCzul" type="range" min="50" max="200" step="5" ` +
+      `value="${Math.round((META.pad.czulosc || 1) * 100)}"><b id="padCzulV"></b></div>`
+    + `<div class="snd"><label>${PAD_TXT.inwersja}</label><b class="gpv"></b>` +
+      `<button class="btn2${META.pad.invY ? ' sel' : ''}" id="padInv">${wl(META.pad.invY)}</button></div>`
+    + `<div class="snd"><label>${PAD_TXT.wibracje}</label><b class="gpv"></b>` +
+      `<button class="btn2${META.pad.wibracje ? ' sel' : ''}" id="padWib">${wl(META.pad.wibracje)}</button></div>`
+    + `<button class="btn2" id="padReset">${PAD_TXT.domyslne}</button>`;
+
+  box.querySelectorAll('[data-pad-zmien]').forEach(b => b.onclick = () => {
+    PAD.uczy = { akcja: b.dataset.padZmien, t: 5 };   // 5 s na naciśnięcie, B anuluje
+    renderSterowanie();
+  });
+  const cz = document.getElementById('padCzul'), czV = document.getElementById('padCzulV');
+  const pokaz = () => { czV.textContent = (cz.value / 100).toFixed(2) + '×'; };
+  pokaz();
+  cz.oninput = () => { META.pad.czulosc = cz.value / 100; pokaz(); saveMetaSoon(); };
+  document.getElementById('padInv').onclick = () => {
+    META.pad.invY = META.pad.invY ? 0 : 1; saveMeta(); renderSterowanie();
+  };
+  document.getElementById('padWib').onclick = () => {
+    META.pad.wibracje = META.pad.wibracje ? 0 : 1; saveMeta();
+    if (META.pad.wibracje) padWibruj(0.6, 160);        // od razu czuć, co się właśnie włączyło
+    renderSterowanie();
+  };
+  document.getElementById('padReset').onclick = () => {
+    META.pad.map = { ...PAD_MAP_DOM };
+    META.pad.czulosc = 1; META.pad.invY = 0; META.pad.wibracje = 1;
+    saveMeta(); PAD.sygHud = PAD.sygFoot = '';
+    renderSterowanie();
+  };
+  if (bylo) {
+    const el = box.querySelector(bylo);
+    if (el && el.offsetWidth) { gpSel = null; gpMark(el); }
+  }
 }
 
 // ============================== OPRAWA BOSSA ==============================
@@ -3112,6 +3646,7 @@ function wejscieBossa() {
   // KINO: kamera odjezdza i czas zwalnia na ~1.2 s. Dotad boss dostawal tylko
   // przyciemnienie i napis, wiec „wejscie" bylo informacja, a nie wydarzeniem.
   G.kino = 1.2;
+  padWibruj(0.3, 800);                             // długo i słabo — pomruk, nie kopnięcie
   AUDIO.sfx('boss');
   AUDIO.event('boss');
   setTimeout(() => { ov.classList.remove('on'); nm.classList.remove('on'); pasy(false); }, 1500);
@@ -3395,7 +3930,7 @@ function killEnemy(e, i) {
     // muzyka bossa wraca do utworu z biegu dopiero, gdy padnie OSTATNI boss
     if (!G.enemies.some(o => o !== e && o.T.boss && !o.dying)) AUDIO.bossOff();
   }
-  else if (e.elite) dmgPop(e.pos.x, e.ty + 0.8, e.pos.z, 'ELITA!', '#ffd75e', 1.9);
+  else if (e.elite) { dmgPop(e.pos.x, e.ty + 0.8, e.pos.z, 'ELITA!', '#ffd75e', 1.9); padWibruj(0.55, 90); }
   // przy serii sam mnożnik wystarcza — słowo „KILL" tylko rozciągało napis na pół ekranu
   else dmgPop(e.pos.x, e.ty + 0.5, e.pos.z, G.streak > 1 ? 'x' + G.streak : 'KILL',
     '#ff6a5e', Math.min(1.0 + G.streak * 0.08, 1.6));
@@ -3930,7 +4465,7 @@ function zadajDmg(e, dmg, o = {}) {
   if (crit) spark(e.pos.x, e.ty + 1.5, e.pos.z);
   if (!o.noPop || crit) dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), crit ? '#ff9d3f' : (o.col || '#ffe066'),
                                 crit ? Math.max(1.5, o.sc || 1) : (o.sc || 1));
-  if (crit) AUDIO.sfx('kryt');
+  if (crit) { AUDIO.sfx('kryt'); padWibrujKryt(); }   // dławik 150 ms siedzi w padWibrujKryt
   else if (o.sfx) AUDIO.sfx(o.sfx);
   const dead = e.hp <= 0;
   if (dead && !o.noKill) killEnemy(e);
@@ -6335,7 +6870,7 @@ function update(dt) {
     if (P.vy <= 0 && P.y <= ground) {                    // lądowanie
       const mocno = P.vy < -4;                           // z byle stopnia nie ma co dudnić
       P.y = ground; P.vy = 0; P.airborne = false; P.usedDouble = false; P.gliding = false;
-      if (mocno) AUDIO.sfx('ladowanie');
+      if (mocno) { AUDIO.sfx('ladowanie'); padWibruj(0.45, 70); }
       // Fala z LADOWANIA dzieli cooldown z bronia — bez tego skakanie w kolko
       // dawalo fale co 0.75 s zamiast co 3.2 s, czyli 791 DPS (3x wiecej niz
       // druga najlepsza bron w grze).
@@ -7132,6 +7667,8 @@ function gameOver() {
     prezent = `<br><b style="color:#7ee7ff">${ico('pioruny', 18)} PIERWSZA PORAŻKA — PIORUN ODBLOKOWANY NA STAŁE!</b>`;
   }
   s.runs++; s.time += G.time; s.lvl += P.lvl - 1;
+  STATY.zdarzenie('run-end/smierc/min-' + kubelekMinut(G.time),
+    'Koniec biegu (śmierć): ' + fmtTime(G.time) + ', poziom ' + P.lvl + ', ' + G.kills + ' zabójstw');
   const rekordCzasu = G.time > s.best;          // PRZED aktualizacja! inaczej zawsze true
   if (rekordCzasu) s.best = G.time;
   if (G.kills > s.bestKills) s.bestKills = G.kills;
@@ -7234,6 +7771,7 @@ function newGame() {
   resetStats();
   Object.assign(G, { running: true, over: false, paused: false, dying: false, deathT: 0, time: 0, kills: 0, runCoins: 0, zebrane: 0, ranga: 0, rangaKille: 0, spawnT: 0.5, bossAt: 120, ringAt: 60, tier: 0, shake: 0, tlok: 0, kino: 0 });
   winieta(true);
+  STATY.zdarzenie('run-start/' + charKey + '/' + mapKey, 'Bieg: ' + CHARS[charKey].nm + ' / ' + MAPS[mapKey].nm);
   P.pos.set(0, 0, 0);
   P.y = terrainH(0, 0);
   // ODBUDOWA ŚWIATA. `clearWorld()` czyści `G.padajace`, ale NIE dotyka `ch.shelves`:
@@ -7443,6 +7981,7 @@ if (loadTip) {
   drawHearts();
   await ladowanie('Otwieranie sklepu…');
   renderShop(); renderMaps(); renderChars(); renderStats(); renderBestiary(); renderPick();
+  renderSterowanie();    // zakładka Sterowanie (mapowanie pada)
   AUDIO.initUI();        // suwaki głośności w zakładce Dźwięk
   // KLIK w UI: jeden delegat na cały dokument zamiast dopisywania dźwięku
   // do każdego przycisku osobno (menu jest generowane w kilku miejscach).
@@ -7462,8 +8001,15 @@ if (loadTip) {
   if (loadOv) { loadOv.classList.add('znika'); setTimeout(() => loadOv.remove(), 500); }
 
   const menu = document.getElementById('startOv');
-  document.getElementById('btnStart').onclick = () => { menu.style.display = 'none'; newGame(); };
+  initEkranUI();                       // przełącznik pełnego ekranu + instalacja PWA
+  // PEŁNY EKRAN NAJPIERW: `requestFullscreen` liczy się tylko wewnątrz gestu
+  // użytkownika, a `newGame()` robi swoje długo — po nim gest bywa już „zużyty".
+  document.getElementById('btnStart').onclick = () => {
+    sprobujPelnyEkran();
+    menu.style.display = 'none'; newGame();
+  };
   document.getElementById('btnRetry').onclick = () => {
+    sprobujPelnyEkran();               // gracz mógł w międzyczasie wyjść z pełnego ekranu
     document.getElementById('overOv').style.display = 'none';
     newGame();
   };
@@ -7516,6 +8062,7 @@ if (loadTip) {
     if (t.dataset.tab === 'staty') renderStats();
     if (t.dataset.tab === 'bestia') renderBestiary();
     if (t.dataset.tab === 'sklep') renderShop();
+    if (t.dataset.tab === 'sterowanie') renderSterowanie();
   });
   // pauza
   document.getElementById('pauseBtn').onclick = () => togglePause(!G.paused);
@@ -7524,6 +8071,8 @@ if (loadTip) {
     togglePause(false);
     G.running = false;
     rozliczBieg();                                // monety z przerwanego biegu też są nasze
+    STATY.zdarzenie('run-end/menu/min-' + kubelekMinut(G.time),
+      'Koniec biegu (wyjście do menu): ' + fmtTime(G.time) + ', poziom ' + P.lvl);
     META.st.runs++; META.st.time += G.time; META.st.lvl += Math.max(0, P.lvl - 1);
     if (G.time > META.st.best) META.st.best = G.time;
     if (G.kills > META.st.bestKills) META.st.bestKills = G.kills;
@@ -7560,6 +8109,7 @@ if (loadTip) {
     updateTrample,
     render() { renderer.render(scene, camera); },
     PAD, pollPads, get camYaw() { return camYaw; }, get gpSel() { return gpSel; },
+    padGlyph, padRodzina, padWibruj, navItems, topOverlay, renderSterowanie,
     // staty pochodne + pula kart: do pomiarow balansu (projektant/tester nie mieli
     // jak zmierzyc, czy karta faktycznie cokolwiek robi — stad martwy `fireMul`)
     get staty() {

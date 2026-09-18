@@ -1185,6 +1185,128 @@ kazał ZOSTAWIĆ — to była inna wersja.)
 - Wygląd na telefonie (GRASS_R 31 przy `pointer:coarse`, las 260 calli).
 - Punkt 2 (atlas sprite'ów, 58 MB VRAM) i 4 (ekonomia) nadal otwarte.
 
+## ═══════════ PLAN 18.09.2026 — DECYZJE WŁAŚCICIELA (pięć etapów + 2 graczy) ═══════════
+Ustalone wspólnie 18.09 (pytania → odpowiedzi właściciela). Każdy etap kończy się
+commitem, pushem na `origin` i `play` oraz aktualizacją tej sekcji.
+
+### Etap 1 — WYDANIE ✅ kod gotowy 18.09 (main.js v150) — CZEKA NA TESTY PIOTRA NA SPRZĘCIE
+Zrobione: Fullscreen API po GRAJ na dotyku + przycisk w HUD (`#fsBtn` pod pauzą) i w panelu
+„Dźwięk i ekran" (`#btnFs`, `#btnInstall`), manifest PWA (`display:fullscreen`, `orientation:any`,
+bez `id` — patrz recenzja), `sw.js` network-first BEZ cache (rejestracja tylko poza localhost
+i poza ramką itch), ikony `assets/pwa/`, `#hud` przesunięty o safe-area (+ `#bossHp`, `#pauseBtn`,
+`#fsBtn` osobno, bo `fixed`), podpowiedź „Dodaj do ekranu" na iPhone/iPad; GoatCounter
+`STATY.kod='veggiefaniglia'` (odsłony + `run-start/<postać>/<mapa>`, `run-end/<powód>/min-<k>`,
+`install-pwa`; `allow_frame` dla itch, `allow_local` dla Capacitora); `narzedzia/buduj_itch.sh`
+→ `dist/veggie-famiglia-itch-vN.zip` (~15 MB, 89 plików); gamepad: `META.pad` (mapa, czułość,
+inwersja, wibracje), rodziny xbox/ps/switch/deck/generic z glifami CSS, `#padHud`/`#padFoot`
+(tylko gdy pad żywy), wszystkie overlaye + suwaki padem, LB/RB zakładki, zakładka „Sterowanie"
+z nauką przycisku (zajęte na stałe: B, LB/RB, D-pad, RT/LT/Back), wibracje (trafienie 0.95/120 ms,
+elita, boss, lądowanie, krytyk z dławikiem), aim assist w karabinie TYLKO gdy `PAD.on && !myszLock`.
+Tester 18.09: menu/bieg/karty/pauza/śmierć/restart padem OK, chunki i pamięć stabilne.
+**Do sprawdzenia przez Piotra:** Android Chrome (auto-fullscreen po GRAJ w pionie i poziomie,
+obrót, przycisk pełnego ekranu vs serca/czaszki, „Zainstaluj grę" tylko z HTTPS), iPhone/iPad
+Safari (pasek „Dodaj do ekranu" raz, po instalacji HUD pod notchem w obu orientacjach), itch
+(zip z `dist/`, ustawienia niżej, brak `window.HORDA`), prawdziwe pady (siła wibracji, spusty
+jako `B[6]/B[7]`, `gp.id` Retroid/8BitDo/DualSense BT, Switch Pro układ standard, tempo
+nawigacji 0.22 s, czułość 1.0× i aim assist, LB „kamera za plecy" — czy nie szarpie).
+- **Pełny ekran na telefonie w OBU orientacjach**: Fullscreen API po dotknięciu GRAJ
+  (+ przycisk w menu), manifest PWA (dodaj do ekranu głównego bez paska adresu),
+  minimalny service worker pod instalowalność, ikony z `assets/logo.png`.
+  iOS Safari nie ma Fullscreen API dla stron → tam tylko PWA (podpowiedź „Dodaj do ekranu").
+- **Statystyki graczy = GoatCounter** (darmowy, bez ciasteczek, bez zgody RODO).
+  Zdarzenia: `run-start` (postać, mapa), `run-end` (czas, poziom, zabójstwa, powód),
+  `menu-open`, `install-pwa`. Osobno Pages i itch (referrer). **Kod konta podaje właściciel**
+  (`STATY.kod` w main.js); do tego czasu zdarzenia idą w próżnię, gra działa normalnie.
+- **itch.io = HTML5 w przeglądarce, DARMOWE.** Skrypt `narzedzia/buduj_itch.sh` → zip
+  z `index.html` w korzeniu. Steam zostaje wersją płatną.
+
+#### ✅ ZROBIONE 18.09: pełny ekran + PWA + paczka na itch
+- **Pełny ekran** (`main.js`, sekcja „PEŁNY EKRAN / PWA" tuż pod `orientationchange`):
+  `sprobujPelnyEkran()` z GRAJ i JESZCZE RAZ — **tylko na dotyku** (`pointer:coarse`
+  lub `maxTouchPoints`), nigdy na desktopie, i tylko gdy `document.fullscreenEnabled`
+  i nie jesteśmy już w pełnym ekranie ani w PWA. Wołane PRZED `newGame()`, bo
+  `requestFullscreen()` liczy się wyłącznie w geście użytkownika. Odrzucenie promisy
+  łykamy po cichu (`?.catch`) — w podglądzie w iframe gra ma nie sypać błędami.
+  Przełącznik: `#btnFs` w zakładce **„Dźwięk i ekran"** + `#fsBtn` w HUD (drugi
+  w kolumnie POD pauzą — obok się nie mieści, rząd serc sięga przy 375 px do x≈263).
+- **Notch**: zamiast dopisywać `env(safe-area-inset-*)` do kilkunastu elementów HUD-u,
+  wciągnięta jest krawędź **jednego** `#hud` (dzieci są `position:absolute`, więc liczą
+  się od niej). Dół zostaje na 0 — `#wpns` ma już własne `env()` i podwójne liczenie
+  podniosłoby pasek broni o ~34 px.
+- **PWA**: `manifest.webmanifest` (`display:fullscreen`, `orientation:any` — gra działa
+  w obu orientacjach), ikony `assets/pwa/icon-{192,512,512-maskable}.png` generowane
+  z `assets/logo.png` (tło `#121a12`, margines 12% / 20% maskable). `sw.js` jest
+  **celowo bez cache'owania** (network-first): gra wersjonuje pliki przez `?v=N`,
+  a SW trzymający `index.html` unieważniłby cały ten mechanizm. SW **nie rejestruje się
+  na localhoście** ani z `file://`.
+- **iOS**: Safari nie daje stronom Fullscreen API. Wykryte → przełącznik znika,
+  a pod GRAJ pokazuje się **raz** (`META.ui.pwaHint`) podpowiedź „Udostępnij → Dodaj
+  do ekranu początkowego". Gra działa normalnie.
+- **Paczka**: `narzedzia/buduj_itch.sh` → `dist/veggie-famiglia-itch-vN.zip`
+  (N z `main.js?v=N`). v149: **89 plików, 15 MB**. `dist/` jest w `.gitignore`.
+  Skrypt sam sprawdza ścieżki absolutne i to, że `index.html` leży w korzeniu zipa.
+  `assets/portrety` NIE wchodzi — to rendery do dokumentacji, kod ich nie używa.
+
+##### Publikacja na itch.io (ustawienia strony gry)
+1. **Uploads** → dodaj zipa → zaznacz **„This file will be played in the browser"**.
+2. **Kind of project: HTML**. **Viewport**: `1280×720` (albo dowolny — i tak włącz
+   **„Fullscreen button"**, bo to jedyny wygodny pełny ekran na desktopie).
+3. **Mobile friendly: ON**. **Orientation: zostaw domyślną** — gra chodzi w pionie
+   i w poziomie, wymuszanie „Landscape" tylko by przeszkadzało.
+4. **Embed options**: zalecane **„Click to launch in fullscreen"** (gest kliknięcia
+   od razu daje prawo do `requestFullscreen`, więc wchodzi bez drugiego dotknięcia).
+5. **SharedArrayBuffer support: OFF** — nie używamy wątków ani WASM z pamięcią dzieloną,
+   a włączenie zakłada nagłówki COOP/COEP, które potrafią zablokować zwykłe pobrania.
+6. **Pricing: free** (Steam zostaje wersją płatną).
+- ⚠️ Flaga `DEV` w `main.js` sprawdza `localhost` **i port 8123** — `html.itch.zone`
+  nigdy w to nie trafi, więc na itch nie ma `window.HORDA` ani pola na kod. Dobrze.
+- **Gamepad w komplecie**: wszystkie menu i overlaye bez myszy (w tym suwaki dźwięku),
+  podpowiedzi przycisków wg rodziny pada (Xbox / PlayStation / Switch / Steam Deck),
+  wibracje (trafienie, elita, boss, twarde lądowanie), zakładka „Sterowanie" z mapowaniem
+  i czułością prawego drążka, spusty/bumpery na szybkie akcje (karabin, wieżyczka, smród),
+  celowanie prawym drążkiem w karabinie z krzywą czułości i lekkim aim assistem,
+  Steam Deck / Retroid bez wymagania myszy.
+
+### Etap 2 — JĘZYKI PL/EN + FABUŁA
+- Auto z przeglądarki + przełącznik w menu; **głosy PL zostają w EN** (klimat brainrotu),
+  napisy po angielsku. Słownik: ~130 tekstów w main.js, ~25 w index.html, ~54 w audio.js.
+- Fabuła = **KOMIKS 4-5 plansz** przy pierwszym uruchomieniu (pomijalny) + z menu;
+  bestiariusz i ekrany ładowania dopowiadają. Scenariusz i prompty do PixelLaba pisze
+  agent, plansze generuje właściciel. Lore: Famiglia Snackoni (mafia przekąsek) chce
+  zasypać Osiedle Grządkowo solą i cukrem i postawić automat w miejscu warzywniaka.
+
+### Etap 3 — HUD I MENU W STYLISTYCE GRY
+Pixel-artowe ramki, spójne ikony, czytelna nawigacja padem i palcem, wszystkie opcje
+w jednym miejscu, atrakcyjne w stylu gry. Balans pierwszych minut przy okazji.
+
+### Etap 4 — DRZEWA v4 (malarskie kępy Genshin/BotW, referencje właściciela z 03.09)
+Korona z kilkudziesięciu miękkich kart liści na bryle, pasma toon, wyraźny pień.
+
+### Etap 5 — NOWA MECHANIKA W BIEGU + MOBILE
+Ewolucje postaci w trakcie biegu / wydarzenia na mapie; Capacitor + AdMob (rewarded:
+wskrzeszenie, reroll, ×2 monet). Opisy nowych postaci do PixelLaba dla właściciela.
+
+### Etap 6 — MULTIPLAYER „POKOJE RÓWNOLEGŁE" Z DYLEMATEM RATUJ / OKRADNIJ (decyzja 18.09)
+Pomysł właściciela: do **5 graczy w pokoju**, gdy ktoś pada, inni mogą go **podnieść
+(uratować)** albo **przejąć 1/3 jego monet i punktów** — gracze mają dylemat. Wariant
+wybrany: **pokoje równoległe** (każdy gra WŁASNY bieg na własnej maszynie, serwer nie
+synchronizuje hordy — tylko kilka liczb na sekundę per gracz: czas, poziom, HP, monety,
+stan „padł"). Padający gracz pojawia się u pozostałych jako DUCH z wyborem:
+- **Wskrześ**: oddajesz mu 1/3 własnych monet, on wraca do biegu (z 1 sercem);
+- **Splądruj**: bierzesz 1/3 jego monet i XP; on wraca dopiero po następnym bossie
+  (nigdy nie wypada na dobre — inaczej ludzie wychodzą z pokoju).
+- Plądrowanie MUSI mieć cenę: „WENDETA" — okradziony widzi Twój znak i przy kolejnym
+  spotkaniu w pokoju ma bonus przeciw Tobie (do rozpisania z projektantem).
+- Wspólny start (odliczanie), wspólny pasek rankingu na żywo, podsumowanie pokoju na końcu.
+**Serwer**: demo stoi na https (Pages, itch), więc WebSocket musi mieć TLS — serwer K-OS
+WALL po http NIE nada się. Warianty do decyzji przy starcie etapu: (a) Cloudflare Workers
++ Durable Objects (darmowy tier, TLS z pudełka, zero utrzymania) — rekomendacja;
+(b) mały VPS (Hetzner ~4-5 €/mies.) z Node + ws + Let's Encrypt; (c) Firebase / Supabase
+Realtime (bez własnego kodu serwera, koszt rośnie z graczami).
+Pełny WSPÓLNY ŚWIAT online (500 wrogów, serwer autorytatywny, predykcja) = wizja PO
+Steamie, gdy gra zarobi na serwery. Lokalny co-op na wspólnym ekranie (klawiatura +
+klawiatura / pad) — odłożony, wraca jako etap 7 po refaktorze `P` → tablica graczy.
+
 ## ═══════════ CO DALEJ — KOLEJNOŚĆ I GDZIE SZUKAĆ ═══════════
 
 ### 1. ~~DRZEWO ULEPSZEŃ WYSYCHA W 4. MINUCIE~~ ✅ **ZROBIONE 13.08 (v122)**
