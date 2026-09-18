@@ -83,8 +83,8 @@ const CHARS = {
   // bieg 2 ≈ 150, bieg 3 ≈ 250 → łącznie ~460. Nagroda ma przyjść, GDY GRACZ
   // JESZCZE NIE WIE, czy zostaje — nie po ośmiu biegach.
   beetino:    { nm: 'Beetino Bouncerino',
-                ds: T('Buraczino Betonino — czołg z bramki. Wolny, ale twardy.',
-                      'The beetroot bouncer — a tank on the door. Slow, but solid.'),
+                ds: T('Buraczino Betonino — czołg z bramki. Poniżej połowy serc bije mocniej i wysysa życie.',
+                      'The beetroot bouncer — a tank on the door. Below half hearts he hits harder and drains life.'),
                 char: 'beetino_bouncerino', price: 0, killGoal: 450, startWpn: 'wypad',
                 spd: 0.85, hp: 3, dmg: 1.1, mag: 0.9, scale: 1.32 },
   // Statystyki wprost z biblii postaci (HP 110 · Speed 0.9 · Might 1.0 · Pickup 1.1).
@@ -112,26 +112,79 @@ const CHARS = {
                 char: 'garlicino_stinkerino', price: 900, startWpn: 'skarpeta',
                 spd: 1.0, hp: 1, dmg: 1.0, mag: 1.05, scale: 1.22 },
 };
-// portret postaci = pierwsza klatka jej arkusza (pixel art zamiast emoji)
+// ============================== PORTRETY ==============================
+// RENDERY HD: duże obrazki (~280×420) trzech postaci — używane w scence menu
+// i na kafelkach w zakładce Postacie. Dla pozostałych wchodzi `portret()`.
+//
+// Pliki były przesunięte o jedno (w „carrotello" siedział burak itd.) — 18.09 przemianowane
+// u źródła (`git mv`), więc nazwa pliku = postać. Nowy render = nowy wpis tutaj.
+// `?v=2` = cache-bust po przemianowaniu: przeglądarka trzymała pod starą nazwą stary obrazek
+const RENDER_PORTRET = {
+  carrotello: 'assets/portrety/render_carrotello.png?v=2',
+  beetino:    'assets/portrety/render_beetino.png?v=2',
+  razoretta:  'assets/portrety/render_razoretta.png?v=2',
+};
+// portret postaci = pierwsza klatka `idle` w kierunku „south", PRZYCIĘTA PO ALFIE.
+//
+// DLACZEGO AUTO-PRZYCIĘCIE, A NIE STAŁY PROSTOKĄT (zgłoszenie właściciela 18.09):
+// dotąd braliśmy sztywne 52%×62% ramki od 20% wysokości — proporcje dobrane do
+// STARYCH arkuszy (Rudeusz). Na arkuszach Veggie (124 px, inne sylwetki) ten
+// prostokąt ucinał Beetinowi nać, Granny kosz i ręce, a Razorettcie scyzoryk.
+// Teraz liczymy prostokąt otaczający nieprzezroczyste piksele, dokładamy 3 px
+// marginesu i wyrównujemy do KWADRATU (krótszy bok wyśrodkowany) — postać wchodzi
+// w kadr od czubka do stóp, niezależnie od arkusza.
+//
+// Wynik ma stały bok (domyślnie 96 px), żeby wszystkie kafelki miały ten sam kadr;
+// skalowanie jest nearest (`imageSmoothingEnabled = false`), więc nic się nie rozmywa.
 const portretCache = new Map();
-function portret(charName) {
-  if (portretCache.has(charName)) return portretCache.get(charName);
+function portret(charName, bok = 96) {
+  const klucz = charName + '@' + bok;
+  if (portretCache.has(klucz)) return portretCache.get(klucz);
   const def = SPRITEDATA[charName];
   const img = LIB[charName] && LIB[charName].img;
   if (!img) return '';
   const s = def.size;
   const a = def.anims.idle || def.anims.walk || def.anims.run;
   const row = a.rows.south ?? 0;
-  // przytnij ciasno do postaci (sprite jest mały w środku ramki) + kwadrat
-  const cw = Math.round(s * 0.52), chh = Math.round(s * 0.62);
-  const sx = Math.round((s - cw) / 2), sy = Math.round(s * 0.20);
+  // 1. pierwsza klatka rzędu do bufora (klatki leżą wzdłuż X, rzędy wzdłuż Y)
+  const buf = document.createElement('canvas');
+  buf.width = s; buf.height = s;
+  const bg = buf.getContext('2d', { willReadFrequently: true });
+  bg.imageSmoothingEnabled = false;
+  bg.drawImage(img, 0, row * s, s, s, 0, 0, s, s);
+  // 2. prostokąt otaczający piksele o alfie > 16 (16, nie 0 — arkusze mają
+  //    pojedyncze prawie przezroczyste piksele po skalowaniu w PixelLabie)
+  let x0 = s, y0 = s, x1 = -1, y1 = -1;
+  try {
+    const px = bg.getImageData(0, 0, s, s).data;
+    for (let y = 0; y < s; y++) {
+      for (let x = 0; x < s; x++) {
+        if (px[(y * s + x) * 4 + 3] > 16) {
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+      }
+    }
+  } catch (e) { /* splamione płótno — zostaje kadr całej klatki */ }
+  if (x1 < 0) { x0 = y0 = 0; x1 = y1 = s - 1; }    // pusta klatka: bierz wszystko
+  const m = 3;                                      // oddech dookoła postaci
+  x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m);
+  x1 = Math.min(s - 1, x1 + m); y1 = Math.min(s - 1, y1 + m);
+  const w = x1 - x0 + 1, h = y1 - y0 + 1;
+  const k = Math.max(w, h);                         // bok kwadratu = dłuższy wymiar
+  // 3. kwadrat (krótszy bok wyśrodkowany) → docelowy rozmiar, nearest
   const c = document.createElement('canvas');
-  c.width = cw; c.height = chh;
+  c.width = bok; c.height = bok;
   const g = c.getContext('2d');
   g.imageSmoothingEnabled = false;
-  g.drawImage(img, sx, row * s + sy, cw, chh, 0, 0, cw, chh);
+  const skala = bok / k;
+  g.drawImage(buf, x0, y0, w, h,
+    Math.round((k - w) / 2 * skala), Math.round((k - h) / 2 * skala),
+    Math.round(w * skala), Math.round(h * skala));
   const url = c.toDataURL();
-  portretCache.set(charName, url);
+  portretCache.set(klucz, url);
   return url;
 }
 let charKey = 'carrotello';
@@ -2907,7 +2960,13 @@ function renderChars() {
       ? `<div class="pr">${ico('czaszka', 15)} ${Math.min(META.st.kills, C.killGoal)}/${C.killGoal}</div>
          <div class="pbar"><i style="width:${Math.min(100, META.st.kills / C.killGoal * 100).toFixed(1)}%"></i></div>`
       : `<div class="pr">${ico('moneta', 15)} ${C.price}</div>`;
-    d.innerHTML = `<div class="ico"><img class="pxi" src="${portret(C.char)}" style="height:62px"></div>
+    // RENDER HD tam, gdzie jest (`object-fit:contain`, więc nic się nie rozciąga);
+    // reszta dostaje auto-przycięty sprite — oba kadry są kwadratowe, więc rząd
+    // kafelków ma jedną linię portretów niezależnie od tego, co w nim stoi.
+    const rh = RENDER_PORTRET[key];
+    // 72 px, nie 62: po auto-przycięciu portret jest KWADRATEM z 3 px marginesu,
+    // więc sama postać zajmuje mniej niż w dawnym, ciasnym kadrze 64×77
+    d.innerHTML = `<div class="ico"><img class="pxi${rh ? ' hd' : ''}" src="${rh || portret(C.char, 72)}" style="height:72px"></div>
       <div class="nm">${C.nm}</div>
       <div class="ds">${C.ds}</div>${owned ? '' : cel}`;
     d.onclick = () => {
@@ -2932,6 +2991,37 @@ function renderPick() {
   document.getElementById('selMapNm').innerHTML = ico(MAPS[mapKey].ico, 16) + ' ' + MAPS[mapKey].nm;
   document.getElementById('selCharNm').innerHTML =
     `<img class="pxi" src="${portret(CHARS[charKey].char)}" style="height:22px"> ` + CHARS[charKey].nm;
+
+  // ---- SCENKA W MENU (portret na ladzie + kredowa tabliczka) ----
+  const C = CHARS[charKey], M = MAPS[mapKey];
+  const por = document.getElementById('heroPortret');
+  if (por) {
+    // `render` gdy jest w mapie, inaczej klatka ze sprite'a — w scence bierzemy ją
+    // od razu w 256 px (nie 96), bo stoi na ekranie kilka razy większa niż w kaflu.
+    // Klasa `mini` mówi CSS-owi, że to sprite: ma być skalowany nearestem i niżej.
+    const r = RENDER_PORTRET[charKey];
+    const srcPor = r || portret(C.char, 256);
+    if (srcPor) por.src = srcPor; else por.removeAttribute('src');   // `src=''` = żądanie URL-a strony i ikona zepsutego obrazka
+    por.classList.toggle('mini', !r);
+    por.alt = C.nm;
+  }
+  const nm = document.getElementById('heroNm'); if (nm) nm.textContent = C.nm;
+  const ds = document.getElementById('heroDs'); if (ds) ds.textContent = C.ds;
+  // STATYSTYKI: cztery krótkie wiersze. `spd/dmg/mag` to mnożniki (×), `hp` to
+  // DODATKOWE serca względem bazy (może być ujemne — Razoretta ma -1).
+  const st = document.getElementById('heroStat');
+  if (st) {
+    const mn = v => '×' + (+v).toFixed(2).replace(/\.?0+$/, '');   // 1.00 → „×1", 1.15 → „×1.15"
+    const serca = C.hp > 0 ? '+' + C.hp : (C.hp < 0 ? String(C.hp) : '—');
+    st.innerHTML = [
+      ['but', T('SZYBKOŚĆ', 'SPEED'), mn(C.spd)],
+      ['serce', T('SERCA', 'HEARTS'), serca],
+      ['kula', T('OBRAŻENIA', 'DAMAGE'), mn(C.dmg)],
+      ['magnes', T('MAGNES', 'MAGNET'), mn(C.mag)],
+    ].map(([i, k, v]) => `<div class="hs">${ico(i, 15)}<span>${k}</span><b>${v}</b></div>`).join('');
+  }
+  const mp = document.getElementById('heroMapa');
+  if (mp) mp.innerHTML = `${ico(M.ico, 18)} <span>${T('Mapa', 'Map')}:</span> <b>${M.nm}</b>`;
 }
 function renderStats() {
   const s = META.st;
@@ -3099,7 +3189,11 @@ function sprawdzRange() {
 // (L=8: 51 vs 31 XP), a późną grę rozciąga: ~31 poziom w 5:00 zamiast 55.
 const xpDoNast = l => Math.round(5 + 3.2 * l + 0.30 * l * l);
 
-const dmgAll  = () => CHARS[charKey].dmg * (1 + 0.10 * META.up.dmg) * Math.pow(1.15, P.passives.moc || 0) * (1 + 0.03 * (P.repeat.sol || 0)) * (G.buff.key === 'dmg' ? 2 : 1) * rangaDmg();
+// BURACZANE CIŚNIENIE (pasyw Beetina z biblii, wdrożony 18.09 na zgłoszenie właściciela
+// „burak prawie nieużywalny"): poniżej połowy serc +25% obrażeń i wysysanie życia
+// (10% zadanych obrażeń → serca, patrz zadajDmg). Tank ma być groźniejszy, gdy krwawi.
+const cisnienie = () => charKey === 'beetino' && P.hp > 0 && P.hp <= P.maxHp * 0.5;
+const dmgAll  = () => CHARS[charKey].dmg * (1 + 0.10 * META.up.dmg) * Math.pow(1.15, P.passives.moc || 0) * (1 + 0.03 * (P.repeat.sol || 0)) * (G.buff.key === 'dmg' ? 2 : 1) * rangaDmg() * (cisnienie() ? 1.25 : 1);
 const fireMul = () => Math.pow(1.12, P.passives.tempo || 0) * (1 + 0.03 * (P.repeat.oliwa || 0)) * rangaFire();
 // clamp 0.75: pasyw daje najwyżej 0.50, ale „Pieprz Nonny” jest bez limitu i bez
 // tego setny poziom oznaczałby krytyk na 100% (crit ×3 przestaje być zdarzeniem).
@@ -3820,18 +3914,20 @@ function updateBossHp() {
   }
   const bylo = el.classList.contains('on');
   el.classList.add('on');
-  // TOAST SPOD PASKA BOSSA. `#buff` (top 68) i nazwa bossa (top 78) nachodziły na
-  // siebie — „SERIA x12 — MONETY x2" drukowało się NA „DON CHIPSO". Pozycję liczymy
-  // z realnego prostokąta, bo pasek ma własną regułę @media dla niskich ekranów.
-  if (!bylo) {
-    const r = el.getBoundingClientRect();
-    document.getElementById('buff').style.top = Math.round(r.bottom + 8) + 'px';
-  }
   const k = Math.max(0, naj.hp / naj.maxHp);
   el.querySelector('.bf').style.width = (k * 100) + '%';
   const ile = G.enemies.filter(e => e.T.boss && !e.dying).length;
   el.querySelector('.bn').textContent = 'DON CHIPSO' + (ile > 1 ? '  x' + ile : '');
   el.querySelector('.bl').textContent = Math.ceil(naj.hp) + ' / ' + Math.ceil(naj.maxHp);
+  // TOAST SPOD PASKA BOSSA. `#buff` i nazwa bossa nachodziły na siebie — „SERIA x12 —
+  // MONETY x2" drukowało się NA „DON CHIPSO". Pozycję liczymy z realnego prostokąta,
+  // bo pasek ma własną regułę @media dla niskich ekranów. POMIAR PO WPISANIU TEKSTÓW:
+  // przy pustych `.bn`/`.bl` pasek miał 24 px zamiast 50 i toast lądował na „99 / 99"
+  // (tester 18.09).
+  if (!bylo) {
+    const r = el.getBoundingClientRect();
+    document.getElementById('buff').style.top = Math.round(r.bottom + 8) + 'px';
+  }
 }
 
 // ============================== KETCHUPINO: ARTYLERIA ==============================
@@ -4643,6 +4739,16 @@ function zadajDmg(e, dmg, o = {}) {
   const crit = dmg > 0 && Math.random() < critC();   // nova Sodino ma dmg 0 — nie ma czego krytykować
   if (crit) dmg *= 3;
   e.hp -= dmg;
+  // wysysanie życia Beetina (Buraczane Ciśnienie): 10% obrażeń zbiera się w „soku",
+  // co 2.5 j. soku = +1 serce (przy broniach 2.5-10 dmg to co ~5 ciosów poniżej połowy HP)
+  if (dmg > 0 && cisnienie()) {
+    P.sok = (P.sok || 0) + dmg * 0.10;
+    if (P.sok >= 2.5 && P.hp < P.maxHp) {
+      P.sok -= 2.5; P.hp++; drawHearts();
+      dmgPop(P.pos.x, P.y + 0.7, P.pos.z, T('+SERCE', '+HEART'), '#ff6fa5', 1.2);
+      AUDIO.sfx('serce');
+    }
+  }
   if (o.kb && !e.T.bezKb) e.kb.copy(o.kb).setY(0).normalize().multiplyScalar((o.kbSila == null ? 1 : o.kbSila) * (crit ? 1.5 : 1));
   if (crit) spark(e.pos.x, e.ty + 1.5, e.pos.z);
   if (!o.noPop || crit) dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), crit ? '#ff9d3f' : (o.col || '#ffe066'),
@@ -4963,18 +5069,44 @@ const WEAPONS = {
   // Pchnięcie falą w stożku 60° przed sobą: mały zasięg, ale OGROMNY knockback —
   // bramkarz nie zabija, on odprowadza. Skalowanie: zasięg → knockback → obrażenia.
   wypad: {
-    ico: 'fala', nm: T('Wypad!', 'Velvet Push'), ds: T('Pchnięcie w stożku — ogromny knockback', 'A cone-shaped shove — huge knockback'), max: 5, postac: 'beetino',
-    lvlDs: l => `${T('stożek', 'cone')} ${(3.4 + 0.4 * l).toFixed(1)} ${T('j.', 'u')}, ${T('odrzut', 'knockback')} ${(5 + l).toFixed(0)}, ${T('co', 'every')} ${(1.5 - 0.08 * l).toFixed(2)} s`
+    ico: 'fala', nm: T('Wypad!', 'Velvet Push'),
+    ds: T('Pcha tam, gdzie tłok; w ścisku pcha dookoła', 'Shoves the thickest crowd; when surrounded, shoves all around'), max: 5, postac: 'beetino',
+    lvlDs: l => `${T('zasięg', 'range')} ${(3.4 + 0.4 * l).toFixed(1)} ${T('j.', 'u')}, ${T('odrzut', 'knockback')} ${(5 + l).toFixed(0)}, ${T('co', 'every')} ${(1.4 - 0.08 * l).toFixed(2)} s`
       + T(l === 5 ? ' (→ ewolucja!)' : '', l === 5 ? ' (→ evolution!)' : ''),
     evoKey: 'selekcja', evoIco: 'tarcza', evoNm: T('DZIŚ NIE WEJDZIESZ', 'NOT ON THE LIST'),
     evoDs: T('EWOLUCJA: pchnięcie ogłusza i zadaje podwójne obrażenia', 'EVOLUTION: the shove stuns and deals double damage'),
+    // BRAMKARZ PCHA TAM, GDZIE TŁOK (decyzja właściciela 18.09). Do tej pory stożek szedł
+    // w KIERUNKU BIEGU postaci — a w survivorsie biegnie się OD hordy, więc pchnięcie leciało
+    // w pustą łąkę i wrogowie za plecami nigdy nie obrywali („prawie nieużywalna").
+    // Teraz: 12 sektorów po 30°, celujemy w ten z największą liczbą wrogów (z sąsiadami =
+    // stożek 60°); gdy w zasięgu stoi 6+ wrogów, pchnięcie idzie na 360° (bramkarz w ścisku
+    // rozrzuca wszystkich dookoła). Bez wrogów w zasięgu — kierunek biegu jak dawniej.
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
-      w.t = (1.5 - 0.08 * w.lvl) / fireMul();
+      w.t = (1.4 - 0.08 * w.lvl) / fireMul();
       const zasieg = (3.4 + 0.4 * w.lvl) * rangeM(), odrzut = 5 + w.lvl;
-      const fx = Math.sin(playerBB.facing), fz = Math.cos(playerBB.facing);
-      const dmg = (2.5 + 0.8 * w.lvl) * (P.evo.selekcja ? 2 : 1) * dmgAll();
+      const dmg = (4.0 + 1.3 * w.lvl) * (P.evo.selekcja ? 2 : 1) * dmgAll();   // ×1.6 względem 2.5+0.8l
+      const sektor = new Array(12).fill(0);
+      let wZasiegu = 0;
+      for (const e of G.enemies) {
+        if (e.dying) continue;
+        const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z;
+        if (dx * dx + dz * dz > zasieg * zasieg) continue;
+        wZasiegu++;
+        sektor[(Math.floor(faceAngle(dx, dz) / (Math.PI / 6)) + 12) % 12]++;
+      }
+      const dookola = wZasiegu >= 6;
+      let fx = Math.sin(playerBB.facing), fz = Math.cos(playerBB.facing);
+      if (wZasiegu && !dookola) {
+        let best = 0, bestN = -1;
+        for (let i = 0; i < 12; i++) {
+          const n = sektor[(i + 11) % 12] + sektor[i] + sektor[(i + 1) % 12];   // stożek = sektor + sąsiedzi
+          if (n > bestN) { bestN = n; best = i; }
+        }
+        const kat = (best + 0.5) * (Math.PI / 6);
+        fx = Math.sin(kat); fz = Math.cos(kat);
+      }
       let trafil = 0;
       for (let j = G.enemies.length - 1; j >= 0; j--) {
         const e = G.enemies[j];
@@ -4982,13 +5114,14 @@ const WEAPONS = {
         const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z;
         const d = Math.hypot(dx, dz);
         if (d > zasieg || d < 1e-3) continue;
-        if ((dx / d) * fx + (dz / d) * fz < 0.5) continue;      // stożek ~60°
+        if (!dookola && (dx / d) * fx + (dz / d) * fz < 0.5) continue;      // stożek ~60°
         if (P.evo.selekcja) e.stun = Math.max(e.stun || 0, 0.6);
         zadajDmg(e, dmg, { col: '#ff9d7a', sc: 1.1, kb: _kbV.set(dx, 0, dz), kbSila: odrzut });
         trafil++;
       }
-      novaRing(P.pos.x + fx * zasieg * 0.5, P.pos.z + fz * zasieg * 0.5, zasieg * 0.55);
-      if (trafil) { AUDIO.sfx('wybuch'); G.shake = Math.max(G.shake, 0.12); }
+      if (dookola) novaRing(P.pos.x, P.pos.z, zasieg);
+      else novaRing(P.pos.x + fx * zasieg * 0.5, P.pos.z + fz * zasieg * 0.5, zasieg * 0.55);
+      if (trafil) { AUDIO.sfx('wybuch'); G.shake = Math.max(G.shake, dookola ? 0.2 : 0.12); padWibruj(dookola ? 0.5 : 0.25, 60); }
     },
   },
   // ===== PIPSINI NIPOTINI: TOWARZYSZ, nie pocisk =====
@@ -5835,7 +5968,10 @@ function renderWpns() {
     const W = WEAPONS[w.key];
     const evo = W.evoKey && P.evo[W.evoKey];
     return `<span class="wp${evo ? ' evo' : ''}">${ico(evo ? W.evoIco : W.ico, 20)}<b>${w.lvl}</b></span>`;
-  }).join('') + '<span class="wp empty">' + '·'.repeat(Math.max(0, 3 - P.weapons.length)) + '</span>';
+  // PUSTE SLOTY = OSOBNE `<span>`, nie jeden z kropkami: w skórze „Warzywniak
+  // Nonny" slot jest skrzynką na warzywa o stałym rozmiarze, więc trzy puste
+  // sloty muszą być trzema skrzynkami, a nie jedną z trzema kropkami w środku.
+  }).join('') + '<span class="wp empty">·</span>'.repeat(Math.max(0, 3 - P.weapons.length));
 }
 
 // ============================== DEKORACJE (materiały dla chunków) ==============================
@@ -7971,6 +8107,7 @@ function newGame() {
   Object.assign(G, { running: true, over: false, paused: false, dying: false, deathT: 0, time: 0, kills: 0, runCoins: 0, zebrane: 0, ranga: 0, rangaKille: 0, spawnT: 0.5, bossAt: 120, ringAt: 60, tier: 0, shake: 0, tlok: 0, kino: 0 });
   winieta(true);
   STATY.zdarzenie('run-start/' + charKey + '/' + mapKey, 'Bieg: ' + CHARS[charKey].nm + ' / ' + MAPS[mapKey].nm);
+  P.sok = 0;                                        // licznik wysysania życia Beetina
   P.pos.set(0, 0, 0);
   P.y = terrainH(0, 0);
   // ODBUDOWA ŚWIATA. `clearWorld()` czyści `G.padajace`, ale NIE dotyka `ch.shelves`:
@@ -8293,8 +8430,16 @@ if (loadTip) {
     if (t.dataset.tab === 'staty') renderStats();
     if (t.dataset.tab === 'bestia') renderBestiary();
     if (t.dataset.tab === 'sklep') renderShop();
-    if (t.dataset.tab === 'sterowanie') renderSterowanie();
+    // dawne zakładki „dzwiek" i „sterowanie" są scalone w JEDNE USTAWIENIA
+    if (t.dataset.tab === 'ustawienia') renderSterowanie();
+    // KLASA `panel-open` = „coś jest otwarte obok scenki". Trzyma ją CSS:
+    // prawa kolumna z panelami ma wtedy szerokość, a na telefonie zasłania
+    // scenkę i pokazuje przycisk WRÓĆ. Zakładka „graj" = panel pusty = brak klasy.
+    document.getElementById('startOv').classList.toggle('panel-open', t.dataset.tab !== 'graj');
   });
+  // WRÓĆ (telefon): dokładnie to samo co B na padzie — klik w ukrytą zakładkę „graj"
+  document.getElementById('panelBack').onclick = () =>
+    document.querySelector('.tab[data-tab="graj"]').click();
   // pauza
   document.getElementById('pauseBtn').onclick = () => togglePause(!G.paused);
   document.getElementById('btnResume').onclick = () => togglePause(false);

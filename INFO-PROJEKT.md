@@ -1255,7 +1255,7 @@ nawigacji 0.22 s, czułość 1.0× i aim assist, LB „kamera za plecy" — czy 
 - **Paczka**: `narzedzia/buduj_itch.sh` → `dist/veggie-famiglia-itch-vN.zip`
   (N z `main.js?v=N`). v149: **89 plików, 15 MB**. `dist/` jest w `.gitignore`.
   Skrypt sam sprawdza ścieżki absolutne i to, że `index.html` leży w korzeniu zipa.
-  `assets/portrety` NIE wchodzi — to rendery do dokumentacji, kod ich nie używa.
+  `assets/portrety` WCHODZI od etapu 3 (rendery HD w scence menu i kaflach Postacie).
 
 ##### Publikacja na itch.io (ustawienia strony gry)
 1. **Uploads** → dodaj zipa → zaznacz **„This file will be played in the browser"**.
@@ -1307,9 +1307,39 @@ nawigacji 0.22 s, czułość 1.0× i aim assist, LB „kamera za plecy" — czy 
   wodnym — odrzucony. Alternatywy: token Hugging Face (FLUX.1-schnell) albo PixelLab
   z promptami z `dokumenty/komiks-intro.md`.
 
-### Etap 3 — HUD I MENU W STYLISTYCE GRY
-Pixel-artowe ramki, spójne ikony, czytelna nawigacja padem i palcem, wszystkie opcje
-w jednym miejscu, atrakcyjne w stylu gry. Balans pierwszych minut przy okazji.
+### Etap 3 — HUD I MENU W STYLISTYCE GRY ✅ kod gotowy 18.09 (main.js v156) — do oceny Piotra
+Zrobione: `ui-base.css` (tokeny + `.bigbtn/.btn2/.tile/.card/h2/.snd/.ov/.gp-sel`), `ui-menu.css`
+(`#menuUklad` grid: pasek `#tabs` | scenka `#heroStage` z `#heroPortret` (rendery HD, przemianowane
+`git mv` — w plikach było przesunięcie o jedno!) + kredowa tablica statów | panel `#panele`;
+scalone `#p-ustawienia` = dźwięk+język+ekran+sterowanie; `#panelBack` i pasek `fixed` na dole
+przy ≤520 px; `backdrop-filter:none` na `#startOv`, bo rozmycie odbierało `fixed` viewport),
+`ui-hud.css` (belka-lada `#hud::before` chowana `body:has(#startOv:not([style*="none"]))`,
+kredowe tabliczki, sloty broni = skrzynki `skrzynka_mala.png`, `#buff` top 94, overlaye).
+`portret(char, bok)` = auto-przycięcie po alfie (cała postać). **Beetino**: `Wypad!` celuje
+w najgęstszy sektor (12×30°), 360° przy ≥6 wrogach, dmg 4+1.3l, pasyw `cisnienie()`
+(<50% HP: +25% dmg w `dmgAll`, wysysanie 10% → `P.sok`, +1 serce co 2.5) — zgłoszenie „burak
+prawie nieużywalny". Recenzja (naprawione): `#tabs fixed` vs backdrop-filter, stopka pada
+zasłaniająca menu >520 px, granatowa faza `#ctrlBox .btn2`, scenka zgniatana 900-1200 px
+(breakpoint 1199), `@keyframes karPuls/stawPuls` bijące nową ramę, `mn()` „×1.0", toast
+`#buff` mierzony przed wpisaniem tekstów paska bossa (tester). Tester: menu desktop/375/667,
+pad, overlaye, Beetino 4/4 i 7/7, PL/EN, pamięć — OK. Dług: stare reguły menu/HUD w `<style>`
+zostają nadpisane (posprzątać osobno). Otwarte: 3 karty awansu przy 375 px łamią się 2+1
+(stan sprzed), `HORDA.setPlayerChar` nie odświeża scenki (tylko API).
+Decyzje właściciela były:
+Decyzje właściciela: styl **„WARZYWNIAK NONNY"** (drewno, skrzynki na warzywa, kredowe
+tabliczki cen; ciepło i czytelnie na limonkowej trawie) oraz **menu na jednym ekranie**
+„jak w Megabonku": na wprost duży portret wybranej postaci + mapa + GRAJ, po lewej pionowy
+pasek skrzynek-ikon (Postacie, Mapy, Sklep, Bestiariusz, Statystyki, Ustawienia = dźwięk +
+ekran + język + sterowanie razem). Na telefonie pasek ikon na dole, panel zasłania scenkę.
+Warstwa CSS: NOWE pliki `ui-base.css` (tokeny `--drewno/--tablica/--kreda/--zloto/…` +
+komponenty `.bigbtn/.btn2/.tile/.card/h2/.snd/.ov/.gp-sel`), `ui-menu.css` (`#startOv`),
+`ui-hud.css` (HUD w biegu + overlaye) — linkowane PO `</style>`; stare reguły w `<style>`
+zostają jako dług do posprzątania (nadpisywane). Kafle pixel-art: `assets/ui/` z
+`narzedzia/generuj_ui_tekstury.py` (deska ×3 tony, skrzynka, tablica, papier; deterministyczne).
+Portrety HD: `assets/portrety/render_*.png` (carrotello, beetino, razoretta), reszta z `portret()`.
+Twarde wymagania: zmierzone pozycje HUD przy ≤520 px (pauza/pełny ekran po bokach serc) bez
+kolizji, wszystkie id i `data-pl/data-en` zachowane, nawigacja padem (`navItems`) i
+`#langSw` na końcu DOM. Balans pierwszych minut — osobno po ocenie Piotra.
 
 ### Etap 4 — DRZEWA v4 (malarskie kępy Genshin/BotW, referencje właściciela z 03.09)
 Korona z kilkudziesięciu miękkich kart liści na bryle, pasma toon, wyraźny pień.

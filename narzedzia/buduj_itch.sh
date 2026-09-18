@@ -27,7 +27,8 @@ fi
 # `/coś` wskaże korzeń cudzego serwera. Lepiej wyłapać to tutaj niż po wgraniu.
 echo "-- szukam ścieżek absolutnych…"
 if grep -nE "[\"']/assets|url\(/|src=\"/|href=\"/" \
-     index.html main.js audio.js icons.js spritedata.js komiks.js sw.js manifest.webmanifest; then
+     index.html main.js audio.js icons.js spritedata.js komiks.js sw.js manifest.webmanifest \
+     ui-base.css ui-menu.css ui-hud.css; then
   echo "BŁĄD: powyższe ścieżki są absolutne — na itch/Pages nic się z nich nie wczyta." >&2
   exit 1
 fi
@@ -38,14 +39,16 @@ mkdir -p dist
 ZIP="dist/veggie-famiglia-itch-v${WER}.zip"
 rm -f "$ZIP"
 
-# `assets/portrety` NIE wchodzi: to rendery robocze do dokumentacji, w kodzie
-# nikt się do nich nie odwołuje (sprawdzone grepem) — 550 KB za darmo.
+# `assets/portrety` OD ETAPU 3 WCHODZI DO PACZKI: scenka w menu (`renderPick`
+# → `RENDER_PORTRET`) pokazuje `render_carrotello/beetino/razoretta.png`. Bez nich
+# trzy postacie miałyby w menu pustą ramkę. To 550 KB przy 15 MB całości.
 zip -r -q -X "$ZIP" \
   index.html main.js spritedata.js icons.js audio.js komiks.js \
+  ui-base.css ui-menu.css ui-hud.css \
   manifest.webmanifest sw.js \
   lib/three.module.js \
   assets fonts \
-  -x '.DS_Store' '*/.DS_Store' 'assets/portrety/*' '__MACOSX/*'
+  -x '.DS_Store' '*/.DS_Store' '__MACOSX/*'
 
 # ---------- 4. kontrola ----------
 # Listę czytamy RAZ do zmiennej: `unzip | grep -q` kończy grepa wcześniej, unzip

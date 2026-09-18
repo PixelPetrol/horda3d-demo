@@ -691,6 +691,15 @@
       bottom:calc(130px + env(safe-area-inset-bottom,0px));
       right:calc(30px + env(safe-area-inset-right,0px))} #stawBtn .kimg{width:28px;height:28px} }
 </style>
+<!-- ================= SKÓRA „WARZYWNIAK NONNY" (etap 3) =================
+     CELOWO PO </style>, NIE PRZED NIM: stare reguły menu/HUD zostają w <style>
+     (nie kasujemy ich, żeby dwie równoległe przebudowy sobie nie weszły w drogę),
+     a przy RÓWNEJ specyficzności wygrywa arkusz późniejszy w dokumencie. Gdyby
+     <link> stał w <head> nad <style>, każda stara reguła `.bigbtn` biłaby nową.
+     Kolejność między plikami: tokeny → menu → HUD (HUD dokłada drugi agent). -->
+<link rel="stylesheet" href="ui-base.css?v=1">
+<link rel="stylesheet" href="ui-menu.css?v=1">
+<link rel="stylesheet" href="ui-hud.css?v=1">
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -751,7 +760,36 @@
 <div id="startOv" class="ov">
   <img id="logo" class="pxi" src="assets/logo.png" alt="VEGGIE FAMIGLIA — Brainrot Survivors">
 
+  <!-- ================= UKŁAD „JAK W MEGABONKU" (decyzja właściciela 18.09) =================
+       JEDEN EKRAN: pasek ikon po lewej, scenka z postacią na wprost, panel po prawej.
+       DLACZEGO OSOBNY #menuUklad, A NIE SIATKA NA #startOv: main.js ustawia
+       `menu.style.display='flex'` INLINE (powrót z ekranu KONIEC i po komiksie),
+       a styl inline bije każdy arkusz — `display:grid` na #startOv żyłoby do
+       pierwszego powrotu z biegu. Siatka siedzi więc w dziecku.
+       KOLEJNOŚĆ W DOM: scenka (z GRAJ) PRZED paskiem zakładek, bo pad bierze
+       `navItems()[0]` jako domyślne zaznaczenie i ma nim być GRAJ. Wizualnie
+       pasek i tak stoi po lewej — ustawia go `grid-column`, nie kolejność. -->
+  <div id="menuUklad">
+
+  <!-- SCENKA: portret na ladzie warzywniaka + kredowa tabliczka z opisem -->
+  <div id="heroStage">
+    <div id="heroScena">
+      <div id="heroBox">
+        <!-- src ustawia renderPick(): render 420 px, a gdy go nie ma — klatka ze sprite'a -->
+        <img id="heroPortret" class="pxi" alt="">
+        <div id="heroLada"></div>
+      </div>
+      <!-- kredowa tabliczka: imię, opis i cztery statystyki (dane z CHARS w main.js) -->
+      <div id="heroTab">
+        <div id="heroNm"></div>
+        <div id="heroDs"></div>
+        <div id="heroStat"></div>
+      </div>
+    </div>
+
   <div id="playCta">
+    <!-- wiersz „Mapa: Łąki" jako tabliczka nad przyciskiem (treść z renderPick) -->
+    <div id="heroMapa"></div>
     <button class="bigbtn" id="btnStart" data-pl="GRAJ" data-en="PLAY">GRAJ</button>
     <!-- etykiety w osobnych <span>: `#wybor` NIE może dostać data-pl, bo zastosujJezyk()
          nadpisuje innerHTML i skasowałoby <b id="selMapNm"> / <b id="selCharNm"> -->
@@ -772,18 +810,32 @@
       <span class="x" id="pwaHintX">X</span>
     </div>
   </div>
+  </div><!-- /#heroStage -->
 
+  <!-- PASEK IKON: pionowo po lewej (desktop, telefon w poziomie), poziomo na dole
+       na telefonie w pionie. Zakładki „Dźwięk" i „Sterowanie" scalone w JEDNE
+       USTAWIENIA (decyzja właściciela: dźwięk, ekran, język i sterowanie razem). -->
   <div id="tabs">
     <div class="tab sel" data-tab="graj" data-ico="play" data-pl="Graj" data-en="Play">Graj</div>
 
-    <div class="tab" data-tab="mapy" data-ico="mapa" data-pl="Mapy" data-en="Maps">Mapy</div>
     <div class="tab" data-tab="postacie" data-ico="postac" data-pl="Postacie" data-en="Heroes">Postacie</div>
-    <div class="tab" data-tab="bestia" data-ico="czaszka" data-pl="Bestiariusz" data-en="Bestiary">Bestiariusz</div>
+    <div class="tab" data-tab="mapy" data-ico="mapa" data-pl="Mapy" data-en="Maps">Mapy</div>
     <div class="tab" data-tab="sklep" data-ico="sklep" data-pl="Sklep" data-en="Shop">Sklep</div>
-    <div class="tab" data-tab="dzwiek" data-ico="glosnik" data-pl="Dźwięk" data-en="Sound">Dźwięk</div>
+    <div class="tab" data-tab="bestia" data-ico="czaszka" data-pl="Bestiariusz" data-en="Bestiary">Bestiariusz</div>
     <div class="tab" data-tab="staty" data-ico="wykres" data-pl="Statystyki" data-en="Stats">Statystyki</div>
-    <div class="tab" data-tab="sterowanie" data-ico="strzalka" data-pl="Sterowanie" data-en="Controls">Sterowanie</div>
+    <div class="tab" data-tab="ustawienia" data-ico="glosnik" data-pl="Ustawienia" data-en="Settings">Ustawienia</div>
   </div>
+
+  <!-- PRAWA KOLUMNA: panele jako kredowe tablice obok scenki (desktop) albo
+       zasłaniające ją (telefon). Pokazuje ją klasa `panel-open` na #startOv,
+       którą dokłada handler zakładek w main.js — dzięki temu zamknięty panel
+       ma szerokość 0 i scenka stoi na środku ekranu. -->
+  <div id="panele">
+    <!-- WRÓĆ: jeden przycisk dla WSZYSTKICH paneli (zamiast dokładania go do
+         każdego z osobna); klika ukrytą zakładkę „graj", czyli robi dokładnie to
+         samo co B na padzie. Widoczny tylko na telefonie — na desktopie panel
+         stoi obok scenki i nie ma z czego wracać. -->
+    <button class="btn2" id="panelBack" data-pl="WRÓĆ" data-en="BACK">WRÓĆ</button>
 
   <div class="panel on" id="p-graj"></div>
 
@@ -809,8 +861,15 @@
     </div>
     <div class="grid" id="shopItems"></div>
   </div>
-  <div class="panel" id="p-dzwiek">
-    <h2 data-pl="DŹWIĘK I EKRAN" data-en="SOUND AND SCREEN">DŹWIĘK I EKRAN</h2>
+  <!-- ================= USTAWIENIA (jeden panel na wszystko) =================
+       Właściciel 18.09: „dźwięk, ekran, sterowanie, język RAZEM". Dawne panele
+       `#p-dzwiek` i `#p-sterowanie` zostały scalone TUTAJ — markup przeniesiony
+       bez zmian, WSZYSTKIE id zostają (#sndBox, #volMuz…, #langBox, #ekranBox,
+       #ctrlBox), bo wiszą na nich audio.js, initEkranUI i renderSterowanie. -->
+  <div class="panel" id="p-ustawienia">
+    <h2 data-pl="USTAWIENIA" data-en="SETTINGS">USTAWIENIA</h2>
+
+    <h3 class="sekcja" data-pl="DŹWIĘK" data-en="SOUND">DŹWIĘK</h3>
     <p data-pl="Muzyka rusza po pierwszym kliknięciu — tak wymagają przeglądarki. W menu gra motyw główny, w biegu utwór losowany, przy bossie osobny kawałek. Efekty są generowane na żywo (nie ważą nic), więc bez obaw o pakiet."
        data-en="Music starts on your first click — browsers insist on it. The menu plays the main theme, a run gets a random track, the boss gets his own. Effects are generated live (they weigh nothing), so no worries about your data.">Muzyka rusza po pierwszym kliknięciu — tak wymagają przeglądarki.
        W menu gra motyw główny, w biegu utwór losowany, przy bossie osobny kawałek.
@@ -826,6 +885,7 @@
     </div>
     <!-- JĘZYK — ten sam przełącznik co w prawym górnym rogu menu (main.js spina
          oba zestawy przycisków w `initJezykUI`). Zmiana przeładowuje stronę. -->
+    <h3 class="sekcja" data-pl="JĘZYK" data-en="LANGUAGE">JĘZYK</h3>
     <div id="langBox">
       <div class="snd"><label data-pl="Język / Language" data-en="Language / Język">Język / Language</label>
         <button class="btn2" id="langPl2">PL</button><button class="btn2" id="langEn2">EN</button></div>
@@ -835,6 +895,7 @@
     <!-- EKRAN. `#btnInstall` jest ukryty do czasu `beforeinstallprompt` (tylko
          Chrome/Android; iOS i desktop go nie wysyłają), a `#btnFs` znika tam,
          gdzie Fullscreen API nie istnieje — main.js decyduje, nie CSS. -->
+    <h3 class="sekcja" data-pl="EKRAN" data-en="SCREEN">EKRAN</h3>
     <div id="ekranBox">
       <button class="btn2" id="btnFs"><i class="fsIco"></i><span data-pl="PEŁNY EKRAN" data-en="FULLSCREEN">PEŁNY EKRAN</span></button>
       <button class="btn2" id="btnInstall" style="display:none" data-pl="ZAINSTALUJ GRĘ" data-en="INSTALL THE GAME">ZAINSTALUJ GRĘ</button>
@@ -842,17 +903,21 @@
            data-pl="Na telefonie pełny ekran włącza się też sam po dotknięciu GRAJ."
            data-en="On a phone, fullscreen also kicks in by itself when you tap PLAY.">Na telefonie pełny ekran włącza się też sam po dotknięciu GRAJ.</div>
     </div>
-  </div>
-  <div class="panel" id="p-staty"><h2 data-pl="STATYSTYKI" data-en="STATS">STATYSTYKI</h2><div id="statsList"></div></div>
-  <!-- STEROWANIE: rzędy generuje main.js (renderSterowanie), bo glify muszą się
-       przerysować po podłączeniu pada innej rodziny i po każdej zmianie mapowania -->
-  <div class="panel" id="p-sterowanie">
-    <h2 data-pl="STEROWANIE" data-en="CONTROLS">STEROWANIE</h2>
-    <p data-pl="Podpowiedzi same dopasują się do rodziny pada (Xbox, PlayStation, Switch, Steam Deck). Bez pada gra chodzi na klawiaturze i myszy dokładnie jak dotąd."
-       data-en="The button prompts match your pad family by themselves (Xbox, PlayStation, Switch, Steam Deck). With no pad, keyboard and mouse work exactly as before.">Podpowiedzi same dopasują się do rodziny pada (Xbox, PlayStation, Switch, Steam Deck).
-       Bez pada gra chodzi na klawiaturze i myszy dokładnie jak dotąd.</p>
+
+    <!-- STEROWANIE: rzędy generuje main.js (renderSterowanie), bo glify muszą się
+         przerysować po podłączeniu pada innej rodziny i po każdej zmianie mapowania.
+         Cała reszta instrukcji sterowania (klawiatura, dotyk) też jest tutaj —
+         `#startFoot` skrócony do jednej linii właśnie dlatego. -->
+    <h3 class="sekcja" data-pl="STEROWANIE" data-en="CONTROLS">STEROWANIE</h3>
+    <p data-pl="Klawiatura: <b>WASD</b> ruch · <b>SPACJA</b> skok · <b>Q/E</b> obrót kamery · <b>ESC</b> pauza.<br>Telefon: lewa połowa ekranu = joystick, prawa = obrót kamery, skok przyciskiem po prawej.<br>Podpowiedzi pada same dopasują się do jego rodziny (Xbox, PlayStation, Switch, Steam Deck)."
+       data-en="Keyboard: <b>WASD</b> move · <b>SPACE</b> jump · <b>Q/E</b> turn the camera · <b>ESC</b> pause.<br>Phone: left half of the screen = joystick, right half = camera, jump with the button on the right.<br>Pad prompts match your pad family by themselves (Xbox, PlayStation, Switch, Steam Deck).">Klawiatura: <b>WASD</b> ruch · <b>SPACJA</b> skok · <b>Q/E</b> obrót kamery · <b>ESC</b> pauza.<br>
+       Telefon: lewa połowa ekranu = joystick, prawa = obrót kamery, skok przyciskiem po prawej.<br>
+       Podpowiedzi pada same dopasują się do jego rodziny (Xbox, PlayStation, Switch, Steam Deck).</p>
     <div id="ctrlBox"></div>
   </div>
+  <div class="panel" id="p-staty"><h2 data-pl="STATYSTYKI" data-en="STATS">STATYSTYKI</h2><div id="statsList"></div></div>
+  </div><!-- /#panele -->
+  </div><!-- /#menuUklad -->
 
   <!-- PL | EN — obsługa w main.js (ustawJezyk); klasa `sel` na aktywnym języku.
        CELOWO NA KOŃCU #startOv, mimo że wizualnie siedzi w prawym górnym rogu
@@ -861,12 +926,12 @@
        więc kolejność w DOM nie psuje nawigacji D-padem. -->
   <div id="langSw"><button class="btn2" id="langPl">PL</button><button class="btn2" id="langEn">EN</button></div>
 
+  <!-- JEDNA LINIA: pełna instrukcja sterowania przeniosła się do zakładki
+       USTAWIENIA (sekcja STEROWANIE), a czterowierszowa stopka zjadała na
+       telefonie miejsce potrzebne scence i paskowi ikon. -->
   <p id="startFoot"
-     data-pl="Klawiatura: <b>WASD</b> ruch · <b>SPACJA</b> skok · <b>Q/E</b> obrót · <b>ESC</b> pauza<br>Telefon: lewa połowa = joystick · prawa = obrót kamery · przycisk skoku po prawej<br>Kontroler: lewy drążek ruch · prawy kamera · pełne mapowanie w zakładce <b>Sterowanie</b><br>Masz Liść sałaty? <b>PRZYTRZYMAJ skok w locie</b> — szybujesz i uciekasz hordzie"
-     data-en="Keyboard: <b>WASD</b> move · <b>SPACE</b> jump · <b>Q/E</b> turn · <b>ESC</b> pause<br>Phone: left half = joystick · right half = camera · jump button on the right<br>Controller: left stick moves · right stick looks · full mapping in the <b>Controls</b> tab<br>Got the Lettuce Leaf? <b>HOLD jump in mid-air</b> — you glide and outrun the horde">Klawiatura: <b>WASD</b> ruch · <b>SPACJA</b> skok · <b>Q/E</b> obrót · <b>ESC</b> pauza<br>
-     Telefon: lewa połowa = joystick · prawa = obrót kamery · przycisk skoku po prawej<br>
-     Kontroler: lewy drążek ruch · prawy kamera · pełne mapowanie w zakładce <b>Sterowanie</b><br>
-     Masz Liść sałaty? <b>PRZYTRZYMAJ skok w locie</b> — szybujesz i uciekasz hordzie</p>
+     data-pl="<b>WASD</b> ruch · <b>SPACJA</b> skok · <b>ESC</b> pauza · reszta w <b>Ustawieniach</b>"
+     data-en="<b>WASD</b> move · <b>SPACE</b> jump · <b>ESC</b> pause · the rest is in <b>Settings</b>"><b>WASD</b> ruch · <b>SPACJA</b> skok · <b>ESC</b> pauza · reszta w <b>Ustawieniach</b></p>
 </div>
 
 <!-- ================= EKRANY W GRZE ================= -->
@@ -927,6 +992,6 @@
     addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
   }
 </script>
-<script type="module" src="main.js?v=154"></script>
+<script type="module" src="main.js?v=156"></script>
 </body>
 </html>
