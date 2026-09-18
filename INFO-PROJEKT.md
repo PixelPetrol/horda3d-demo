@@ -1313,8 +1313,10 @@ Zrobione: `ui-base.css` (tokeny + `.bigbtn/.btn2/.tile/.card/h2/.snd/.ov/.gp-sel
 `git mv` — w plikach było przesunięcie o jedno!) + kredowa tablica statów | panel `#panele`;
 scalone `#p-ustawienia` = dźwięk+język+ekran+sterowanie; `#panelBack` i pasek `fixed` na dole
 przy ≤520 px; `backdrop-filter:none` na `#startOv`, bo rozmycie odbierało `fixed` viewport),
-`ui-hud.css` (belka-lada `#hud::before` chowana `body:has(#startOv:not([style*="none"]))`,
-kredowe tabliczki, sloty broni = skrzynki `skrzynka_mala.png`, `#buff` top 94, overlaye).
+`ui-hud.css` (kredowe tabliczki, sloty broni = skrzynki `skrzynka_mala.png`, `#buff` top 94,
+overlaye). **Belka-lada `#hud::before` USUNIĘTA na życzenie właściciela** po obejrzeniu
+(zostały skrzynki pauzy/pełnego ekranu i tabliczka POZIOM; zegar, monety, ZAGROŻENIE = czysta
+kreda z konturem, bez tabliczek).
 `portret(char, bok)` = auto-przycięcie po alfie (cała postać). **Beetino**: `Wypad!` celuje
 w najgęstszy sektor (12×30°), 360° przy ≥6 wrogach, dmg 4+1.3l, pasyw `cisnienie()`
 (<50% HP: +25% dmg w `dmgAll`, wysysanie 10% → `P.sok`, +1 serce co 2.5) — zgłoszenie „burak

@@ -69,18 +69,10 @@
    #hud, a wszystkie dzieci są `position:absolute` bez z-index — więc maluje się
    POD nimi, a nad canvasem (stos #hud ma z-index 5).
    Wysokość 58 nie rusza budżetu „HUD u góry ≤ 92 px" (najniższy jest ZAGROŻENIE). */
-#hud::before{
-  content:'';position:absolute;left:0;right:0;top:0;height:58px;
-  background:var(--hud-deska) 0 0/128px 64px repeat-x;
-  image-rendering:pixelated;
-  box-shadow:inset 0 -4px 0 0 var(--hud-drewno-c), 0 3px 0 0 var(--hud-kontur);
-  transition:opacity .18s;
-}
-/* W MENU belki nie ma: `#hud` nigdy się nie chowa, a przez półprzezroczyste tło
-   `.ov` (0.88 + blur) przebijałby się jasny pas przez cały ekran startowy.
-   `:has()` bez podparcia = belka zostaje widoczna (dziś też widać przez menu
-   liczniki HUD-u), więc degradacja jest bezpieczna. */
-body:has(#startOv:not([style*="none"])) #hud::before{opacity:0}
+/* BELKA USUNIĘTA (decyzja właściciela 18.09 po obejrzeniu: „usuń górną belkę, tylko
+   skrzynki pauzy i pełnego ekranu oraz poziom zostawmy"). Liczniki stoją teraz na samej
+   trawie jako osobne tabliczki/kreda z konturem, pasek XP zostaje jako wąska listwa. */
+#hud::before{content:none}
 
 /* ================= PASEK XP = rowek wyżłobiony w desce ================= */
 #xpwrap{
@@ -124,12 +116,12 @@ body:has(#startOv:not([style*="none"])) #hud::before{opacity:0}
 /* ================= ŚRODEK: zegar na tabliczce + rząd serc ================= */
 /* 20 px zamiast 21 i `line-height` na sztywno: tabliczka z ramką musi zamknąć się
    w pasie 14..42, bo nad nią kończy się pasek XP, a pod nią zaczyna rząd serc (42). */
+/* Bez belki zegar wraca do czystej kredy z konturem (tabliczka bez lady wisiała w powietrzu). */
 #timer{
-  top:17px;padding:0 9px;
-  font-size:20px;line-height:22px;letter-spacing:1px;
+  top:17px;padding:0;
+  font-size:21px;line-height:22px;letter-spacing:1px;
   color:var(--hud-kreda);text-shadow:var(--hud-obrys);
-  background:var(--hud-tabl-img) 0 0/128px 128px;image-rendering:pixelated;
-  box-shadow:inset 0 0 0 3px var(--hud-drewno-j), var(--hud-rama3);
+  background:none;box-shadow:none;
 }
 /* serca zostają dokładnie tam, gdzie były (top 42, wyśrodkowane) — zmienia się
    tylko cień pod nimi, żeby czerwień nie ginęła na jasnym drewnie i na trawie */
@@ -143,18 +135,17 @@ body:has(#startOv:not([style*="none"])) #hud::before{opacity:0}
 }
 /* monety = papierowa etykieta ceny; ciemny napis na kremowym papierze czyta się
    lepiej niż złoto na złocie (ikona monety i tak jest złota) */
+/* bez belki: złoto z konturem, bez papierowej etykiety (etykieta bez lady wisiała w powietrzu) */
 #coins{
-  top:37px;right:10px;padding:0 3px;font-size:14px;line-height:18px;
-  color:var(--hud-kontur);text-shadow:none;
-  background:var(--hud-papier-img) 0 0/64px 64px;image-rendering:pixelated;
-  box-shadow:var(--hud-rama2);
+  top:38px;right:12px;padding:0;font-size:14px;line-height:18px;
+  color:var(--hud-zloto);text-shadow:var(--hud-obrys);
+  background:none;box-shadow:none;
 }
-/* ZAGROŻENIE = tabliczka zwieszona POD ladą (stąd ciemna deska, nie kreda) */
+/* ZAGROŻENIE = czysty napis z konturem */
 #tier{
-  top:62px;right:10px;padding:0 5px;font-size:12px;line-height:16px;
+  top:60px;right:12px;padding:0;font-size:12px;line-height:16px;
   color:var(--hud-pomidor);text-shadow:var(--hud-obrys);
-  background:var(--hud-deska-c) 0 0/128px 64px;image-rendering:pixelated;
-  box-shadow:var(--hud-rama2);
+  background:none;box-shadow:none;
 }
 
 /* ================= TOAST BUFFA = kredowa tabliczka na sznurku =================
@@ -390,8 +381,7 @@ body:has(#startOv:not([style*="none"])) #hud::before{opacity:0}
       -3px 0 0 0 #7ee7ff, 3px 0 0 0 #7ee7ff, 0 -3px 0 0 #7ee7ff, 0 3px 0 0 #7ee7ff}
 }
 @media (max-height:520px){
-  /* telefon w poziomie: mniej miejsca w pionie — belka i zegar schodzą o oczko */
-  #hud::before{height:52px}
+  /* telefon w poziomie: mniej miejsca w pionie — zegar schodzi o oczko */
   #cards,#swapList{gap:7px}                        /* `#cards{gap:14px}` wyżej biło stare zagęszczenie */
   #timer{font-size:18px;line-height:20px;top:16px}
   #wpns .wp{width:34px;height:34px;background-size:34px 34px}
