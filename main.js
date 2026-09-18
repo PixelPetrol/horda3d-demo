@@ -190,6 +190,18 @@ const kubelekMinut = t => t >= 600 ? '10+' : Math.floor(t / 60) + '-' + (Math.fl
 STATY.start();
 window.STATY = STATY;                              // PWA (`appinstalled`) woła STATY.zdarzenie z innego miejsca
 
+// ============================== „POSTAW MI KAWĘ" ==============================
+// Życzenie właściciela (18.09). Link WPISUJE WŁAŚCICIEL (buycoffee.to / Ko-fi / suppi);
+// pusty = przycisk schowany. Klik liczy się jako zdarzenie w statystykach.
+const KAWA_URL = '';
+{
+  const k = document.getElementById('kawaBtn');
+  if (k) {
+    if (KAWA_URL) { k.href = KAWA_URL; k.style.display = ''; k.onclick = () => STATY.zdarzenie('kawa', 'Klik: postaw kawę'); }
+    else k.style.display = 'none';
+  }
+}
+
 // ============================== SCENA ==============================
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
@@ -1997,7 +2009,7 @@ function matNaWierzchu(src, kolor, opacity = 1) {
 // `skala === 1` = brak obrysu (schowa sie dokladnie pod kolorowa kopia).
 let OBRYS_SKALA = 1.07;
 let OBRYS_KOLOR = 0x1b1b22;                      // ten sam kontur, co w calym pixel-arcie gry
-let KOPIA_KRYCIE = 0.72;                         // krycie sylwetki „przez hordę" (1 = stara naklejka)
+let KOPIA_KRYCIE = 0.55;                         // krycie sylwetki „przez hordę" (1 = stara naklejka); 0.72 → 0.55 po teście 18.09
 
 class Billboard {
   constructor(char, scaleMul = 1, naWierzchu = false) {
@@ -2015,16 +2027,12 @@ class Billboard {
     this.shadow.scale.set(this.h * 0.56, 1, this.h * 0.34);
     scene.add(this.mesh); scene.add(this.shadow);
     if (naWierzchu) {
-      this.obrys = new THREE.Mesh(unitGeo, null);
-      // pivot geometrii siedzi w STOPACH (unitGeo.translate(0, 0.5, 0)), więc samo
-      // powiększenie rozlałoby obrys w górę i na boki, ale nie pod stopy — zsuwamy go
-      // o połowę przyrostu, żeby otoczka była równa dookoła
-      this.obrys.scale.setScalar(OBRYS_SKALA);
-      this.obrys.position.y = -(OBRYS_SKALA - 1) / 2;
-      this.obrys.renderOrder = 899;
+      // BEZ CZARNEGO OBRYSU (decyzja właściciela 18.09: „czemu postać jest obleczona
+      // grubszym czarnym konturem i jest jakby na wierzchu"). Zostaje sama półprzezroczysta
+      // sylwetka, i to tylko w prawdziwym ścisku — patrz warunek w update().
       this.kopia = new THREE.Mesh(unitGeo, null);
       this.kopia.renderOrder = 900;
-      this.mesh.add(this.obrys); this.mesh.add(this.kopia);
+      this.mesh.add(this.kopia);
     }
     this.play('idle');
     // MATERIAŁ MUSI BYĆ OD RAZU. Mesh powstaje z `null`, a materiał dostaje
@@ -2065,21 +2073,21 @@ class Billboard {
     this.mesh.material = mats[f];
     if (this.kopia) {
       this.kopia.material = matNaWierzchu(mats[f], 0xffffff, KOPIA_KRYCIE);
-      this.obrys.material = matNaWierzchu(mats[f], OBRYS_KOLOR, KOPIA_KRYCIE);
-      // KOPIA WLACZA SIE TYLKO WTEDY, GDY JEST PO CO. `depthTest: false` ignoruje
-      // CALY swiat, nie tylko horde — wiec gracz przebijal takze drzewa i regaly
-      // (zgloszenie wlasciciela: „drzewa przenikaja"). Warunek: ktos stoi tuz przy
-      // graczu I jest BLIZEJ kamery, czyli faktycznie go zaslania. W pustym polu
-      // kopia gasnie i drzewa zaslaniaja postac normalnie, jak przed zmiana.
+      // KOPIA WLACZA SIE TYLKO W PRAWDZIWYM SCISKU. `depthTest: false` ignoruje CALY
+      // swiat (trawe, drzewa, wrogow), wiec kazde wlaczenie czyta sie jako „postac na
+      // wierzchu, przenika" (zgloszenie wlasciciela 18.09). Warunek: co najmniej TRZECH
+      // zywych wrogow w promieniu 1.8 j. i blizej kamery niz gracz — czyli sytuacja,
+      // w ktorej bez kopii gracza faktycznie nie byloby widac. Jeden przebiegajacy
+      // wrog juz nie odpala sylwetki.
       let zaslaniaja = 0;
       const dk = camera.position.distanceTo(P.pos);
       for (const e of G.enemies) {
         if (e.dying) continue;
         const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z;
-        if (dx * dx + dz * dz > 6.25) continue;                  // promien 2.5 j.
-        if (camera.position.distanceTo(e.pos) < dk) { zaslaniaja++; break; }
+        if (dx * dx + dz * dz > 3.24) continue;                  // promien 1.8 j.
+        if (camera.position.distanceTo(e.pos) < dk && ++zaslaniaja >= 3) break;
       }
-      this.kopia.visible = this.obrys.visible = zaslaniaja > 0;
+      this.kopia.visible = zaslaniaja >= 3;
     }
     // FOOTY MUSI BYĆ SKRÓCONE O `cos(pochylenia)`. Zsuwamy sprite'a w dół o tyle
     // pustych pikseli, ile arkusz ma pod stopami — ale to przesunięcie było liczone
@@ -2613,9 +2621,12 @@ function initAura() {
 function updateAura() {
   if (!aura) return;
   const niet = G.buff.key === 'niet';
-  // aura chodzi też przez zwykłe okno po ciosie — to ten sam stan gry
-  const on = (niet || P.iframes > 0) && !G.dying && !G.fps.on;
-  aura.visible = auraRing.visible = on;
+  // TYLKO buff nietykalności z Garnka. Po zwykłym ciosie zostaje samo czerwone miganie
+  // (decyzja właściciela 18.09: pierścień na ziemi wyglądał na przesunięty względem
+  // pochylonego sprite'a i mylił — „usunąć i dać tylko miganie na czerwono").
+  // Pierścień na ziemi wyłączony na stałe z tego samego powodu.
+  const on = niet && !G.dying && !G.fps.on;
+  aura.visible = on; auraRing.visible = false;
   if (!on) return;
   const puls = 0.5 + 0.5 * Math.sin(G.time * (niet ? 7 : 13));
   const h = playerBB.h;
@@ -2655,7 +2666,7 @@ function loadMeta() {
     // KONTROLER (zakładka Sterowanie). `map` trzyma INDEKSY przycisków w układzie
     // `standard` Gamepad API — nie litery, bo te same indeksy noszą u Nintendo inne
     // napisy (patrz PAD_GLIFY) i zapis przeniósłby się między padami błędnie.
-    pad: { map: { ...PAD_MAP_DOM }, czulosc: 1, invY: 0, wibracje: 1 },
+    pad: { map: { ...PAD_MAP_DOM }, czulosc: 1, invY: 0, wibracje: 1, uklad: 'auto' },   // uklad: auto|xbox|ps|switch
     // JEDNORAZOWE PODPOWIEDZI UI. `pwaHint` = czy pokazaliśmy już iPhone'owi, że
     // pełny ekran robi się przez „Dodaj do ekranu początkowego" (Safari nie ma
     // Fullscreen API dla stron). Raz pokazane = nigdy więcej.
@@ -3159,6 +3170,7 @@ const PAD_TXT = {
   kamera: 'kamera za plecy', czulosc: 'Czułość prawego drążka', inwersja: 'Odwróć pion (karabin)',
   wibracje: 'Wibracje', zmien: 'Zmień', domyslne: 'PRZYWRÓĆ DOMYŚLNE',
   nasluch: 'naciśnij przycisk…', anuluj: 'anuluj', zajety: 'Ten przycisk jest zajęty na stałe', wl: 'WŁ.', wyl: 'WYŁ.',
+  uklad: 'Układ przycisków', ukl_auto: 'AUTO', ukl_xbox: 'XBOX', ukl_ps: 'PLAYSTATION', ukl_switch: 'SWITCH',
   polaczony: 'KONTROLER: ', odlaczony: 'Kontroler odłączony', ustawione: 'Przypisano: ',
 };
 
@@ -3169,7 +3181,9 @@ const PAD_TXT = {
 function padRodzina(id) {
   const s = String(id || '').toLowerCase();
   if (/valve|steam/.test(s)) return 'deck';
-  if (/xbox|xinput|045e/.test(s)) return 'xbox';
+  // handheldy z układem Xboxa (Retroid Pocket, 8BitDo, GameSir, Anbernic, Ayn Odin) —
+  // RP6 Piotra meldował się nieznaną nazwą i pokazywał cyfry (test 18.09)
+  if (/xbox|xinput|045e|retroid|8bitdo|gamesir|anbernic|ayn|odin|moga|razer kishi|backbone/.test(s)) return 'xbox';
   if (/sony|playstation|dualshock|dualsense|054c/.test(s)) return 'ps';
   if (/nintendo|pro controller|joy-?con|057e/.test(s)) return 'switch';
   return 'generic';
@@ -3193,9 +3207,14 @@ const PAD_GLIFY = {
 const PAD_DPAD = { 12: 'dpG', 13: 'dpD', 14: 'dpL', 15: 'dpP' };
 function padKapsel(i) {
   if (PAD_DPAD[i]) return `<b class="gpk sh"><i class="${PAD_DPAD[i]}"></i></b>`;
-  const tab = PAD_GLIFY[PAD.rodzina === 'deck' ? 'xbox' : PAD.rodzina];
+  // UKŁAD: ręczny wybór z zakładki Sterowanie wygrywa; „auto" = rodzina wykrytego pada,
+  // a pad nieznany lub jeszcze nie podłączony dostaje nazwy Xboxa (A/B/X/Y/LB/RB) —
+  // gołe cyfry nic graczowi nie mówią (test Piotra na RP6, 18.09)
+  const reczny = META.pad.uklad && META.pad.uklad !== 'auto' ? META.pad.uklad : null;
+  const rodz = reczny || (PAD.rodzina === 'ps' || PAD.rodzina === 'switch' ? PAD.rodzina : 'xbox');
+  const tab = PAD_GLIFY[rodz];
   const g = tab && tab[i];
-  if (!g) return `<b class="gpk">${i}</b>`;        // nieznana rodzina/przycisk = goły numer
+  if (!g) return `<b class="gpk">${i}</b>`;        // przycisk poza znanym zakresem = goły numer
   return `<b class="gpk ${g[0]}">${g[1]}</b>`;
 }
 // glyph akcji z `META.pad.map` — do HUD-u, stopki i zakładki Sterowanie
@@ -3561,6 +3580,8 @@ function renderSterowanie() {
     + `<div class="snd"><label>${PAD_TXT.czulosc}</label>` +
       `<input id="padCzul" type="range" min="50" max="200" step="5" ` +
       `value="${Math.round((META.pad.czulosc || 1) * 100)}"><b id="padCzulV"></b></div>`
+    + `<div class="snd"><label>${PAD_TXT.uklad}</label><b class="gpv"></b>` +
+      `<button class="btn2" id="padUklad">${PAD_TXT['ukl_' + (META.pad.uklad || 'auto')] || PAD_TXT.ukl_auto}</button></div>`
     + `<div class="snd"><label>${PAD_TXT.inwersja}</label><b class="gpv"></b>` +
       `<button class="btn2${META.pad.invY ? ' sel' : ''}" id="padInv">${wl(META.pad.invY)}</button></div>`
     + `<div class="snd"><label>${PAD_TXT.wibracje}</label><b class="gpv"></b>` +
@@ -3575,6 +3596,12 @@ function renderSterowanie() {
   const pokaz = () => { czV.textContent = (cz.value / 100).toFixed(2) + '×'; };
   pokaz();
   cz.oninput = () => { META.pad.czulosc = cz.value / 100; pokaz(); saveMetaSoon(); };
+  // układ przycisków: cykl auto → xbox → ps → switch (glify w HUD i stopce od razu)
+  document.getElementById('padUklad').onclick = () => {
+    const cykl = ['auto', 'xbox', 'ps', 'switch'];
+    META.pad.uklad = cykl[(cykl.indexOf(META.pad.uklad || 'auto') + 1) % cykl.length];
+    saveMeta(); PAD.sygHud = PAD.sygFoot = ''; renderSterowanie();
+  };
   document.getElementById('padInv').onclick = () => {
     META.pad.invY = META.pad.invY ? 0 : 1; saveMeta(); renderSterowanie();
   };
@@ -3585,7 +3612,7 @@ function renderSterowanie() {
   };
   document.getElementById('padReset').onclick = () => {
     META.pad.map = { ...PAD_MAP_DOM };
-    META.pad.czulosc = 1; META.pad.invY = 0; META.pad.wibracje = 1;
+    META.pad.czulosc = 1; META.pad.invY = 0; META.pad.wibracje = 1; META.pad.uklad = 'auto';
     saveMeta(); PAD.sygHud = PAD.sygFoot = '';
     renderSterowanie();
   };

@@ -1203,6 +1203,16 @@ inwersja, wibracje), rodziny xbox/ps/switch/deck/generic z glifami CSS, `#padHud
 z nauką przycisku (zajęte na stałe: B, LB/RB, D-pad, RT/LT/Back), wibracje (trafienie 0.95/120 ms,
 elita, boss, lądowanie, krytyk z dławikiem), aim assist w karabinie TYLKO gdy `PAD.on && !myszLock`.
 Tester 18.09: menu/bieg/karty/pauza/śmierć/restart padem OK, chunki i pamięć stabilne.
+**Po teście Piotra na RP6 (Retroid Pocket 6) i telefonie, v151:** pauza PO LEWEJ od serc,
+pełny ekran PO PRAWEJ (rząd serc, top 40; pasek rangi 56 px, ZAGROŻENIE top 76, pasek bossa
+96 przy ≤520 px — zmierzone: zero kolizji przy 8 sercach); glify pada = nazwy Xboxa gdy pad
+nieznany/niepodłączony (RP6 dawał cyfry) + `META.pad.uklad` (Auto/Xbox/PlayStation/Switch)
+w zakładce Sterowanie + regex handheldów (retroid, 8bitdo, gamesir, anbernic, ayn/odin);
+zaznaczenie padem BŁĘKITNE (`.gp-sel` #7ee7ff — złote na złotych kartach wymiennika było
+niewidoczne); **czarny obrys gracza USUNIĘTY**, półprzezroczysta kopia (0.55) tylko przy ≥3
+wrogach w 1.8 j. bliżej kamery; **pierścień i aura po ciosie USUNIĘTE** — zostaje czerwone
+miganie (aura tylko przy buffie nietykalności z Garnka); przycisk „POSTAW MI KAWĘ" pod GRAJ
+(`KAWA_URL` w main.js — WPISUJE WŁAŚCICIEL, pusty = ukryty; klik = zdarzenie `kawa`).
 **Do sprawdzenia przez Piotra:** Android Chrome (auto-fullscreen po GRAJ w pionie i poziomie,
 obrót, przycisk pełnego ekranu vs serca/czaszki, „Zainstaluj grę" tylko z HTTPS), iPhone/iPad
 Safari (pasek „Dodaj do ekranu" raz, po instalacji HUD pod notchem w obu orientacjach), itch
