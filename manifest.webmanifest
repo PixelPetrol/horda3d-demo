@@ -1,8 +1,8 @@
 {
   "name": "VEGGIE FAMIGLIA — Brainrot Survivors",
   "short_name": "Veggie Famiglia",
-  "description": "Survivors-like w 3D: warzywna rodzina kontra Famiglia Snackoni.",
-  "lang": "pl",
+  "description": "Survivors-like in 3D: the veggie family vs the Famiglia Snackoni.",
+  "lang": "en",
   "dir": "ltr",
   "start_url": "./",
   "scope": "./",

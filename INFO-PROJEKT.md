@@ -1277,13 +1277,35 @@ nawigacji 0.22 s, czułość 1.0× i aim assist, LB „kamera za plecy" — czy 
   celowanie prawym drążkiem w karabinie z krzywą czułości i lekkim aim assistem,
   Steam Deck / Retroid bez wymagania myszy.
 
-### Etap 2 — JĘZYKI PL/EN + FABUŁA
-- Auto z przeglądarki + przełącznik w menu; **głosy PL zostają w EN** (klimat brainrotu),
-  napisy po angielsku. Słownik: ~130 tekstów w main.js, ~25 w index.html, ~54 w audio.js.
-- Fabuła = **KOMIKS 4-5 plansz** przy pierwszym uruchomieniu (pomijalny) + z menu;
-  bestiariusz i ekrany ładowania dopowiadają. Scenariusz i prompty do PixelLaba pisze
-  agent, plansze generuje właściciel. Lore: Famiglia Snackoni (mafia przekąsek) chce
-  zasypać Osiedle Grządkowo solą i cukrem i postawić automat w miejscu warzywniaka.
+### Etap 2 — JĘZYKI PL/EN + FABUŁA ✅ kod gotowy 18.09 (main.js v154) — plansze komiksu CZEKAJĄ NA PIOTRA
+- **Język**: blok JĘZYK na POCZĄTKU main.js (przed rejestrami!), `JEZYK.cur` z
+  `localStorage['horda3d_meta_v1'].lang` albo `navigator.language`; helper **`T(pl, en)`**
+  (308 wywołań w main.js, w rejestrach ewaluowany przy starcie), `data-pl`/`data-en`
+  (+`data-attr`) w index.html (52 elementy) i `zastosujJezyk()` jako PIERWSZA linia `boot()`;
+  audio.js dostaje teksty przez `AUDIO.init(META, saveMeta, {wlacz, wycisz})` (bez cyklu
+  importów). **Zmiana języka = zapis `META.lang` + `location.reload()`** (świadomie, zamiast
+  przerysowywać 300 miejsc). Przełącznik `#langSw` (PL | EN) w prawym górnym rogu `#startOv`
+  (na końcu DOM, żeby pad zaznaczał GRAJ jako pierwszy) + wiersz „Język / Language" w
+  „Dźwięk i ekran". `loadMeta` MUSI zwracać `lang` (był błąd gubienia po reloadzie).
+  Imiona włoskie i głosy PL zostają w EN; nazwy broni EN z biblii (The Stink, Pencil Case,
+  Velvet Push, NOT ON THE LIST). Osiedle w EN = „the Blockyard" (PL: Osiedle Grządkowo).
+  Manifest PWA jest statyczny → opis i `lang` po angielsku (name też jest EN).
+- **Komiks** (`komiks.js?v=1`, `initKomiks(deps)` / `pokazKomiks({zMenu})` → Promise):
+  `#komiksOv` = OSTATNI `.ov` w DOM (topOverlay bierze ostatni widoczny), pierwsze
+  uruchomienie po `#loadOv` (menu ukryte → komiks → menu, `META.ui.komiks`), przycisk
+  FABUŁA/STORY w `#ctaRow` obok KAWY, placeholder na canvas gdy brak PNG (404 nie jest
+  cache'owane), A/klik/→ dalej, B/Esc pomiń (`gpBack` zna `komiksOv`), `keydown` w fazie
+  capture na window (globalne handlery nie widzą Space/Esc), `#komiksRama{flex:0 0 auto}`.
+  Zdarzenia: `komiks/start`, `komiks/start-menu`, `komiks/koniec`, `komiks/pominiety`.
+  Akapit fabuły nad bestiariuszem + `lore:` per Snackoni w `ENEMY_TYPES` (kursywą w kafelku).
+- **Plansze**: `assets/komiks/plansza1..5.png` 640×360 BEZ TEKSTU — generator
+  `narzedzia/generuj_komiks.py` (Gemini image API, klucz w `~/.veggie_google_key`, NIE w repo;
+  `.gitignore`: `apikey*`, `*.rtf`, `.veggie_google_key`, `*_key`) → `gen` (warianty do
+  `dist/komiks_raw/`), `pick` (pixel art 160×90 ×4 do assets), `pix` (dowolny plik).
+  **Modele obrazkowe Google wymagają włączonego rozliczania** — darmowy plan ma limit 0
+  (skrypt kończy z komunikatem). Darmowy Pollinations dał rozmazany obraz ze znakiem
+  wodnym — odrzucony. Alternatywy: token Hugging Face (FLUX.1-schnell) albo PixelLab
+  z promptami z `dokumenty/komiks-intro.md`.
 
 ### Etap 3 — HUD I MENU W STYLISTYCE GRY
 Pixel-artowe ramki, spójne ikony, czytelna nawigacja padem i palcem, wszystkie opcje

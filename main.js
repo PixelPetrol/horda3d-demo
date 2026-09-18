@@ -2,7 +2,40 @@
 import * as THREE from './lib/three.module.js';
 import { SPRITEDATA } from './spritedata.js?v=11';
 import { icon, ico } from './icons.js?v=5';
-import { AUDIO } from './audio.js?v=4';            // muzyka wg fazy gry + kwestie głosowe + efekty
+import { AUDIO } from './audio.js?v=5';            // muzyka wg fazy gry + kwestie głosowe + efekty
+import { initKomiks, pokazKomiks } from './komiks.js?v=1';   // komiks wprowadzający (Etap 2)
+
+// ============================== JĘZYK (PL / EN) ==============================
+// Decyzja właściciela (18.09): dwa języki, start w języku przeglądarki, przełącznik w menu,
+// głosy zostają polskie. Jeden helper `T(pl, en)` zamiast słownika z kluczami: gra ma
+// ~300 tekstów rozsianych po szablonach HTML w JS, a para „obok siebie" jest odporna
+// na literówki w kluczach i czytelna w diffie. Etykiety w index.html: atrybuty
+// `data-pl` / `data-en` (+ opcjonalny `data-attr`) i `zastosujJezyk()`.
+//
+// DLACZEGO TEN BLOK STOI NA SAMEJ GÓRZE PLIKU: rejestry MAPS, CHARS, WEAPONS,
+// ENEMY_TYPES, PASSIVES, REPEAT, SHOP, PORADY to statyczne obiekty ewaluowane RAZ,
+// przy wczytaniu modułu — więc `T()` musi już wtedy istnieć i znać język. `META`
+// powstaje dopiero ~2700 linii niżej, dlatego język czytamy wprost z localStorage
+// (ten sam klucz, co `META_KEY`), z fallbackiem na język przeglądarki.
+// Zmiana języka = zapis do META + `location.reload()` (patrz `ustawJezyk`) —
+// świadomie prosto, zamiast przerysowywania dwustu miejsc na żywo.
+const JEZYK = { cur: 'pl' };
+{
+  const zPrzegladarki = () => ((navigator.language || 'pl').toLowerCase().startsWith('pl') ? 'pl' : 'en');
+  let l = '';
+  try { l = (JSON.parse(localStorage.getItem('horda3d_meta_v1') || '{}') || {}).lang || ''; } catch { l = ''; }
+  JEZYK.cur = (l === 'pl' || l === 'en') ? l : zPrzegladarki();
+}
+const T = (pl, en) => (JEZYK.cur === 'en' && en != null ? en : pl);
+function zastosujJezyk(root = document) {
+  const en = JEZYK.cur === 'en';
+  root.querySelectorAll('[data-pl]').forEach(el => {
+    const v = en ? el.dataset.en : el.dataset.pl;
+    if (v == null) return;
+    if (el.dataset.attr) el.setAttribute(el.dataset.attr, v); else el.innerHTML = v;
+  });
+  document.documentElement.lang = JEZYK.cur;
+}
 
 // ============================== USTAWIENIA ==============================
 // 1/55 → 1/46 = WSZYSTKIE postacie o ~20% większe (życzenie właściciela 03.09:
@@ -25,9 +58,11 @@ let camYaw = 0;                                    // obrót kamery wokół grac
 
 // ============================== MAPY ==============================
 const MAPS = {
-  laki:   { nm: 'Łąki', ico: 'laka', ds: 'Otwarty teren, jeziora, mesy do wskakiwania',
+  laki:   { nm: T('Łąki', 'Meadows'), ico: 'laka',
+            ds: T('Otwarty teren, jeziora, mesy do wskakiwania', 'Open ground, lakes, mesas to hop onto'),
             sky: 0x9cc8ec, fog: [80, 190], water: true, indoor: false, price: 0 },
-  market: { nm: 'Market', ico: 'market', ds: 'Ciasne alejki, regały, śliska rozlana woda',
+  market: { nm: T('Market', 'Supermarket'), ico: 'market',
+            ds: T('Ciasne alejki, regały, śliska rozlana woda', 'Tight aisles, shelves, slippery spills'),
             sky: 0xb8bfc7, fog: [34, 95], water: false, indoor: true, price: 0 },
 };
 let mapKey = 'laki';
@@ -35,7 +70,9 @@ let mapKey = 'laki';
 // ============================== POSTACIE ==============================
 const CHARS = {
   // ===== VEGGIE FAMIGLIA (statystyki wg biblii postaci v1.1) =====
-  carrotello: { nm: 'Carrotello Squattello', ds: 'Marchewino Dresino — szybki, ogromny magnes. Starter.',
+  carrotello: { nm: 'Carrotello Squattello',
+                ds: T('Marchewino Dresino — szybki, ogromny magnes. Starter.',
+                      'The tracksuit carrot — fast, huge magnet. Your starter.'),
                 // dmg 0.9 → 1.0: jedyna postać w grze z KARĄ do obrażeń była
                 // jednocześnie tą, którą gra się na starcie. Jej tożsamość to
                 // szybkość (1.15) i magnes (1.3), nie słabsze ciosy.
@@ -45,7 +82,9 @@ const CHARS = {
   // PRÓG 450 = TRZECI BIEG. Zmierzona ścieżka nowego gracza: bieg 1 ≈ 60 zabójstw,
   // bieg 2 ≈ 150, bieg 3 ≈ 250 → łącznie ~460. Nagroda ma przyjść, GDY GRACZ
   // JESZCZE NIE WIE, czy zostaje — nie po ośmiu biegach.
-  beetino:    { nm: 'Beetino Bouncerino', ds: 'Buraczino Betonino — czołg z bramki. Wolny, ale twardy.',
+  beetino:    { nm: 'Beetino Bouncerino',
+                ds: T('Buraczino Betonino — czołg z bramki. Wolny, ale twardy.',
+                      'The beetroot bouncer — a tank on the door. Slow, but solid.'),
                 char: 'beetino_bouncerino', price: 0, killGoal: 450, startWpn: 'wypad',
                 spd: 0.85, hp: 3, dmg: 1.1, mag: 0.9, scale: 1.32 },
   // Statystyki wprost z biblii postaci (HP 110 · Speed 0.9 · Might 1.0 · Pickup 1.1).
@@ -53,17 +92,23 @@ const CHARS = {
   // dokladnie tam, gdzie mial byc drugi przystanek progresji.
   // Radishetta Razoretta — szybka i krucha: seria scyzorykow przed siebie.
   // Cena 500: ma wpasc miedzy Beetina (450 zabojstw) a Granny (700 monet).
-  razoretta:  { nm: 'Radishetta Razoretta', ds: 'Rzodkiewka z piornikiem — seria scyzorykow, ale cienka skora.',
+  razoretta:  { nm: 'Radishetta Razoretta',
+                ds: T('Rzodkiewka z piornikiem — seria scyzorykow, ale cienka skora.',
+                      'Radish with a pencil case — a volley of knives, but paper-thin skin.'),
                 char: 'radishetta_razoretta', price: 500, startWpn: 'scyzoryk',
                 spd: 1.2, hp: -1, dmg: 1.25, mag: 1.0, scale: 1.2 },
-  granny:     { nm: 'Granny Smithella', ds: 'Babuszkina Jabłuszkina — kapeć wraca jak bumerang.',
+  granny:     { nm: 'Granny Smithella',
+                ds: T('Babuszkina Jabłuszkina — kapeć wraca jak bumerang.',
+                      'Nonna apple herself — the slipper comes back like a boomerang.'),
                 char: 'granny_smithella', price: 700, startWpn: 'ciabatta',
                 spd: 0.9, hp: 1, dmg: 1.0, mag: 1.1, scale: 1.28 },
   // PIERWSZA POSTAC Z AKTYWNA UMIEJETNOSCIA (dotad rozniły sie tylko statystykami
   // i bronia startowa). Startuje ze Skarpeta, bo cala jego tozsamosc to smrod:
   // bron truje pasywnie, a `KeyG` odpycha horde. Cena 900 = kolejny przystanek
   // po Granny (700), czyli powod, zeby grac dalej po wykupieniu poprzedniej.
-  garlicino:  { nm: 'Garlicino Stinkerino', ds: 'Czosnkino Smrodino — na zadanie odpycha horde smrodliwa aura (G).',
+  garlicino:  { nm: 'Garlicino Stinkerino',
+                ds: T('Czosnkino Smrodino — na zadanie odpycha horde smrodliwa aura (G).',
+                      'The garlic stinker — on demand, a reeking aura shoves the horde (G).'),
                 char: 'garlicino_stinkerino', price: 900, startWpn: 'skarpeta',
                 spd: 1.0, hp: 1, dmg: 1.0, mag: 1.05, scale: 1.22 },
 };
@@ -369,7 +414,7 @@ function odswiezFsBtn() {
   if (hud) hud.classList.toggle('on', w);
   const men = document.getElementById('btnFs');
   const nap = men && men.querySelector('span');
-  if (nap) nap.textContent = w ? 'WYJDŹ Z PEŁNEGO EKRANU' : 'PEŁNY EKRAN';
+  if (nap) nap.textContent = w ? T('WYJDŹ Z PEŁNEGO EKRANU', 'EXIT FULLSCREEN') : T('PEŁNY EKRAN', 'FULLSCREEN');
 }
 // Wejście/wyjście zmienia wysokość okna, ale `resize` po `fullscreenchange`
 // NIE ZAWSZE przychodzi (i bywa wcześniej niż nowe wymiary), więc przeliczamy sami.
@@ -419,12 +464,15 @@ function initEkranUI() {
     if (hud) hud.style.display = 'none';
     if (men) men.style.display = 'none';
     if (inf) inf.textContent = czyStandalone()
-      ? 'Gra chodzi jako aplikacja — pasek adresu już nie zabiera miejsca.'
-      : 'Ta przeglądarka nie daje stronom pełnego ekranu. Na iPhone: Udostępnij → Dodaj do ekranu początkowego.';
+      ? T('Gra chodzi jako aplikacja — pasek adresu już nie zabiera miejsca.',
+          'The game runs as an app — no address bar stealing screen space.')
+      : T('Ta przeglądarka nie daje stronom pełnego ekranu. Na iPhone: Udostępnij → Dodaj do ekranu początkowego.',
+          'This browser gives pages no fullscreen. On iPhone: Share → Add to Home Screen.');
   } else {
     if (hud) hud.onclick = przelaczPelnyEkran;
     if (men) men.onclick = przelaczPelnyEkran;
-    if (inf && !DOTYK) inf.textContent = 'Na komputerze pełny ekran włącza się tylko tym przyciskiem (albo F11).';
+    if (inf && !DOTYK) inf.textContent = T('Na komputerze pełny ekran włącza się tylko tym przyciskiem (albo F11).',
+                                           'On desktop, fullscreen turns on with this button only (or F11).');
     odswiezFsBtn();
   }
   const inst = document.getElementById('btnInstall');
@@ -2670,8 +2718,11 @@ function loadMeta() {
     // JEDNORAZOWE PODPOWIEDZI UI. `pwaHint` = czy pokazaliśmy już iPhone'owi, że
     // pełny ekran robi się przez „Dodaj do ekranu początkowego" (Safari nie ma
     // Fullscreen API dla stron). Raz pokazane = nigdy więcej.
-    ui: { pwaHint: false },
-    lang: '',                                      // '' = automatycznie z przeglądarki; 'pl' | 'en' po wyborze gracza
+    // `komiks` = czy gracz widział już komiks wprowadzający (leci raz, po ekranie
+    // ładowania; potem tylko z przycisku FABUŁA w menu). Stare zapisy go nie mają,
+    // więc `Object.assign(d.ui, m.ui)` niżej zostawia false i komiks poleci raz.
+    ui: { pwaHint: false, komiks: false },
+    lang: '',                                    // '' = automatycznie z przeglądarki; 'pl' | 'en' po wyborze gracza
   });
   try {
     const m = JSON.parse(localStorage.getItem(META_KEY)) || {};
@@ -2691,29 +2742,14 @@ function loadMeta() {
       // skasować mapowania, które gracz już sobie przestawił
       pad: Object.assign(d.pad, m.pad, { map: Object.assign(d.pad.map, m.pad && m.pad.map) }),
       ui: Object.assign(d.ui, m.ui),     // stare zapisy: podpowiedzi jeszcze niepokazane
+      // język MUSI wrócić z zapisu: bez tego pierwszy `saveMeta()` po przeładowaniu
+      // zapisywał META bez `lang` i wybór PL/EN znikał (zgłoszenie agenta komiksu)
+      lang: m.lang || '',
     };
   } catch { return def(); }
 }
 const META = loadMeta();
 
-// ============================== JĘZYK (PL / EN) ==============================
-// Decyzja właściciela (18.09): dwa języki, start w języku przeglądarki, przełącznik w menu,
-// głosy zostają polskie. Jeden helper `T(pl, en)` zamiast słownika z kluczami: gra ma
-// ~200 tekstów rozsianych po szablonach HTML w JS, a para „obok siebie" jest odporna
-// na literówki w kluczach i czytelna w diffie. Etykiety w index.html: atrybuty
-// `data-pl` / `data-en` + `zastosujJezyk()`. Zmiana języka przerysowuje menu
-// (`ustawJezyk`), teksty w biegu biorą T() w chwili rysowania.
-const JEZYK = { cur: META.lang || ((navigator.language || 'pl').toLowerCase().startsWith('pl') ? 'pl' : 'en') };
-const T = (pl, en) => (JEZYK.cur === 'en' && en != null ? en : pl);
-function zastosujJezyk(root = document) {
-  const en = JEZYK.cur === 'en';
-  root.querySelectorAll('[data-pl]').forEach(el => {
-    const v = en ? el.dataset.en : el.dataset.pl;
-    if (v == null) return;
-    if (el.dataset.attr) el.setAttribute(el.dataset.attr, v); else el.innerHTML = v;
-  });
-  document.documentElement.lang = JEZYK.cur;
-}
 const saveMeta = () => localStorage.setItem(META_KEY, JSON.stringify(META));
 // zapis „za chwilę" — liczniki bestiariusza tykają co zabicie, nie chcemy pisać
 // do localStorage kilkaset razy na minutę
@@ -2728,39 +2764,97 @@ function flushMeta() {
   clearTimeout(saveT); saveT = 0;
   saveMeta();
 }
-AUDIO.init(META, saveMeta);                        // dźwięk czyta/zapisuje głośności w META
+// dźwięk czyta/zapisuje głośności w META; trzeci argument to napisy przycisku
+// wyciszenia — audio.js nie może importować `T()` z main.js (cykl modułów)
+AUDIO.init(META, saveMeta, {
+  wlacz: T('WŁĄCZ DŹWIĘK', 'SOUND ON'),
+  wycisz: T('WYCISZ WSZYSTKO', 'MUTE EVERYTHING'),
+});
+// Komiks dostaje wszystko przez wstrzyknięcie, żeby nie zależał od miejsca, w którym
+// stoi blok JĘZYK ani od kolejności importów (T zamyka się nad JEZYK.cur, więc
+// zmiana języka działa też dla podpisów).
+initKomiks({ T, ico, META, saveMeta, STATY, AUDIO });
+
+// Przełączenie języka: zapis w META i PRZEŁADOWANIE STRONY. Rejestry (WEAPONS,
+// ENEMY_TYPES, SHOP, PORADY…) zbudowały swoje napisy przy starcie modułu, więc
+// samo przerysowanie menu zostawiłoby połowę gry w starym języku. Reload jest
+// natychmiastowy (gra ładuje się z cache) i nic nie gubi — postęp siedzi w META.
+function ustawJezyk(l) {
+  if (l !== 'pl' && l !== 'en') return;
+  if (l === JEZYK.cur && META.lang === l) return;
+  META.lang = l;
+  flushMeta(); saveMeta();
+  STATY.zdarzenie('lang/' + l);
+  // krótka zwłoka: `location.reload()` ANULUJE żądania w locie, a zdarzenie
+  // GoatCountera idzie asynchronicznie — bez tego licznik języka byłby pusty
+  setTimeout(() => location.reload(), 120);
+}
+// Dwa zestawy przycisków PL|EN: róg ekranu startowego (#langPl/#langEn) i wiersz
+// w zakładce „Dźwięk i ekran" (#langPl2/#langEn2). Wołane z sekwencji startowej.
+function initJezykUI() {
+  const pary = [['langPl', 'langEn'], ['langPl2', 'langEn2']];
+  for (const [idPl, idEn] of pary) {
+    const bPl = document.getElementById(idPl), bEn = document.getElementById(idEn);
+    if (!bPl || !bEn) continue;
+    bPl.classList.toggle('sel', JEZYK.cur === 'pl');
+    bEn.classList.toggle('sel', JEZYK.cur === 'en');
+    bPl.onclick = () => ustawJezyk('pl');
+    bEn.onclick = () => ustawJezyk('en');
+  }
+}
 
 // Ceny wejścia podniesione razem z dopływem monet (×1.8): przy starych 30-40
 // pierwszy bieg wystarczał na 2-3 zakupy i sklep nie stawiał żadnego pytania.
 const SHOP = [
-  { key: 'serce',  ico: 'serce', nm: 'Twarde serce',   ds: '+1 serce na start',      base: 80, max: 3 },
-  { key: 'dmg',    ico: 'fala', nm: 'Siła', ds: '+10% obrażeń na stałe',  base: 60, max: 5 },
-  { key: 'szyb',   ico: 'but', nm: 'Kondycja',       ds: '+8% szybkości na stałe', base: 60, max: 5 },
-  { key: 'magnes', ico: 'magnes', nm: 'Przyciąganie',   ds: '+20% magnesu na stałe',  base: 50, max: 5 },
+  { key: 'serce',  ico: 'serce', nm: T('Twarde serce', 'Tough Heart'),
+    ds: T('+1 serce na start', '+1 heart at the start'), base: 80, max: 3 },
+  { key: 'dmg',    ico: 'fala', nm: T('Siła', 'Might'),
+    ds: T('+10% obrażeń na stałe', '+10% damage, permanently'), base: 60, max: 5 },
+  { key: 'szyb',   ico: 'but', nm: T('Kondycja', 'Stamina'),
+    ds: T('+8% szybkości na stałe', '+8% move speed, permanently'), base: 60, max: 5 },
+  { key: 'magnes', ico: 'magnes', nm: T('Przyciąganie', 'Pull'),
+    ds: T('+20% magnesu na stałe', '+20% magnet, permanently'), base: 50, max: 5 },
   // KLĄTWA: gracz KUPUJE SOBIE WIĘCEJ WROGÓW. Chwyt z Vampire Survivors (Curse
   // i Charm) — to wentyl na „wykupiłem cały sklep i nie mam po co grać": zamiast
   // końca progresji dostajesz dźwignię. Więcej wrogów = więcej XP i monet.
-  { key: 'klatwa', ico: 'ostrzezenie', nm: 'Klątwa Nonny',
-    ds: 'Wrogowie twardsi i liczniejsi, ale monety sypią się gęściej', base: 120, max: 5 },
+  { key: 'klatwa', ico: 'ostrzezenie', nm: T('Klątwa Nonny', "Nonna's Curse"),
+    ds: T('Wrogowie twardsi i liczniejsi, ale monety sypią się gęściej',
+          'Tougher, denser enemies — but the coins pour harder'), base: 120, max: 5 },
   // Sam KARABIN wypada ze skrzyni (nie da się go kupić) — w sklepie kupujesz tylko
   // DŁUŻSZY tryb. Inaczej najmocniejsza rzecz w grze byłaby na stałe za monety.
-  { key: 'karabin', ico: 'celownik', nm: 'Magazynek Nonny',
-    ds: '+5 s trybu KARABIN (baza 20 s)', base: 300, max: 3 },
+  { key: 'karabin', ico: 'celownik', nm: T('Magazynek Nonny', "Nonna's Magazine"),
+    ds: T('+5 s trybu KARABIN (baza 20 s)', '+5 s of RIFLE mode (20 s base)'), base: 300, max: 3 },
 ];
 // odblokowania broni i pasywów (jednorazowe — wchodzą do puli kart w biegu)
 const SHOP_UNLOCKS = [
-  { key: 'piorun',   ico: 'pioruny', nm: 'Piorun',          ds: 'Grom bije losowych wrogów',      price: 150 },
-  { key: 'butelka',  ico: 'butelka', nm: 'Butelka żula',    ds: 'Leci łukiem i wybucha',          price: 200 },
-  { key: 'bumerang', ico: 'pizza', nm: 'Pizza Volante',   ds: 'Koło pizzy leci i wraca, kosząc po drodze', price: 250 },
-  { key: 'tarcza',   ico: 'tarcza', nm: 'Tarcza',         ds: 'Blokuje 1 trafienie co jakiś czas', price: 120 },
-  { key: 'djump',    ico: 'skok', nm: 'Podwójny skok',         ds: 'Drugi skok w powietrzu — przeskakuj regały (bywa też w skrzyniach)', price: 300 },
-  { key: 'glide',    ico: 'skok', nm: 'Foliowa torba',           ds: 'PRZYTRZYMAJ skok w locie = szybujesz na torbie i uciekasz hordzie', price: 250 },
-  { key: 'skarpeta', ico: 'skarpeta', nm: 'Skarpeta', ds: 'Aura trucizny — słaba na start, ogromna po ulepszeniach', price: 180 },
-  { key: 'wiatrowka', ico: 'wiatr', nm: 'Wiatrówka',      ds: 'Promień przeszywa całą linię', price: 220 },
-  { key: 'kura',     ico: 'kukurydza', nm: 'Kernello Boomello', ds: 'Ziarno biegnie do wroga i strzela jak popcorn', price: 350 },
-  { key: 'pipsini', ico: 'pestka', nm: 'Pipsini Nipotini', ds: 'Pestka-towarzysz: biega, tłucze i sadzi kiełki', price: 320 },
-  { key: 'sokowirowka', ico: 'sokowirowka', nm: 'Sokowirówka', ds: 'STAWIASZ ją i sama miele wrogów — ustaw ją w alejce', price: 280 },
-  { key: 'krzak', ico: 'krzak', nm: 'Krzak pomidorowy', ds: 'Sadzi się sam za Tobą i ostrzeliwuje pomidorami PO ŁUKU — bije ponad hordą', price: 300 },
+  { key: 'piorun',   ico: 'pioruny', nm: T('Piorun', 'Thunderbolt'),
+    ds: T('Grom bije losowych wrogów', 'Lightning strikes random enemies'), price: 150 },
+  { key: 'butelka',  ico: 'butelka', nm: T('Butelka żula', 'Hobo Bottle'),
+    ds: T('Leci łukiem i wybucha', 'Lobbed in an arc, goes bang'), price: 200 },
+  { key: 'bumerang', ico: 'pizza', nm: 'Pizza Volante',
+    ds: T('Koło pizzy leci i wraca, kosząc po drodze', 'A pizza wheel flies out and back, mowing both ways'), price: 250 },
+  { key: 'tarcza',   ico: 'tarcza', nm: T('Tarcza', 'Shield'),
+    ds: T('Blokuje 1 trafienie co jakiś czas', 'Blocks 1 hit every so often'), price: 120 },
+  { key: 'djump',    ico: 'skok', nm: T('Podwójny skok', 'Double Jump'),
+    ds: T('Drugi skok w powietrzu — przeskakuj regały (bywa też w skrzyniach)',
+          'A second jump mid-air — hop the shelves (also drops from crates)'), price: 300 },
+  { key: 'glide',    ico: 'skok', nm: T('Foliowa torba', 'Plastic Bag'),
+    ds: T('PRZYTRZYMAJ skok w locie = szybujesz na torbie i uciekasz hordzie',
+          'HOLD jump in mid-air = glide on the bag and outrun the horde'), price: 250 },
+  { key: 'skarpeta', ico: 'skarpeta', nm: T('Skarpeta', 'The Stink'),
+    ds: T('Aura trucizny — słaba na start, ogromna po ulepszeniach',
+          'A poison aura — weak at first, enormous once levelled'), price: 180 },
+  { key: 'wiatrowka', ico: 'wiatr', nm: T('Wiatrówka', 'Air Rifle'),
+    ds: T('Promień przeszywa całą linię', 'The beam skewers the whole line'), price: 220 },
+  { key: 'kura',     ico: 'kukurydza', nm: 'Kernello Boomello',
+    ds: T('Ziarno biegnie do wroga i strzela jak popcorn', 'The kernel runs at an enemy and pops'), price: 350 },
+  { key: 'pipsini', ico: 'pestka', nm: 'Pipsini Nipotini',
+    ds: T('Pestka-towarzysz: biega, tłucze i sadzi kiełki', 'A pip sidekick: runs, whacks, plants sprouts'), price: 320 },
+  { key: 'sokowirowka', ico: 'sokowirowka', nm: T('Sokowirówka', 'Juicer'),
+    ds: T('STAWIASZ ją i sama miele wrogów — ustaw ją w alejce', 'You PLACE it and it grinds by itself — park it in an aisle'), price: 280 },
+  { key: 'krzak', ico: 'krzak', nm: T('Krzak pomidorowy', 'Tomato Bush'),
+    ds: T('Sadzi się sam za Tobą i ostrzeliwuje pomidorami PO ŁUKU — bije ponad hordą',
+          'Plants itself behind you and lobs tomatoes IN AN ARC — hits over the horde'), price: 300 },
 ];
 // Cena rośnie nie tylko z poziomem POZYCJI, ale i z liczbą WSZYSTKICH zakupów
 // (+10% każdy). U Vampire Survivors 91% pełnego kosztu maksowania meta-sklepu to
@@ -2792,7 +2886,7 @@ function sprawdzOdblokowaniaPostaci() {
     if (!C.killGoal || META.chars[key]) continue;
     if (META.st.kills >= C.killGoal) {
       META.chars[key] = 1; saveMeta(); renderChars();
-      toastBuff('NOWA POSTAĆ: ' + C.nm.toUpperCase() + '!');
+      toastBuff(T('NOWA POSTAĆ: ', 'NEW CHARACTER: ') + C.nm.toUpperCase() + '!');
       AUDIO.sfx('zlota');
     } else if (META.st.kills % Math.max(50, Math.round(C.killGoal / 3)) === 0) {
       // kamienie milowe LICZONE OD CELU (trzy przystanki), nie na sztywno co 500 —
@@ -2842,15 +2936,15 @@ function renderPick() {
 function renderStats() {
   const s = META.st;
   const dane = [
-    ['czaszka', s.kills, 'Zabitych łącznie'],
-    ['play', s.runs, 'Rozegranych biegów'],
-    ['zegar', fmtTime(s.best), 'Najdłuższy bieg'],
-    ['puchar', s.bestKills, 'Rekord zabitych'],
-    ['korona', s.bosses, 'Pokonanych bossów'],
-    ['skrzynia', s.chests, 'Skrzyń z bronią'],
-    ['gwiazda', s.lvl, 'Zdobytych poziomów'],
-    ['moneta', s.coins, 'Monet zebranych'],
-    ['zegar', fmtTime(s.time), 'Łączny czas gry'],
+    ['czaszka', s.kills, T('Zabitych łącznie', 'Total kills')],
+    ['play', s.runs, T('Rozegranych biegów', 'Runs played')],
+    ['zegar', fmtTime(s.best), T('Najdłuższy bieg', 'Longest run')],
+    ['puchar', s.bestKills, T('Rekord zabitych', 'Most kills in a run')],
+    ['korona', s.bosses, T('Pokonanych bossów', 'Bosses beaten')],
+    ['skrzynia', s.chests, T('Skrzyń z bronią', 'Weapon crates')],
+    ['gwiazda', s.lvl, T('Zdobytych poziomów', 'Levels gained')],
+    ['moneta', s.coins, T('Monet zebranych', 'Coins collected')],
+    ['zegar', fmtTime(s.time), T('Łączny czas gry', 'Total play time')],
   ];
   document.getElementById('statsList').innerHTML = dane.map(([i, v, k]) =>
     `<div class="stat"><div class="v">${ico(i, 20)} ${v}</div><div class="k">${k}</div></div>`).join('');
@@ -2864,20 +2958,24 @@ function renderBestiary() {
   const klucze = Object.keys(ENEMY_TYPES);
   let odkryte = 0;
   for (const key of klucze) {
-    const T = ENEMY_TYPES[key];
+    // `W` zamiast `T` — globalne `T(pl, en)` tłumaczy napisy i nie wolno go tu przesłonić
+    const W = ENEMY_TYPES[key];
     const n = META.bestiary[key] || 0;
     const znany = n > 0;
     if (znany) odkryte++;
+    const eTempo = T('TEMPO', 'SPEED'), eCios = T('CIOS', 'HIT');
     const staty = znany
-      ? `HP ${T.hp} · TEMPO ${T.speed} · CIOS ${T.dmg} · XP ${T.xp}`
-      : 'HP ? · TEMPO ? · CIOS ? · XP ?';
+      ? `HP ${W.hp} · ${eTempo} ${W.speed} · ${eCios} ${W.dmg} · XP ${W.xp}`
+      : `HP ? · ${eTempo} ? · ${eCios} ? · XP ?`;
     const d = document.createElement('div');
-    // .dark = zablokowany wpis: sylwetka na czarno (CSS brightness(0)) i „???"
+    // .dark = zablokowany wpis: sylwetka na czarno (CSS brightness(0)) i „NIEODKRYTY"
     d.className = 'tile bst' + (znany ? '' : ' dark');
+    const nieznany = T('NIEODKRYTY', 'UNDISCOVERED');
     d.innerHTML =
-      `<div class="ico"><img class="pxi" src="${portret(T.char || key)}" style="height:70px"></div>
-       <div class="nm">${znany ? T.nm : '???'}</div>
-       <div class="ds">${znany ? T.ds : '???'}</div>
+      `<div class="ico"><img class="pxi" src="${portret(W.char || key)}" style="height:70px"></div>
+       <div class="nm">${znany ? W.nm : nieznany}</div>
+       <div class="ds">${znany ? W.ds : '???'}</div>
+       ${znany && W.lore ? `<div class="lore">${W.lore}</div>` : ''}
        <div class="bs">${staty}</div>
        <div class="pr">${ico('czaszka', 14)} ${n}</div>`;
     wrap.appendChild(d);
@@ -2894,7 +2992,7 @@ function renderShop() {
     const d = document.createElement('div');
     d.className = 'tile' + (maxed ? ' lock' : '');
     d.innerHTML = `<div class="ico">${ico(it.ico, 40)}</div><div class="nm">${it.nm} ${lvl}/${it.max}</div>
-      <div class="ds">${it.ds}</div><div class="pr">${maxed ? 'MAX' : ico('moneta', 15) + ' ' + shopPrice(it)}</div>`;
+      <div class="ds">${it.ds}</div><div class="pr">${maxed ? T('MAX', 'MAX') : ico('moneta', 15) + ' ' + shopPrice(it)}</div>`;
     if (!maxed) d.onclick = () => {
       const pr = shopPrice(it);
       if (META.coins < pr) return deny(d);
@@ -2907,7 +3005,7 @@ function renderShop() {
     const d = document.createElement('div');
     d.className = 'tile' + (owned ? ' lock' : '');
     d.innerHTML = `<div class="ico">${ico(it.ico, 40)}</div><div class="nm">${it.nm}</div>
-      <div class="ds">${it.ds}</div><div class="pr">${owned ? 'MASZ' : ico('moneta', 15) + ' ' + it.price}</div>`;
+      <div class="ds">${it.ds}</div><div class="pr">${owned ? T('MASZ', 'OWNED') : ico('moneta', 15) + ' ' + it.price}</div>`;
     if (!owned) d.onclick = () => {
       if (META.coins < it.price) return deny(d);
       META.coins -= it.price; META.unlocked[it.key] = 1; saveMeta(); renderShop();
@@ -2980,12 +3078,14 @@ function sprawdzRange() {
     G.rangaKille -= rangaProg(G.ranga);
     G.ranga++;
     AUDIO.sfx('awans');
-    dmgPop(P.pos.x, P.y + 2.0, P.pos.z, 'RANGA ' + G.ranga, '#ffd75e', 1.8);
-    if (G.ranga % 4 === 0) toastBuff('RANGA ' + G.ranga + ' — obrażenia +' + Math.round((rangaDmg() - 1) * 100) + '%, tempo +' + Math.round((rangaFire() - 1) * 100) + '%');
+    dmgPop(P.pos.x, P.y + 2.0, P.pos.z, T('RANGA ', 'RANK ') + G.ranga, '#ffd75e', 1.8);
+    if (G.ranga % 4 === 0) toastBuff(T('RANGA ', 'RANK ') + G.ranga
+      + T(' — obrażenia +', ' — damage +') + Math.round((rangaDmg() - 1) * 100)
+      + T('%, tempo +', '%, fire rate +') + Math.round((rangaFire() - 1) * 100) + '%');
   }
   const el = document.getElementById('ranga');
   if (el) {
-    el.innerHTML = ico('czaszka', 13) + ' RANGA ' + G.ranga;
+    el.innerHTML = ico('czaszka', 13) + T(' RANGA ', ' RANK ') + G.ranga;
     const b = document.getElementById('rangabar');
     if (b) b.style.width = (G.ranga >= RANGA_CAP ? 100 : G.rangaKille / rangaProg(G.ranga) * 100) + '%';
   }
@@ -3185,13 +3285,19 @@ let gpSel = null;                                  // zaznaczony kafelek menu
 // WSZYSTKIE TEKSTY PADA W JEDNYM MIEJSCU — etap 2 (PL/EN) podmieni tę jedną tablicę
 // zamiast szukać napisów po kilkunastu szablonach.
 const PAD_TXT = {
-  wybierz: 'wybierz', wstecz: 'wstecz', wznow: 'wznów', zakladki: 'zakładki', zmiana: 'zmiana',
-  skok: 'skok', karabin: 'karabin', wieza: 'wieżyczka', smrod: 'smród', pauza: 'pauza',
-  kamera: 'kamera za plecy', czulosc: 'Czułość prawego drążka', inwersja: 'Odwróć pion (karabin)',
-  wibracje: 'Wibracje', zmien: 'Zmień', domyslne: 'PRZYWRÓĆ DOMYŚLNE',
-  nasluch: 'naciśnij przycisk…', anuluj: 'anuluj', zajety: 'Ten przycisk jest zajęty na stałe', wl: 'WŁ.', wyl: 'WYŁ.',
-  uklad: 'Układ przycisków', ukl_auto: 'AUTO', ukl_xbox: 'XBOX', ukl_ps: 'PLAYSTATION', ukl_switch: 'SWITCH',
-  polaczony: 'KONTROLER: ', odlaczony: 'Kontroler odłączony', ustawione: 'Przypisano: ',
+  wybierz: T('wybierz', 'select'), wstecz: T('wstecz', 'back'), wznow: T('wznów', 'resume'),
+  zakladki: T('zakładki', 'tabs'), zmiana: T('zmiana', 'change'),
+  skok: T('skok', 'jump'), karabin: T('karabin', 'rifle'), wieza: T('wieżyczka', 'juicer'),
+  smrod: T('smród', 'stink'), pauza: T('pauza', 'pause'),
+  kamera: T('kamera za plecy', 'camera behind'), czulosc: T('Czułość prawego drążka', 'Right stick sensitivity'),
+  inwersja: T('Odwróć pion (karabin)', 'Invert Y (rifle)'),
+  wibracje: T('Wibracje', 'Rumble'), zmien: T('Zmień', 'Change'), domyslne: T('PRZYWRÓĆ DOMYŚLNE', 'RESTORE DEFAULTS'),
+  nasluch: T('naciśnij przycisk…', 'press a button…'), anuluj: T('anuluj', 'cancel'),
+  zajety: T('Ten przycisk jest zajęty na stałe', 'That button is reserved'),
+  wl: T('WŁ.', 'ON'), wyl: T('WYŁ.', 'OFF'),
+  uklad: T('Układ przycisków', 'Button layout'), ukl_auto: 'AUTO', ukl_xbox: 'XBOX', ukl_ps: 'PLAYSTATION', ukl_switch: 'SWITCH',
+  polaczony: T('KONTROLER: ', 'CONTROLLER: '), odlaczony: T('Kontroler odłączony', 'Controller disconnected'),
+  ustawione: T('Przypisano: ', 'Mapped: '),
 };
 
 // RODZINA PADA po `gp.id`. Chrome podaje „Xbox Wireless Controller (STANDARD GAMEPAD
@@ -3351,6 +3457,11 @@ function gpMove(items, dx, dy) {
 function gpBack(ov) {                              // B = wstecz / zamknij
   if (ov.id === 'pauseOv') togglePause(false);
   else if (ov.id === 'overOv') document.getElementById('btnMenu').click();
+  // komiks: B = POMIŃ. Klikamy przycisk, a nie wołamy funkcję z komiks.js, żeby pad
+  // robił DOKŁADNIE to samo co palec. Na ostatniej planszy POMIŃ jest ukryty, ale
+  // `.click()` i tak odpala jego handler — komiks.js traktuje to wtedy jak dojście
+  // do końca, więc B nigdy nie zostawia gracza w komiksie.
+  else if (ov.id === 'komiksOv') document.getElementById('komiksPomin')?.click();
   else if (ov.id === 'startOv') {
     const t = document.querySelector('.tab[data-tab="graj"]');
     if (t && !t.classList.contains('sel')) t.click();
@@ -3685,7 +3796,7 @@ const winieta = on => { if (_winietaEl) _winietaEl.style.opacity = on ? 1 : 0; }
 
 function wejscieBossa() {
   const ov = document.getElementById('bossOv'), nm = document.getElementById('bossNm');
-  nm.innerHTML = 'DON CHIPSO<small>GLOWA FAMIGLII</small>';
+  nm.innerHTML = 'DON CHIPSO<small>' + T('GLOWA FAMIGLII', 'HEAD OF THE FAMIGLIA') + '</small>';
   ov.classList.add('on'); nm.classList.add('on');
   pasy(true);
   G.shake = Math.max(G.shake, 0.5);
@@ -3840,27 +3951,45 @@ const ENEMY_TYPES = {
   // ===== LA FAMIGLIA SNACKONI (wg biblii v1.1; HP/3.5, speed×2.5) =====
   chipsetti: { hp: 3, okrKol: 0xf2c14a, speed: 2.75, dmg: 1, scale: 0.85, xp: 1, walk: 'run', char: 'chipsetti_soldatetti',
     nm: 'Chipsetti Soldatetti',
-    ds: 'Szeregowy Famiglii — wymięty chips z ambicjami. Atakuje wyłącznie w rojach, bo w pojedynkę jest tylko okruchem. Łamie się efektownie i to jego jedyny talent.' },
+    ds: T('Szeregowy Famiglii — wymięty chips z ambicjami. Atakuje wyłącznie w rojach, bo w pojedynkę jest tylko okruchem. Łamie się efektownie i to jego jedyny talent.',
+          'Famiglia footsoldier — a crumpled chip with ambitions. Attacks in swarms only, because alone he is just a crumb. He shatters beautifully, and that is his entire talent.'),
+    lore: T('W planie Dona jest mięsem armatnim: ma zasypać Grządkowo solą, jeden okruch na raz.',
+            "In the Don's plan he is cannon fodder: bury the Blockyard in salt, one crumb at a time.") },
   marshmallini: { hp: 8, okrKol: 0xfff2f6, speed: 1.75, dmg: 1, scale: 1.0, xp: 2, walk: 'run', char: 'marshmallini_fluffini',
     dzieli: true, bigXp: true,
     nm: 'Marshmallini Fluffini',
-    ds: 'Gąbczasty bandzior o konsystencji poduszki. Powolny i miękki, ale gdy go rozwalisz, robią się z niego DWA mniejsze problemy. Fizyka pianki, logika hydry.' },
+    ds: T('Gąbczasty bandzior o konsystencji poduszki. Powolny i miękki, ale gdy go rozwalisz, robią się z niego DWA mniejsze problemy. Fizyka pianki, logika hydry.',
+          'A spongy thug with the consistency of a pillow. Slow and soft, but split him open and you get TWO smaller problems. Marshmallow physics, hydra logic.'),
+    lore: T('Odpowiada w rodzinie za cukier: im mocniej go rozganiasz, tym więcej cukru zostaje na grządkach.',
+            'He runs the sugar side of the family: the harder you scatter him, the more sugar stays on the beds.') },
   gummini: { hp: 4, okrKol: 0xe04a3c, speed: 3.0, dmg: 1, scale: 0.9, xp: 1, walk: 'run', char: 'gummini_bouncini',
     skacze: true, bezKb: true,
     nm: 'Gummini Bouncini',
-    ds: 'Żelkowy miś, który nie chodzi — on się odbija. Nie da się go odepchnąć, bo cała jego istota to sprężyna. Galaretowaty, uparty i lepki jak wyrzut sumienia.' },
+    ds: T('Żelkowy miś, który nie chodzi — on się odbija. Nie da się go odepchnąć, bo cała jego istota to sprężyna. Galaretowaty, uparty i lepki jak wyrzut sumienia.',
+          'A gummy bear that does not walk — it bounces. You cannot knock it back, because it is a spring all the way through. Wobbly, stubborn and sticky as a guilty conscience.'),
+    lore: T('Famiglia wysyła go przodem, żeby rozklepał grządki na płasko pod przyszły automat.',
+            'The Famiglia sends him ahead to bounce the vegetable beds flat for the future vending machine.') },
   friesetti: { hp: 4, okrKol: 0xf6cd51, speed: 4.0, dmg: 1, scale: 0.95, xp: 2, walk: 'run', char: 'friesetti_spearetti',
     bigXp: true, szarzuje: true,                   // telegraf 0.6 s → szarża ×3 → ogłuszenie (patrz FRIES_*)
     nm: 'Friesetti Spearetti',
-    ds: 'Frytka-włócznik, szarżuje w porcjach po pięć. Chuda, długa i boleśnie szybka. Zostawia za sobą smugę soli i poczucie, że to była zła decyzja.' },
+    ds: T('Frytka-włócznik, szarżuje w porcjach po pięć. Chuda, długa i boleśnie szybka. Zostawia za sobą smugę soli i poczucie, że to była zła decyzja.',
+          'A spear-carrying fry that charges in portions of five. Thin, long and painfully fast. Leaves behind a trail of salt and the feeling that this was a bad decision.'),
+    lore: T('Wytycza solny szlak od warzywniaka Nonny do bramy osiedla — porcja po porcji.',
+            "Portion by portion he marks out the salt route from Nonna's greengrocer to the estate gate.") },
   sodino: { hp: 6, okrKol: 0x7a4426, speed: 2.5, dmg: 1, scale: 0.95, xp: 2, walk: 'run', char: 'sodino_explodino',
     kamikaze: true, bigXp: true,
     nm: 'Sodino Explodino',
-    ds: 'Wstrząśnięta puszka z zapłonem zamiast rozumu. Syczy, biegnie i wybucha — w tej kolejności, zawsze. Po nim zostaje kałuża coli i cisza.' },
+    ds: T('Wstrząśnięta puszka z zapłonem zamiast rozumu. Syczy, biegnie i wybucha — w tej kolejności, zawsze. Po nim zostaje kałuża coli i cisza.',
+          'A shaken can with a fuse where its brain should be. Hisses, runs, explodes — in that order, every time. He leaves a puddle of cola and a silence.'),
+    lore: T('Jego zadanie w planie to zalać osiedle colą. Dosłownie, raz — i już go nie ma.',
+            'His part of the plan is to flood the estate with cola. Literally, once — and then he is gone.') },
   lollini: { hp: 17, okrKol: 0xff6fa5, speed: 1.25, dmg: 2, scale: 1.35, xp: 4, walk: 'run', char: 'lollini_spinnini',
     wiruje: true, bigXp: true,
     nm: 'Lollini Spinnini',
-    ds: 'Wielki lizak na patyku, który obraca się jak tarcza pilarska. Wolny jak niedziela, ale kto podejdzie za blisko, ten poznaje smak wiśniowej przemocy.' },
+    ds: T('Wielki lizak na patyku, który obraca się jak tarcza pilarska. Wolny jak niedziela, ale kto podejdzie za blisko, ten poznaje smak wiśniowej przemocy.',
+          'A big lollipop on a stick that spins like a saw blade. Slow as a Sunday, but step too close and you learn the taste of cherry-flavoured violence.'),
+    lore: T('Pilnuje placu wyznaczonego pod automat: kręci się w kółko i nie wpuszcza tam żadnego warzywa.',
+            'He guards the plot marked out for the vending machine: spins on the spot and lets no vegetable in.') },
   // ===== BOSS: DON CHIPSO (wg biblii — torba chipsów; do czasu własnego sprite'a
   //          używamy powiększonego Chipsettiego, bo to ten sam „materiał") =====
   // WLASNY ARKUSZ (13.08): worek chipsow w fedorze i plaszczu. Do tej pory boss byl
@@ -3875,7 +4004,10 @@ const ENEMY_TYPES = {
   ketchupino: { hp: 26, okrKol: 0xd23b3b, speed: 1.9, dmg: 1, scale: 1.7, xp: 8, walk: 'run',
     char: 'ketchupino_splatterino', artyleria: true,
     nm: 'Ketchupino Splatterino',
-    ds: 'Butla ketchupu, która nauczyła się moździerza. Nie podejdzie — nie musi. Ściska sobie brzuch i pluje po łuku, a to, co po nim zostaje, trzyma za nogi lepiej niż rozlana woda.' },
+    ds: T('Butla ketchupu, która nauczyła się moździerza. Nie podejdzie — nie musi. Ściska sobie brzuch i pluje po łuku, a to, co po nim zostaje, trzyma za nogi lepiej niż rozlana woda.',
+          'A ketchup bottle that taught itself mortar fire. It will not close in — it does not have to. It squeezes its own belly and lobs, and what it leaves behind grabs your feet better than spilled water.'),
+    lore: T('Ostrzeliwuje ogródki z dystansu, żeby pod nowy automat nic już nie odrosło.',
+            'He shells the gardens from a distance so nothing grows back where the new machine is going.') },
   // TEMPO 2.2 -> 4.4 (decyzja wlasciciela 13.08): Don Chipso ma IsC NA PRZODZIE HORDY.
   // 4.4 stawia go nad najszybszym szeregowym (Friesetti 4.0), wiec wychodzi z tlumu
   // i widac, ze to on prowadzi atak. Gracz ma 7.13 (Carrotello), czyli da sie od niego
@@ -3885,7 +4017,10 @@ const ENEMY_TYPES = {
   boss: { hp: 90, okrKol: 0xf2c14a, speed: 4.4, dmg: 2, scale: 2.1, xp: 25, walk: 'run',
     char: 'don_chipso', boss: true,
     nm: 'Don Chipso',
-    ds: 'Głowa Famiglii. Mówi szeptem, bo kto ma sól, nie musi krzyczeć. Wymięty jak jego sumienie, tłusty jak jego interesy. Osiedle traktuje jak talerz: co na nim leży, uważa za swoje.' },
+    ds: T('Głowa Famiglii. Mówi szeptem, bo kto ma sól, nie musi krzyczeć. Wymięty jak jego sumienie, tłusty jak jego interesy. Osiedle traktuje jak talerz: co na nim leży, uważa za swoje.',
+          'Head of the Famiglia. He whispers, because a man with salt never has to shout. Crumpled like his conscience, greasy like his business. He treats the estate as a plate: whatever lies on it, he considers his.'),
+    lore: T('Plan jest jego: zasypać Osiedle Grządkowo solą i cukrem, a w miejscu warzywniaka Nonny postawić automat z przekąskami.',
+            "The plan is his: bury the Blockyard in salt and sugar, and stand a snack machine where Nonna's greengrocer is.") },
 };
 
 let eliteRingMat = null;
@@ -3953,7 +4088,7 @@ function killEnemy(e, i) {
   META.bestiary[e.type] = (META.bestiary[e.type] || 0) + 1;
   if (pierwszyRaz) {
     saveMeta();                                    // odblokowanie zapisujemy od razu
-    toastBuff('NOWY WPIS W ENCYKLOPEDII: ' + (e.T.nm || e.type));
+    toastBuff(T('NOWY WPIS W ENCYKLOPEDII: ', 'NEW BESTIARY ENTRY: ') + (e.T.nm || e.type));
     setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2600);
   } else saveMetaSoon();
   // ŁĄCZNY LICZNIK ZABÓJSTW liczymy TUTAJ, nie w `gameOver()` — inaczej wyjście
@@ -3965,7 +4100,7 @@ function killEnemy(e, i) {
   // KILL + combo (kille w oknie 1.3 s nabijają serię)
   G.streak = (G.time - G.streakT < 1.3) ? G.streak + 1 : 1;
   G.streakT = G.time;
-  if (G.streak === 12 || G.streak === 30) toastBuff('SERIA x' + G.streak + ' — MONETY ×' + (G.streak >= 30 ? 3 : 2));
+  if (G.streak === 12 || G.streak === 30) toastBuff(T('SERIA x', 'STREAK x') + G.streak + T(' — MONETY ×', ' — COINS ×') + (G.streak >= 30 ? 3 : 2));
   // ZGLOSZENIE WLASCICIELA: „ekran czasem sie za mocno trzesie". To bylo TU —
   // trzesienie odpalalo sie przy KAZDYM zabojstwie i rosło z seria do 0.5, a przy
   // 500 wrogach zabojstwa sa co klatke, wiec kamera nigdy nie wracala do spokoju.
@@ -3977,7 +4112,7 @@ function killEnemy(e, i) {
     // muzyka bossa wraca do utworu z biegu dopiero, gdy padnie OSTATNI boss
     if (!G.enemies.some(o => o !== e && o.T.boss && !o.dying)) AUDIO.bossOff();
   }
-  else if (e.elite) { dmgPop(e.pos.x, e.ty + 0.8, e.pos.z, 'ELITA!', '#ffd75e', 1.9); padWibruj(0.55, 90); }
+  else if (e.elite) { dmgPop(e.pos.x, e.ty + 0.8, e.pos.z, T('ELITA!', 'ELITE!'), '#ffd75e', 1.9); padWibruj(0.55, 90); }
   // przy serii sam mnożnik wystarcza — słowo „KILL" tylko rozciągało napis na pół ekranu
   else dmgPop(e.pos.x, e.ty + 0.5, e.pos.z, G.streak > 1 ? 'x' + G.streak : 'KILL',
     '#ff6a5e', Math.min(1.0 + G.streak * 0.08, 1.6));
@@ -4556,10 +4691,13 @@ const WEAPONS = {
   // najsłabszego wroga w grze, co 0.87 s. To były najgorsze 3 minuty w grze
   // i pierwsze, jakie widzi nowy gracz.
   kule: {
-    ico: 'kula', nm: 'Kule energii', ds: 'Samonaprowadzające pociski', max: 5, postac: 'carrotello',
-    lvlDs: l => ['1 pocisk', '2 pociski, mocniejsze', '3 pociski i przebicie',
-                 'jeszcze mocniejsze', '4 pociski, +2 przebicia (→ ewolucja!)'][l - 1],
-    evoKey: 'meteor', evoIco: 'kula', evoNm: 'KULE METEORYCZNE', evoDs: 'EWOLUCJA: pociski WYBUCHAJĄ przy trafieniu',
+    ico: 'kula', nm: T('Kule energii', 'Energy Orbs'), ds: T('Samonaprowadzające pociski', 'Homing shots'), max: 5, postac: 'carrotello',
+    lvlDs: l => (JEZYK.cur === 'en'
+      ? ['1 shot', '2 shots, stronger', '3 shots and pierce', 'stronger still', '4 shots, +2 pierce (→ evolution!)']
+      : ['1 pocisk', '2 pociski, mocniejsze', '3 pociski i przebicie',
+         'jeszcze mocniejsze', '4 pociski, +2 przebicia (→ ewolucja!)'])[l - 1],
+    evoKey: 'meteor', evoIco: 'kula', evoNm: T('KULE METEORYCZNE', 'METEOR ORBS'),
+    evoDs: T('EWOLUCJA: pociski WYBUCHAJĄ przy trafieniu', 'EVOLUTION: shots EXPLODE on impact'),
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
@@ -4587,18 +4725,23 @@ const WEAPONS = {
     },
   },
   kosc: {
-    ico: 'czosnek', nm: 'Czosnek na lince', ds: 'Kręci się na giętkiej lince i odpycha hordę', max: 5,
-    lvlDs: l => l + (l === 1 ? ' czosnek' : ' czosnki') + (l === 5 ? ' (→ ewolucja!)' : ''),
-    evoKey: 'kosci', evoIco: 'czosnek', evoNm: 'CZOSNKOWY MŁYN', evoDs: 'EWOLUCJA: dłuższa linka, szybszy obrót i 2× mocniejsze',
+    ico: 'czosnek', nm: T('Czosnek na lince', 'Garlic on a String'),
+    ds: T('Kręci się na giętkiej lince i odpycha hordę', 'Whirls on a springy string and shoves the horde'), max: 5,
+    lvlDs: l => l + T(l === 1 ? ' czosnek' : ' czosnki', l === 1 ? ' garlic' : ' garlics')
+                  + T(l === 5 ? ' (→ ewolucja!)' : '', l === 5 ? ' (→ evolution!)' : ''),
+    evoKey: 'kosci', evoIco: 'czosnek', evoNm: T('CZOSNKOWY MŁYN', 'GARLIC MILL'),
+    evoDs: T('EWOLUCJA: dłuższa linka, szybszy obrót i 2× mocniejsze', 'EVOLUTION: longer string, faster spin, 2× the damage'),
     tick(w, dt) {
       while (G.orbs.length < w.lvl) G.orbs.push(nowyCzosnek(G.orbs.length));
       updateCzosnki(dt, w.lvl);
     },
   },
   tupniecie: {
-    ico: 'fala', nm: 'Tupnięcie', ds: 'Fala uderzeniowa (też przy lądowaniu ze skoku!)', max: 3,
-    lvlDs: l => 'promień i moc fali +' + l,
-    evoKey: 'sejsm', evoIco: 'fala', evoNm: 'TRZĘSIENIE ZIEMI', evoDs: 'EWOLUCJA: fale częstsze, większe i 2× mocniejsze',
+    ico: 'fala', nm: T('Tupnięcie', 'Stomp'),
+    ds: T('Fala uderzeniowa (też przy lądowaniu ze skoku!)', 'A shockwave (on landing from a jump too!)'), max: 3,
+    lvlDs: l => T('promień i moc fali +', 'wave radius and power +') + l,
+    evoKey: 'sejsm', evoIco: 'fala', evoNm: T('TRZĘSIENIE ZIEMI', 'EARTHQUAKE'),
+    evoDs: T('EWOLUCJA: fale częstsze, większe i 2× mocniejsze', 'EVOLUTION: waves more often, wider and 2× stronger'),
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
@@ -4607,8 +4750,8 @@ const WEAPONS = {
     },
   },
   piorun: {
-    ico: 'pioruny', nm: 'Piorun', ds: 'Grom bije losowych wrogów', max: 5, locked: true,
-    lvlDs: l => `${Math.ceil(l / 2)} grom(y), co ${(2.8 - 0.25 * l).toFixed(1)} s`,
+    ico: 'pioruny', nm: T('Piorun', 'Thunderbolt'), ds: T('Grom bije losowych wrogów', 'Lightning strikes random enemies'), max: 5, locked: true,
+    lvlDs: l => `${Math.ceil(l / 2)} ${T('grom(y)', 'bolt(s)')}, ${T('co', 'every')} ${(2.8 - 0.25 * l).toFixed(1)} s`,
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
@@ -4626,8 +4769,8 @@ const WEAPONS = {
     },
   },
   butelka: {
-    ico: 'butelka', nm: 'Butelka żula', ds: 'Leci łukiem i WYBUCHA', max: 5, locked: true,
-    lvlDs: l => `wybuch r=${(2 + 0.3 * l).toFixed(1)}, co ${(3.6 - 0.25 * l).toFixed(1)} s`,
+    ico: 'butelka', nm: T('Butelka żula', 'Hobo Bottle'), ds: T('Leci łukiem i WYBUCHA', 'Lobbed in an arc, goes BANG'), max: 5, locked: true,
+    lvlDs: l => `${T('wybuch', 'blast')} r=${(2 + 0.3 * l).toFixed(1)}, ${T('co', 'every')} ${(3.6 - 0.25 * l).toFixed(1)} s`,
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
@@ -4651,8 +4794,9 @@ const WEAPONS = {
   // to, co Cię goni. Krzaki nie mają HP (wrogowie ich nie tłuką) — mają za to KRÓTKIE
   // ŻYCIE, więc trzeba się ruszać, żeby ostrzał w ogóle istniał.
   krzak: {
-    ico: 'krzak', nm: 'Krzak pomidorowy', ds: 'Sadzi się sam i OSTRZELIWUJE pomidorami po łuku', max: 5, locked: true,
-    lvlDs: l => `${KRZAK_ILE(l)} krzaki, rzut co ${KRZAK_RZUT(l).toFixed(2)} s, plaśnięcie r=${KRZAK_R(l).toFixed(1)}`,
+    ico: 'krzak', nm: T('Krzak pomidorowy', 'Tomato Bush'),
+    ds: T('Sadzi się sam i OSTRZELIWUJE pomidorami po łuku', 'Plants itself and SHELLS the horde with lobbed tomatoes'), max: 5, locked: true,
+    lvlDs: l => `${KRZAK_ILE(l)} ${T('krzaki', 'bushes')}, ${T('rzut co', 'throw every')} ${KRZAK_RZUT(l).toFixed(2)} s, ${T('plaśnięcie', 'splat')} r=${KRZAK_R(l).toFixed(1)}`,
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
@@ -4662,8 +4806,8 @@ const WEAPONS = {
     },
   },
   bumerang: {
-    ico: 'pizza', nm: 'Pizza Volante', ds: 'Koło pizzy leci i WRACA, kosząc po drodze', max: 5, locked: true,
-    lvlDs: l => `zasięg ${(8 + 0.6 * l).toFixed(0)}, co ${(2.8 - 0.2 * l).toFixed(1)} s`,
+    ico: 'pizza', nm: 'Pizza Volante', ds: T('Koło pizzy leci i WRACA, kosząc po drodze', 'A pizza wheel flies out and COMES BACK, mowing both ways'), max: 5, locked: true,
+    lvlDs: l => `${T('zasięg', 'range')} ${(8 + 0.6 * l).toFixed(0)}, ${T('co', 'every')} ${(2.8 - 0.2 * l).toFixed(1)} s`,
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
@@ -4676,7 +4820,8 @@ const WEAPONS = {
     },
   },
   skarpeta: {
-    ico: 'skarpeta', nm: 'Skarpeta biologiczna', ds: 'Śmierdząca AURA truje wszystko wokół Ciebie', max: 5, locked: true,
+    ico: 'skarpeta', nm: T('Skarpeta biologiczna', 'The Stink'),
+    ds: T('Śmierdząca AURA truje wszystko wokół Ciebie', 'A reeking AURA poisons everything around you'), max: 5, locked: true,
     // ZASIĘG ROŚNIE KWADRATOWO (decyzja właściciela): „na początku mało przydatna,
     // później po ulepszeniu może być mocnym killerem". Liniowe 2.2+0.35·l dawało
     // 2.55 na starcie i 3.95 na maksie, czyli broń, która przez cały bieg robiła
@@ -4684,7 +4829,7 @@ const WEAPONS = {
     // a poz. 5 to 8.05, czyli **pół ekranu trucizny**: kto wejdzie, ten gnije.
     // Obrażenia rosną spokojnie, bo cała siła tej broni ma siedzieć w POWIERZCHNI
     // (poz. 1: 13 j.² → poz. 5: 204 j.², czyli **15× większy obszar działania**).
-    lvlDs: l => `promień ${SKARPETA_R(l).toFixed(1)} (obszar ×${(SKARPETA_R(l) ** 2 / SKARPETA_R(1) ** 2).toFixed(1)}), trucie co 0.7 s`,
+    lvlDs: l => `${T('promień', 'radius')} ${SKARPETA_R(l).toFixed(1)} (${T('obszar', 'area')} ×${(SKARPETA_R(l) ** 2 / SKARPETA_R(1) ** 2).toFixed(1)}), ${T('trucie co 0.7 s', 'poison tick 0.7 s')}`,
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
@@ -4703,8 +4848,9 @@ const WEAPONS = {
     },
   },
   wiatrowka: {
-    ico: 'wiatr', nm: 'Wiatrówka z bazaru', ds: 'PROMIEŃ przeszywa wszystko na linii strzału', max: 5, locked: true,
-    lvlDs: l => `co ${(2.2 - 0.15 * l).toFixed(2)} s, obrażenia +${l}`,
+    ico: 'wiatr', nm: T('Wiatrówka z bazaru', 'Bazaar Air Rifle'),
+    ds: T('PROMIEŃ przeszywa wszystko na linii strzału', 'A BEAM skewers everything in the firing line'), max: 5, locked: true,
+    lvlDs: l => `${T('co', 'every')} ${(2.2 - 0.15 * l).toFixed(2)} s, ${T('obrażenia', 'damage')} +${l}`,
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
@@ -4738,11 +4884,13 @@ const WEAPONS = {
     },
   },
   kura: {
-    ico: 'kukurydza', nm: 'Kernello Boomello', ds: 'Ziarno kukurydzy biegnie do wroga i STRZELA', max: 5, locked: true,
-    lvlDs: l => `wybuch r=${(2.5 + 0.3 * l).toFixed(1)}, co ${(4.5 - 0.35 * l).toFixed(1)} s`
-      + (l === 5 ? ' (→ ewolucja!)' : ''),
-    evoKey: 'kaseta', evoIco: 'kukurydza', evoNm: 'BOMBA KASETOWA',
-    evoDs: 'EWOLUCJA: wybuch rozsypuje 6 mniejszych ziaren, każde z własnym lontem',
+    ico: 'kukurydza', nm: 'Kernello Boomello',
+    ds: T('Ziarno kukurydzy biegnie do wroga i STRZELA', 'A corn kernel runs at an enemy and POPS'), max: 5, locked: true,
+    lvlDs: l => `${T('wybuch', 'blast')} r=${(2.5 + 0.3 * l).toFixed(1)}, ${T('co', 'every')} ${(4.5 - 0.35 * l).toFixed(1)} s`
+      + T(l === 5 ? ' (→ ewolucja!)' : '', l === 5 ? ' (→ evolution!)' : ''),
+    evoKey: 'kaseta', evoIco: 'kukurydza', evoNm: T('BOMBA KASETOWA', 'CLUSTER BOMB'),
+    evoDs: T('EWOLUCJA: wybuch rozsypuje 6 mniejszych ziaren, każde z własnym lontem',
+             'EVOLUTION: the blast scatters 6 smaller kernels, each with its own fuse'),
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
@@ -4759,11 +4907,12 @@ const WEAPONS = {
   // samą stronę, jeden po drugim, mocnych i przebijających. Gracz musi ustawić
   // się w linii z tłumem — to jedyna broń w grze nagradzająca celowanie ciałem.
   scyzoryk: {
-    ico: 'celownik', nm: 'Scyzoryki', ds: 'Seria mocnych rzutów przed siebie — przebijają', max: 5, postac: 'razoretta',
-    lvlDs: l => `${2 + l} rzutów w serii, co ${(2.2 - 0.15 * l).toFixed(1)} s`
-      + (l === 5 ? ' (→ ewolucja!)' : ''),
-    evoKey: 'wachlarz', evoIco: 'celownik', evoNm: 'WACHLARZ RZODKIEWKI',
-    evoDs: 'EWOLUCJA: każdy rzut to trzy scyzoryki w wachlarzu',
+    ico: 'celownik', nm: T('Scyzoryki', 'Pencil Case'),
+    ds: T('Seria mocnych rzutów przed siebie — przebijają', 'A burst of hard throws straight ahead — they pierce'), max: 5, postac: 'razoretta',
+    lvlDs: l => `${2 + l} ${T('rzutów w serii', 'knives per burst')}, ${T('co', 'every')} ${(2.2 - 0.15 * l).toFixed(1)} s`
+      + T(l === 5 ? ' (→ ewolucja!)' : '', l === 5 ? ' (→ evolution!)' : ''),
+    evoKey: 'wachlarz', evoIco: 'celownik', evoNm: T('WACHLARZ RZODKIEWKI', 'RADISH FAN'),
+    evoDs: T('EWOLUCJA: każdy rzut to trzy scyzoryki w wachlarzu', 'EVOLUTION: every throw is three knives in a fan'),
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
@@ -4785,11 +4934,11 @@ const WEAPONS = {
   // powrotnej. Korzysta z tej samej maszynerii co radio-bumerang (`G.boomers`),
   // ale rzuca DWA kapcie w wachlarzu i celuje w najbliższego wroga, nie w przód.
   ciabatta: {
-    ico: 'kapec', nm: 'La Ciabatta', ds: 'Kapeć leci, przebija wszystko i WRACA', max: 5, postac: 'granny',
-    lvlDs: l => `${l >= 3 ? 2 : 1} kapeć(cie), zasięg ${(6 + 0.5 * l).toFixed(0)}, co ${(1.9 - 0.12 * l).toFixed(1)} s`
-      + (l === 5 ? ' (→ ewolucja!)' : ''),
+    ico: 'kapec', nm: 'La Ciabatta', ds: T('Kapeć leci, przebija wszystko i WRACA', 'The slipper flies, pierces everything and COMES BACK'), max: 5, postac: 'granny',
+    lvlDs: l => `${l >= 3 ? 2 : 1} ${T('kapeć(cie)', 'slipper(s)')}, ${T('zasięg', 'range')} ${(6 + 0.5 * l).toFixed(0)}, ${T('co', 'every')} ${(1.9 - 0.12 * l).toFixed(1)} s`
+      + T(l === 5 ? ' (→ ewolucja!)' : '', l === 5 ? ' (→ evolution!)' : ''),
     evoKey: 'doppia', evoIco: 'kapec', evoNm: 'CIABATTA DOPPIA',
-    evoDs: 'EWOLUCJA: kapcie krążą wokół Ciebie bez przerwy',
+    evoDs: T('EWOLUCJA: kapcie krążą wokół Ciebie bez przerwy', 'EVOLUTION: the slippers orbit you non-stop'),
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
@@ -4814,11 +4963,11 @@ const WEAPONS = {
   // Pchnięcie falą w stożku 60° przed sobą: mały zasięg, ale OGROMNY knockback —
   // bramkarz nie zabija, on odprowadza. Skalowanie: zasięg → knockback → obrażenia.
   wypad: {
-    ico: 'fala', nm: 'Wypad!', ds: 'Pchnięcie w stożku — ogromny knockback', max: 5, postac: 'beetino',
-    lvlDs: l => `stożek ${(3.4 + 0.4 * l).toFixed(1)} j., odrzut ${(5 + l).toFixed(0)}, co ${(1.5 - 0.08 * l).toFixed(2)} s`
-      + (l === 5 ? ' (→ ewolucja!)' : ''),
-    evoKey: 'selekcja', evoIco: 'tarcza', evoNm: 'DZIŚ NIE WEJDZIESZ',
-    evoDs: 'EWOLUCJA: pchnięcie ogłusza i zadaje podwójne obrażenia',
+    ico: 'fala', nm: T('Wypad!', 'Velvet Push'), ds: T('Pchnięcie w stożku — ogromny knockback', 'A cone-shaped shove — huge knockback'), max: 5, postac: 'beetino',
+    lvlDs: l => `${T('stożek', 'cone')} ${(3.4 + 0.4 * l).toFixed(1)} ${T('j.', 'u')}, ${T('odrzut', 'knockback')} ${(5 + l).toFixed(0)}, ${T('co', 'every')} ${(1.5 - 0.08 * l).toFixed(2)} s`
+      + T(l === 5 ? ' (→ ewolucja!)' : '', l === 5 ? ' (→ evolution!)' : ''),
+    evoKey: 'selekcja', evoIco: 'tarcza', evoNm: T('DZIŚ NIE WEJDZIESZ', 'NOT ON THE LIST'),
+    evoDs: T('EWOLUCJA: pchnięcie ogłusza i zadaje podwójne obrażenia', 'EVOLUTION: the shove stuns and deals double damage'),
     tick(w, dt) {
       w.t -= dt;
       if (w.t > 0) return;
@@ -4849,11 +4998,11 @@ const WEAPONS = {
   // mini-wieżyczek. Spirala (życzenie właściciela) siedzi w umiejętności
   // specjalnej: co kilkanaście sekund pestka rozpędza się w koło przez hordę.
   pipsini: {
-    ico: 'pestka', nm: 'Pipsini Nipotini', ds: 'Pestka biega, tłucze i sadzi kiełki', max: 5, locked: true,
-    lvlDs: l => `${PIPS_ILE(l)} pestka(i), kiełek co ${PIPS_SADZ(l).toFixed(1)} s`
-      + (l === 5 ? ' (→ ewolucja!)' : ''),
-    evoKey: 'jablon', evoIco: 'pestka', evoNm: 'JABŁOŃ',
-    evoDs: 'EWOLUCJA: kiełki żyją 2× dłużej i biją 2× mocniej',
+    ico: 'pestka', nm: 'Pipsini Nipotini', ds: T('Pestka biega, tłucze i sadzi kiełki', 'The pip runs, whacks and plants sprouts'), max: 5, locked: true,
+    lvlDs: l => `${PIPS_ILE(l)} ${T('pestka(i)', 'pip(s)')}, ${T('kiełek co', 'a sprout every')} ${PIPS_SADZ(l).toFixed(1)} s`
+      + T(l === 5 ? ' (→ ewolucja!)' : '', l === 5 ? ' (→ evolution!)' : ''),
+    evoKey: 'jablon', evoIco: 'pestka', evoNm: T('JABŁOŃ', 'APPLE TREE'),
+    evoDs: T('EWOLUCJA: kiełki żyją 2× dłużej i biją 2× mocniej', 'EVOLUTION: sprouts live 2× longer and hit 2× harder'),
     tick(w, dt) {
       while (G.pestki.length < PIPS_ILE(w.lvl)) G.pestki.push(nowaPestka());
       updatePestki(dt, w.lvl);
@@ -4864,8 +5013,9 @@ const WEAPONS = {
   // co strzela samo przez chwilę, dodaje decyzję „gdzie", nie odbierając ruchu.
   // W markecie zaczyna grać z alejkami i przewróconymi regałami jako lejem.
   sokowirowka: {
-    ico: 'sokowirowka', nm: 'Sokowirówka', ds: 'Stawiasz ją i sama miele wrogów w miejscu', max: 5, locked: true,
-    lvlDs: l => `${SOKO_ILE(l)} naraz, ${SOKO_ZYCIE(l).toFixed(0)} s, ładunek co ${(6.5 - 0.5 * l).toFixed(1)} s`,
+    ico: 'sokowirowka', nm: T('Sokowirówka', 'Juicer'),
+    ds: T('Stawiasz ją i sama miele wrogów w miejscu', 'You place it and it grinds enemies on the spot'), max: 5, locked: true,
+    lvlDs: l => `${SOKO_ILE(l)} ${T('naraz', 'at once')}, ${SOKO_ZYCIE(l).toFixed(0)} s, ${T('ładunek co', 'a charge every')} ${(6.5 - 0.5 * l).toFixed(1)} s`,
     // TOWER DEFENSE: broń NIE stawia się sama — nabija ŁADUNKI, a gracz stawia
     // wieżyczkę klawiszem F / przyciskiem / Y na padzie (decyzja właściciela).
     // Powód: wieżyczka WABI wrogów w promieniu 9.5 j., a stawiana automatycznie
@@ -4882,7 +5032,7 @@ const WEAPONS = {
       w.lad = (w.lad || 0) + 1;
       if (!P.sokoPierwszy) {                                // raz na bieg: naucz gracza przycisku
         P.sokoPierwszy = true;
-        toastBuff('SOKOWIRÓWKA GOTOWA — wciśnij F, żeby POSTAWIĆ', 'sokowirowka');
+        toastBuff(T('SOKOWIRÓWKA GOTOWA — wciśnij F, żeby POSTAWIĆ', 'JUICER READY — press F to PLACE IT'), 'sokowirowka');
         setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 4000);
       }
     },
@@ -5069,7 +5219,7 @@ function postawWiezyczke() {
   const w = hasWeapon('sokowirowka');
   if (!w || !(w.lad > 0)) return;
   if (G.turrets.length >= SOKO_ILE(w.lvl)) {        // limit stojących — ładunek zostaje
-    toastBuff('LIMIT SOKOWIRÓWEK — poczekaj, aż któraś padnie', 'sokowirowka');
+    toastBuff(T('LIMIT SOKOWIRÓWEK — poczekaj, aż któraś padnie', 'JUICER LIMIT — wait for one to break down'), 'sokowirowka');
     setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 1800);
     return;
   }
@@ -5129,7 +5279,7 @@ function stawSokowirowke(lvl) {
   G.turrets.push(t);
   AUDIO.sfx('totem');
   puff(P.pos.x, y + 0.6, P.pos.z, 0xa8e05f, 1.4);
-  dmgPop(P.pos.x, y + 1.6, P.pos.z, 'MIELE!', '#a8e05f', 1.2);
+  dmgPop(P.pos.x, y + 1.6, P.pos.z, T('MIELE!', 'GRINDING!'), '#a8e05f', 1.2);
 }
 // ============================== KRZAK POMIDOROWY ==============================
 const KRZAK_ILE  = l => 1 + Math.floor(l / 2);        // 1,1,2,2,3 stojących naraz
@@ -5218,7 +5368,7 @@ function odpalSmrod() {
   if (LIB[CHARS[charKey].char] && LIB[CHARS[charKey].char].anims.aura) playerBB.play('aura', false);
   AUDIO.sfx('nova');
   P.smrodTik = 0;                                    // pierwszy tik obrazen od razu
-  toastBuff('SMRODLIWA AURA — truje i odpycha!', 'skarpeta');
+  toastBuff(T('SMRODLIWA AURA — truje i odpycha!', 'STINK AURA — poisons and shoves!'), 'skarpeta');
   novaRing(P.pos.x, P.pos.z, SMROD_R);
   G.shake = Math.max(G.shake, 0.16);
 }
@@ -5447,14 +5597,15 @@ const stompDmg = l => l * 1.5 * (P.evo.sejsm ? 2 : 1) * dmgAll();
 
 // ============================== PASYWY (bufy zbierane kartami) ==============================
 const PASSIVES = {
-  moc:    { ico: 'plomien', nm: 'Moc',     ds: '+15% obrażeń wszystkiego', max: 5 },
-  tempo:  { ico: 'zegar', nm: 'Tempo',   ds: '+12% szybkości ataków',    max: 5 },
-  buty:   { ico: 'but', nm: 'Klapki Carrotella', ds: '+10% szybkości ruchu', max: 5 },
-  magnes: { ico: 'magnes', nm: 'Magnes',  ds: '+35% zasięgu zbierania',   max: 5 },
-  krytyk: { ico: 'gwiazda', nm: 'Krytyk',  ds: '+10% szansy na cios ×3',   max: 5 },
-  serce:  { ico: 'serce', nm: 'Serducho', ds: '+1 max serce i pełne leczenie', max: 5 },
-  zasieg: { ico: 'celownik', nm: 'Sokoli wzrok', ds: '+20% zasięgu broni',  max: 4 },
-  tarcza: { ico: 'tarcza', nm: 'Tarcza brainrota', ds: 'Blokuje 1 trafienie (ładuje się z czasem)', max: 3, locked: true },
+  moc:    { ico: 'plomien', nm: T('Moc', 'Might'), ds: T('+15% obrażeń wszystkiego', '+15% damage on everything'), max: 5 },
+  tempo:  { ico: 'zegar', nm: T('Tempo', 'Tempo'), ds: T('+12% szybkości ataków', '+12% attack speed'), max: 5 },
+  buty:   { ico: 'but', nm: T('Klapki Carrotella', "Carrotello's Flip-Flops"), ds: T('+10% szybkości ruchu', '+10% move speed'), max: 5 },
+  magnes: { ico: 'magnes', nm: T('Magnes', 'Magnet'), ds: T('+35% zasięgu zbierania', '+35% pickup range'), max: 5 },
+  krytyk: { ico: 'gwiazda', nm: T('Krytyk', 'Crit'), ds: T('+10% szansy na cios ×3', '+10% chance of a ×3 hit'), max: 5 },
+  serce:  { ico: 'serce', nm: T('Serducho', 'Big Heart'), ds: T('+1 max serce i pełne leczenie', '+1 max heart and a full heal'), max: 5 },
+  zasieg: { ico: 'celownik', nm: T('Sokoli wzrok', 'Hawk Eye'), ds: T('+20% zasięgu broni', '+20% weapon range'), max: 4 },
+  tarcza: { ico: 'tarcza', nm: T('Tarcza brainrota', 'Brainrot Shield'),
+            ds: T('Blokuje 1 trafienie (ładuje się z czasem)', 'Blocks 1 hit (recharges over time)'), max: 3, locked: true },
 };
 
 // ============================== PRZYPRAWY NONNY (karty POWTARZALNE) ==============================
@@ -5464,10 +5615,10 @@ const PASSIVES = {
 // więc wczesna gra wygląda dokładnie jak wcześniej. Bonusy są małe świadomie:
 // mają nagradzać długi bieg, nie zastępować broni.
 const REPEAT = {
-  sol:     { ico: 'plomien',  nm: 'Sól Nonny',      ds: '+3% obrażeń (bez limitu)' },
-  oliwa:   { ico: 'zegar',    nm: 'Oliwa Nonny',    ds: '+3% szybkości ataków (bez limitu)' },
-  pieprz:  { ico: 'gwiazda',  nm: 'Pieprz Nonny',   ds: '+2% szansy na cios ×3 (bez limitu)' },
-  bazylia: { ico: 'celownik', nm: 'Bazylia Nonny',  ds: '+4% zasięgu broni (bez limitu)' },
+  sol:     { ico: 'plomien',  nm: T('Sól Nonny', "Nonna's Salt"),   ds: T('+3% obrażeń (bez limitu)', '+3% damage (no cap)') },
+  oliwa:   { ico: 'zegar',    nm: T('Oliwa Nonny', "Nonna's Oil"),  ds: T('+3% szybkości ataków (bez limitu)', '+3% attack speed (no cap)') },
+  pieprz:  { ico: 'gwiazda',  nm: T('Pieprz Nonny', "Nonna's Pepper"), ds: T('+2% szansy na cios ×3 (bez limitu)', '+2% chance of a ×3 hit (no cap)') },
+  bazylia: { ico: 'celownik', nm: T('Bazylia Nonny', "Nonna's Basil"), ds: T('+4% zasięgu broni (bez limitu)', '+4% weapon range (no cap)') },
 };
 function repeatPool() {
   return Object.keys(REPEAT).map(key => {
@@ -5489,7 +5640,7 @@ function cardPool() {
   for (const w of P.weapons) {
     const W = WEAPONS[w.key];
     if (w.lvl < W.max) pool.push({
-      ico: W.ico, nm: W.nm + ' → poz. ' + (w.lvl + 1), ds: W.lvlDs(w.lvl + 1),
+      ico: W.ico, nm: W.nm + T(' → poz. ', ' → lv. ') + (w.lvl + 1), ds: W.lvlDs(w.lvl + 1),
       do: () => { w.lvl++; renderWpns(); },
     });
     else if (W.evoKey && !P.evo[W.evoKey]) pool.push({
@@ -5569,7 +5720,7 @@ function showCards() {
   // bezpieczeństwa, gdyby kiedyś dostały `max`.)
   if (!picks.length) {
     G.runCoins += 20; drawCoins();
-    toastBuff('AWANS — nic już do ulepszenia: +20 monet', 'moneta');
+    toastBuff(T('AWANS — nic już do ulepszenia: +20 monet', 'LEVEL UP — nothing left to upgrade: +20 coins'), 'moneta');
     return zamknijOverlay('cardsOv');
   }
   for (const u of picks) {
@@ -5585,18 +5736,18 @@ function showCards() {
 // ============================== WYMIENNIK BRONI 🔄 ==============================
 function openSwap() {
   const wrap = document.getElementById('swapList'); wrap.innerHTML = '';
-  document.getElementById('swapTitle').textContent = 'WYMIENNIK! Którą broń oddajesz?';
+  document.getElementById('swapTitle').textContent = T('WYMIENNIK! Którą broń oddajesz?', 'SWAP TIME! Which weapon goes?');
   for (const w of P.weapons) {
     const W = WEAPONS[w.key];
     const d = document.createElement('div');
     d.className = 'card';
-    d.innerHTML = `<div class="ico">${ico(W.ico, 42)}</div><div class="nm">${W.nm} poz. ${w.lvl}</div><div class="ds">kliknij, by ODDAĆ</div>`;
+    d.innerHTML = `<div class="ico">${ico(W.ico, 42)}</div><div class="nm">${W.nm} ${T('poz.', 'lv.')} ${w.lvl}</div><div class="ds">${T('kliknij, by ODDAĆ', 'tap to GIVE IT UP')}</div>`;
     d.onclick = () => pickNewWeapon(w);
     wrap.appendChild(d);
   }
   const skip = document.createElement('div');
   skip.className = 'card';
-  skip.innerHTML = `<div class="ico">${ico('wymiana', 42)}</div><div class="nm">Zostaw jak jest</div><div class="ds">+10 monet pocieszenia</div>`;
+  skip.innerHTML = `<div class="ico">${ico('wymiana', 42)}</div><div class="nm">${T('Zostaw jak jest', 'Keep them all')}</div><div class="ds">${T('+10 monet pocieszenia', '+10 coins as a consolation')}</div>`;
   skip.onclick = () => { G.runCoins += 10; drawCoins(); closeSwap(); };
   wrap.appendChild(skip);
   document.getElementById('swapOv').style.display = 'flex';
@@ -5619,7 +5770,7 @@ function openNewWeapon() {
   const pula = wszystkie.slice();
   while (opts.length < 2 && pula.length) opts.push(pula.splice(Math.floor(Math.random() * pula.length), 1)[0]);
   const wrap = document.getElementById('swapList'); wrap.innerHTML = '';
-  document.getElementById('swapTitle').textContent = 'ZNALEZIONA BROŃ! Co bierzesz?';
+  document.getElementById('swapTitle').textContent = T('ZNALEZIONA BROŃ! Co bierzesz?', 'WEAPON FOUND! Which one do you take?');
   for (const key of opts) {
     const W = WEAPONS[key];
     const d = document.createElement('div');
@@ -5634,7 +5785,7 @@ function openNewWeapon() {
   }
   const skip = document.createElement('div');
   skip.className = 'card';
-  skip.innerHTML = `<div class="ico">${ico('wymiana', 42)}</div><div class="nm">Nie, dzięki</div><div class="ds">+10 monet</div>`;
+  skip.innerHTML = `<div class="ico">${ico('wymiana', 42)}</div><div class="nm">${T('Nie, dzięki', 'No thanks')}</div><div class="ds">${T('+10 monet', '+10 coins')}</div>`;
   skip.onclick = () => { G.runCoins += 10; drawCoins(); closeSwap(); };
   wrap.appendChild(skip);
   document.getElementById('swapOv').style.display = 'flex';
@@ -5647,7 +5798,7 @@ function pickNewWeapon(oldW) {
   const pula = wszystkie.slice();
   while (opts.length < 2 && pula.length) opts.push(pula.splice(Math.floor(Math.random() * pula.length), 1)[0]);
   const wrap = document.getElementById('swapList'); wrap.innerHTML = '';
-  document.getElementById('swapTitle').textContent = 'Co bierzesz w zamian?';
+  document.getElementById('swapTitle').textContent = T('Co bierzesz w zamian?', 'What do you take instead?');
   for (const key of opts) {
     const W = WEAPONS[key];
     const d = document.createElement('div');
@@ -6170,7 +6321,7 @@ function chestReward(c) {
              : wybor === 'kosci' ? 0.7 : wybor === 'magnes' ? 0.99 : Math.random();
   if (roll < 0.14 && !hasDjump()) {   // 🦘🦘 PODWÓJNY SKOK (na ten bieg)
     P.runDjump = true;
-    toastBuff('PODWÓJNY SKOK do końca biegu!');
+    toastBuff(T('PODWÓJNY SKOK do końca biegu!', 'DOUBLE JUMP for the rest of the run!'));
     setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2500);
   } else if (roll < 0.62) {          // monety
     for (let k = 0; k < 8 + Math.floor(Math.random() * 8); k++)
@@ -6180,7 +6331,7 @@ function chestReward(c) {
       G.gems.push(makeGem(c.pos.x + (Math.random() - .5) * 2, c.pos.z + (Math.random() - .5) * 2, 1));
   } else {                           // wielki magnes: zasysa WSZYSTKO
     G.vacuum = 2.0;
-    toastBuff('MAGNES! Wszystko leci do Ciebie');
+    toastBuff(T('MAGNES! Wszystko leci do Ciebie', 'MAGNET! Everything flies to you'));
     setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2000);
   }
 }
@@ -6197,7 +6348,7 @@ function spawnWeaponChest() {
   wchest.ring.position.set(s.x, terrainH(s.x, s.z) + 0.07, s.z);
   wchest.mesh.visible = wchest.ring.visible = true;
   wchest.active = true;
-  toastBuff('NOWA BROŃ czeka w złotej skrzyni — idź za strzałką!');
+  toastBuff(T('NOWA BROŃ czeka w złotej skrzyni — idź za strzałką!', 'NEW WEAPON in the golden crate — follow the arrow!'));   // EN ≤ 50 znaków: #buff ma nowrap, a 375 px to granica
   setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2200);
 }
 function updateWeaponChest(dt) {
@@ -6296,12 +6447,12 @@ function witrynaTexture() {
 // napięcie — a w survivors-like napięcie JEST rozgrywką. 6 s zamiast 10 z tego samego
 // powodu: ma być momentem, nie przerwą w grze.
 const BUFFS = [
-  { key: 'dmg',  ico: 'plomien', label: 'PODWÓJNE OBRAŻENIA',    dur: 18,  waga: 1.0 },
-  { key: 'szyb', ico: 'but',     label: 'PRZYSPIESZENIE',        dur: 18,  waga: 1.0 },
-  { key: 'slow', ico: 'zegar',   label: 'WROGOWIE ZWOLNILI',     dur: 14,  waga: 1.0 },
-  { key: 'kasa', ico: 'moneta',  label: 'PODWÓJNE MONETY',       dur: 20,  waga: 0.9 },
-  { key: 'niet', ico: 'tarcza',  label: 'NIETYKALNOŚĆ!',         dur: 6,   waga: 0.5 },
-  { key: 'mroz', ico: 'wiatr',   label: 'MROŻONKI — HORDA STOI', dur: 3.5, waga: 0.6 },
+  { key: 'dmg',  ico: 'plomien', label: T('PODWÓJNE OBRAŻENIA', 'DOUBLE DAMAGE'),      dur: 18,  waga: 1.0 },
+  { key: 'szyb', ico: 'but',     label: T('PRZYSPIESZENIE', 'SPEED BOOST'),            dur: 18,  waga: 1.0 },
+  { key: 'slow', ico: 'zegar',   label: T('WROGOWIE ZWOLNILI', 'ENEMIES SLOWED'),      dur: 14,  waga: 1.0 },
+  { key: 'kasa', ico: 'moneta',  label: T('PODWÓJNE MONETY', 'DOUBLE COINS'),          dur: 20,  waga: 0.9 },
+  { key: 'niet', ico: 'tarcza',  label: T('NIETYKALNOŚĆ!', 'INVINCIBLE!'),             dur: 6,   waga: 0.5 },
+  { key: 'mroz', ico: 'wiatr',   label: T('MROŻONKI — HORDA STOI', 'DEEP FREEZE — THE HORDE STOPS'), dur: 3.5, waga: 0.6 },
 ];
 const BUFF_WAG = BUFFS.reduce((a, b) => a + b.waga, 0);
 function losujBuff() {
@@ -6470,7 +6621,7 @@ function dajKarabin() {
   AUDIO.sfx('zlota');
   G.shake = Math.max(G.shake, 0.3);
   // krotko: pelne zdanie mialo 382 px przy ekranie 375 px i wychodzilo za oba brzegi
-  toastBuff('KARABIN! Wciśnij R, gdy będzie gęsto', 'celownik');
+  toastBuff(T('KARABIN! Wciśnij R, gdy będzie gęsto', 'RIFLE! Press R when it gets thick'), 'celownik');
   setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 4200);
 }
 function odswiezKarabinBtn() {
@@ -6483,7 +6634,7 @@ function odswiezKarabinBtn() {
 function startKarabin() {
   if (!G.running || G.paused || G.dying) return;    // przycisk/pad nie mogą odpalić go z menu ani pauzy
   const F = G.fps;
-  if (F.on) { F.t = Math.min(F.max, F.t + 8); toastBuff('KARABIN DOŁADOWANY'); return; }
+  if (F.on) { F.t = Math.min(F.max, F.t + 8); toastBuff(T('KARABIN DOŁADOWANY', 'RIFLE TOPPED UP')); return; }
   if (!P.karabinMa) return;                          // nie ma czego odpalać
   P.karabinMa = false;
   odswiezKarabinBtn();
@@ -6498,7 +6649,7 @@ function startKarabin() {
   fpsBlysk(0.9);
   G.shake = Math.max(G.shake, 0.45);
   AUDIO.sfx('zlota');
-  toastBuff('KARABIN NONNY — ' + Math.round(F.max) + ' SEKUND RZEŹNI!');
+  toastBuff(T("KARABIN NONNY — ", "NONNA'S RIFLE — ") + Math.round(F.max) + T(' SEKUND RZEŹNI!', ' SECONDS OF CARNAGE!'));
 }
 function endKarabin(powod) {
   const F = G.fps;
@@ -6511,7 +6662,7 @@ function endKarabin(powod) {
   document.getElementById('gunFlash').style.opacity = 0;
   odswiezKarabinBtn();
   AUDIO.sfx('zagrozenie');
-  toastBuff(powod === 'zycia' ? 'KARABIN WYBITY Z RĄK!' : 'MAGAZYNEK PUSTY');
+  toastBuff(powod === 'zycia' ? T('KARABIN WYBITY Z RĄK!', 'RIFLE KNOCKED OUT OF YOUR HANDS!') : T('MAGAZYNEK PUSTY', 'MAGAZINE EMPTY'));
   setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2000);
 }
 // JEDNA BRAMKA na wszystkie trafienia gracza (kontakt, kamikaze, spadający regał).
@@ -6763,7 +6914,7 @@ function updatePadajace(dt) {
       // NAGRODA za dobre ustawienie regału — bez niej przewrócenie nie dawało
       // graczowi nic mierzalnego poza hałasem
       if (przygnieceni >= 3) {
-        dmgPop(s.x, s.g0 + 2.2, s.pivotZ, 'ROZWALKA x' + przygnieceni, '#ffd75e', 2.2);
+        dmgPop(s.x, s.g0 + 2.2, s.pivotZ, T('ROZWALKA x', 'PILE-UP x') + przygnieceni, '#ffd75e', 2.2);
         G.coins.push(makeCoin(s.x, s.pivotZ + s.kier * 1.2, 3));
         G.hitstop = Math.max(G.hitstop, 0.06);
       }
@@ -6839,10 +6990,11 @@ function update(dt) {
   const tr = tier();
   if (tr !== G.tier) {
     G.tier = tr;
-    document.getElementById('tier').innerHTML = ico('ostrzezenie', 14) + ' ZAGROŻENIE ' + tr;
+    document.getElementById('tier').innerHTML = ico('ostrzezenie', 14) + T(' ZAGROŻENIE ', ' THREAT ') + tr;
     if (tr > 1) {
       AUDIO.sfx('zagrozenie');
-      toastBuff('POZIOM ZAGROŻENIA ' + tr + (dmgScale() > 1 ? ' — wrogowie biją mocniej!' : ''));
+      toastBuff(T('POZIOM ZAGROŻENIA ', 'THREAT LEVEL ') + tr
+        + (dmgScale() > 1 ? T(' — wrogowie biją mocniej!', ' — enemies hit harder!') : ''));
       setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2200);
       G.shake = Math.max(G.shake, 0.25);
     }
@@ -6990,7 +7142,7 @@ function update(dt) {
     for (let k = 0; k < n && G.enemies.length < CAP; k++) {
       spawnEnemy(typy[Math.floor(Math.random() * typy.length)], (k / n) * Math.PI * 2);
     }
-    toastBuff('FALA OKRĄŻAJĄCA — biegną ze wszystkich stron!');
+    toastBuff(T('FALA OKRĄŻAJĄCA — biegną ze wszystkich stron!', 'ENCIRCLING WAVE — they come from every side!'));
     setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 1600);
   }
   if (G.time > G.bossAt) {                                       // bossy co 2 min, coraz więcej
@@ -7147,7 +7299,7 @@ function update(dt) {
           P.hp -= 1; P.iframes = 0.9; drawHearts(); G.shake = 0.4; AUDIO.sfx('hurt');
           if (P.hp <= 0) { startDeath(); }
         }
-        dmgPop(e.pos.x, e.ty + 0.8, e.pos.z, 'BUM!', '#ff9d3f', 1.6);
+        dmgPop(e.pos.x, e.ty + 0.8, e.pos.z, T('BUM!', 'BOOM!'), '#ff9d3f', 1.6);
         killEnemy(e, i);
         continue;
       }
@@ -7193,7 +7345,7 @@ function update(dt) {
         P.shieldCd = [30, 24, 18][tarczaLvl - 1];
         P.iframes = 0.9;
         AUDIO.sfx('tarcza');
-        toastBuff('TARCZA zablokowała cios!');
+        toastBuff(T('TARCZA zablokowała cios!', 'The SHIELD took that hit!'));
         setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 1500);
         novaRing(P.pos.x, P.pos.z, 2);
       } else {
@@ -7312,7 +7464,7 @@ function update(dt) {
       const sila = (K.mini ? 1.6 : 3 + 0.7 * K.lvl) * dmgAll();
       nova(K.pos.x, K.pos.z, promien, sila);
       dmgPop(K.pos.x, terrainH(K.pos.x, K.pos.z) + 0.6, K.pos.z,
-             K.mini ? 'POP!' : 'POP-POP-BUM!', '#ffd75e', K.mini ? 1.0 : 1.6);
+             K.mini ? 'POP!' : T('POP-POP-BUM!', 'POP-POP-BOOM!'), '#ffd75e', K.mini ? 1.0 : 1.6);
       okruchy(K.pos.x, terrainH(K.pos.x, K.pos.z) + 0.5, K.pos.z, 0xf6e27a, K.mini ? 3 : 7);
       G.shake = Math.max(G.shake, K.mini ? 0.08 : 0.2);
       // BOMBA KASETOWA: z wybuchu wylatuje 6 mniejszych ziaren w wachlarzu,
@@ -7484,7 +7636,7 @@ function update(dt) {
       while (P.xp >= P.xpNeed) {
         P.xp -= P.xpNeed; P.lvl++;
         P.xpNeed = xpDoNast(P.lvl);
-        document.getElementById('lvl').textContent = 'POZIOM ' + P.lvl;
+        document.getElementById('lvl').textContent = T('POZIOM ', 'LEVEL ') + P.lvl;
         AUDIO.sfx('awans');
         AUDIO.event('awans');
         // 0.20 -> 0.10: wlasciciel zglosil, ze blysk „za mocno" wchodzi w oko, a przy
@@ -7519,7 +7671,7 @@ function update(dt) {
     if (d < 0.8 && P.hp < P.maxHp) {
       P.hp++; drawHearts();
       AUDIO.sfx('serce');
-      dmgPop(P.pos.x, pTy + 0.6, P.pos.z, '+SERCE', '#ff8080', 1.4);
+      dmgPop(P.pos.x, pTy + 0.6, P.pos.z, T('+SERCE', '+HEART'), '#ff8080', 1.4);
       scene.remove(h.mesh); G.hps.splice(i, 1);
     }
   }
@@ -7597,7 +7749,7 @@ function startDeath() {
   G.shake = 0.9;
   AUDIO.sfx('koniec');
   document.getElementById('vign').style.opacity = 1;
-  dmgPop(P.pos.x, P.y + 1.2, P.pos.z, 'KONIEC!', '#ff4a4a', 2.4);
+  dmgPop(P.pos.x, P.y + 1.2, P.pos.z, T('KONIEC!', 'GAME OVER!'), '#ff4a4a', 2.4);
   novaRing(P.pos.x, P.pos.z, 6);
   if (hitFlash) hitFlash.visible = false;
   AUDIO.event('smierc');                           // ostatnia kwestia postaci
@@ -7711,7 +7863,7 @@ function gameOver() {
   let prezent = '';
   if (!s.runs && !META.unlocked.piorun) {
     META.unlocked.piorun = 1;
-    prezent = `<br><b style="color:#7ee7ff">${ico('pioruny', 18)} PIERWSZA PORAŻKA — PIORUN ODBLOKOWANY NA STAŁE!</b>`;
+    prezent = `<br><b style="color:#7ee7ff">${ico('pioruny', 18)} ${T('PIERWSZA PORAŻKA — PIORUN ODBLOKOWANY NA STAŁE!', 'FIRST DEFEAT — THUNDERBOLT UNLOCKED FOR GOOD!')}</b>`;
   }
   s.runs++; s.time += G.time; s.lvl += P.lvl - 1;
   STATY.zdarzenie('run-end/smierc/min-' + kubelekMinut(G.time),
@@ -7722,11 +7874,11 @@ function gameOver() {
   saveMeta(); renderShop(); renderStats(); renderBestiary();
   const rekord = rekordCzasu;                   // było `G.time >= s.best` PO aktualizacji = zawsze true
   document.getElementById('overStats').innerHTML =
-    `Przetrwano: <b><i data-licz="0" data-czas="${G.time.toFixed(1)}">0:00</i></b> · ` +
-    `Pokonano: <b><i data-licz="${G.kills}">0</i></b> · Poziom: <b><i data-licz="${P.lvl}">0</i></b><br>` +
-    `Zebrano: <b>${ico('moneta',15)} <i data-licz="${G.zebrane}">0</i></b> (łącznie ${ico('moneta',15)} ${META.coins})` +
+    `${T('Przetrwano', 'Survived')}: <b><i data-licz="0" data-czas="${G.time.toFixed(1)}">0:00</i></b> · ` +
+    `${T('Pokonano', 'Defeated')}: <b><i data-licz="${G.kills}">0</i></b> · ${T('Poziom', 'Level')}: <b><i data-licz="${P.lvl}">0</i></b><br>` +
+    `${T('Zebrano', 'Collected')}: <b>${ico('moneta',15)} <i data-licz="${G.zebrane}">0</i></b> (${T('łącznie', 'total')} ${ico('moneta',15)} ${META.coins})` +
     prezent +
-    (rekord ? '<br><b class="pieczatka" style="color:#ffd75e">' + ico('puchar',18) + ' NOWY REKORD CZASU!</b>' : '');
+    (rekord ? '<br><b class="pieczatka" style="color:#ffd75e">' + ico('puchar',18) + T(' NOWY REKORD CZASU!', ' NEW TIME RECORD!') + '</b>' : '');
   document.getElementById('overOv').style.display = 'flex';
   tickerLiczb(document.getElementById('overStats'));
   if (rekord) deszczMonet(28);
@@ -7741,9 +7893,9 @@ function togglePause(on) {
   odswiezKarabinBtn();                             // przycisk karabinu nie może wisieć nad pauzą
   if (on) {
     document.getElementById('pauseStats').innerHTML =
-      `<p>Czas: <b>${fmtTime(G.time)}</b> · Zabici: <b>${G.kills}</b> · Poziom: <b>${P.lvl}</b> · ${ico('moneta',15)} <b>${G.runCoins}</b></p>` +
-      `<p>Postać: <b>${CHARS[charKey].nm}</b> · Mapa: <b>${MAPS[mapKey].nm}</b></p>` +
-      `<p>Bronie: ${P.weapons.map(w => ico(WEAPONS[w.key].ico, 18) + ' ' + WEAPONS[w.key].nm + ' ' + w.lvl).join(' · ')}</p>`;
+      `<p>${T('Czas', 'Time')}: <b>${fmtTime(G.time)}</b> · ${T('Zabici', 'Kills')}: <b>${G.kills}</b> · ${T('Poziom', 'Level')}: <b>${P.lvl}</b> · ${ico('moneta',15)} <b>${G.runCoins}</b></p>` +
+      `<p>${T('Postać', 'Character')}: <b>${CHARS[charKey].nm}</b> · ${T('Mapa', 'Map')}: <b>${MAPS[mapKey].nm}</b></p>` +
+      `<p>${T('Bronie', 'Weapons')}: ${P.weapons.map(w => ico(WEAPONS[w.key].ico, 18) + ' ' + WEAPONS[w.key].nm + ' ' + w.lvl).join(' · ')}</p>`;
   }
 }
 function setPlayerChar(key) {
@@ -7830,9 +7982,9 @@ function newGame() {
   rebuildWorld();
   wchest.active = false; wchest.wait = 8;
   if (wchest.mesh) wchest.mesh.visible = wchest.ring.visible = false;
-  document.getElementById('lvl').textContent = 'POZIOM 1';
+  document.getElementById('lvl').textContent = T('POZIOM 1', 'LEVEL 1');
   document.getElementById('kills').innerHTML = ico('czaszka', 15) + ' 0';
-  document.getElementById('tier').innerHTML = ico('ostrzezenie', 14) + ' ZAGROŻENIE 1';
+  document.getElementById('tier').innerHTML = ico('ostrzezenie', 14) + T(' ZAGROŻENIE 1', ' THREAT 1');
   document.getElementById('xpbar').style.width = '0%';
   drawHearts(); drawCoins(); renderWpns();
   AUDIO.startRun(charKey);                         // losowy utwór na bieg + kwestia na start
@@ -7860,19 +8012,32 @@ function loop() {
 // ============================== START ==============================
 // ---- EKRAN ŁADOWANIA: pasek postępu + rotujące porady ----
 const PORADY = [
-  'Złota skrzynia = nowa broń. Idź za strzałką na ekranie.',
-  'Marshmallini po śmierci dzieli się na dwa mniejsze. Planuj kolejność.',
-  'Sodino syczy przed wybuchem — to Twoja sekunda na ucieczkę.',
-  'Gummini odbija się i nie da się go odepchnąć. Nie licz na knockback.',
-  'Lollini kręci się jak piła. Wolny, ale nie właź pod tarczę.',
-  'Foliowa torba: PRZYTRZYMAJ skok w locie, żeby szybować nad hordą.',
-  'Na regale w markecie horda wspina się powoli — to Twoja chwila oddechu.',
-  'Woda spowalnia i Ciebie, i przekąski. Skokiem przeskoczysz zatoczkę.',
-  'Garnek Nonny daje buff na kilkanaście sekund. Warto po niego zboczyć z trasy.',
-  'Monety zostają po śmierci — każdy przegrany bieg i tak coś daje.',
-  'KARABIN ze skrzyni = pierwsza osoba i 20 sekund rzezi. Masz 3 trafienia.',
-  'W trybie karabinu cios odrzuca całą hordę — ale trzeci kończy zabawę.',
-  'Magazynek Nonny w sklepie wydłuża tryb karabinu o 5 sekund za poziom.',
+  T('Złota skrzynia = nowa broń. Idź za strzałką na ekranie.',
+    'A golden crate = a new weapon. Follow the arrow on screen.'),
+  T('Marshmallini po śmierci dzieli się na dwa mniejsze. Planuj kolejność.',
+    'Marshmallini splits into two smaller ones when killed. Plan the order.'),
+  T('Sodino syczy przed wybuchem — to Twoja sekunda na ucieczkę.',
+    'Sodino hisses before it blows — that hiss is your one second to run.'),
+  T('Gummini odbija się i nie da się go odepchnąć. Nie licz na knockback.',
+    'Gummini bounces and cannot be pushed. Do not count on knockback.'),
+  T('Lollini kręci się jak piła. Wolny, ale nie właź pod tarczę.',
+    'Lollini spins like a saw. Slow — just do not walk into the blade.'),
+  T('Foliowa torba: PRZYTRZYMAJ skok w locie, żeby szybować nad hordą.',
+    'Plastic Bag: HOLD jump in mid-air to glide over the horde.'),
+  T('Na regale w markecie horda wspina się powoli — to Twoja chwila oddechu.',
+    'On a supermarket shelf the horde climbs slowly — that is your breather.'),
+  T('Woda spowalnia i Ciebie, i przekąski. Skokiem przeskoczysz zatoczkę.',
+    'Water slows you and the snacks alike. A jump clears the narrow bits.'),
+  T('Garnek Nonny daje buff na kilkanaście sekund. Warto po niego zboczyć z trasy.',
+    "Nonna's Pot grants a buff for a good fifteen seconds. Worth the detour."),
+  T('Monety zostają po śmierci — każdy przegrany bieg i tak coś daje.',
+    'Coins survive your death — every lost run still pays for something.'),
+  T('KARABIN ze skrzyni = pierwsza osoba i 20 sekund rzezi. Masz 3 trafienia.',
+    'The RIFLE from a crate = first person and 20 seconds of carnage. You get 3 hits.'),
+  T('W trybie karabinu cios odrzuca całą hordę — ale trzeci kończy zabawę.',
+    'In rifle mode a hit throws the whole horde back — but the third one ends it.'),
+  T('Magazynek Nonny w sklepie wydłuża tryb karabinu o 5 sekund za poziom.',
+    "Nonna's Magazine in the shop adds 5 seconds of rifle time per level."),
 ];
 const loadOv = document.getElementById('loadOv');
 const loadBar = document.getElementById('loadBar');
@@ -7903,7 +8068,11 @@ if (loadTip) {
 }
 
 (async function boot() {
-  await ladowanie('Wysypywanie witamin…');
+  // JĘZYK NAJPIERW: etykiety z `data-pl`/`data-en` muszą wejść, ZANIM main.js
+  // dopisze ikonki do zakładek (`insertAdjacentHTML('afterbegin')` niżej) —
+  // odwrotna kolejność kasowałaby ikony przy każdym podmienieniu innerHTML.
+  zastosujJezyk();
+  await ladowanie(T('Wysypywanie witamin…', 'Pouring out the vitamins…'));
   const pig = await flatMat('assets/pigulka.png');
   pigulkaMat = pig.mat; pigulkaAspect = pig.w / pig.h;
   const czo = await flatMat('assets/czosnek.png');
@@ -7945,22 +8114,22 @@ if (loadTip) {
   heartMat = emojiMat('❤️');
   // postacie grywalne (potrzebne też do portretów w menu)
   // ===== VEGGIE FAMIGLIA =====
-  await ladowanie('Budzenie Carrotella…');
+  await ladowanie(T('Budzenie Carrotella…', 'Waking Carrotello…'));
   await buildChar('carrotello_squattello', ['idle', 'run', 'jump']);
-  await ladowanie('Beetino zakłada okulary…');
+  await ladowanie(T('Beetino zakłada okulary…', 'Beetino puts his shades on…'));
   await buildChar('beetino_bouncerino', ['idle', 'run', 'jump']);   // poprawka MA idle
-  await ladowanie('Babcia szuka kapcia…');
+  await ladowanie(T('Babcia szuka kapcia…', 'Granny is looking for her slipper…'));
   await buildChar('granny_smithella', ['idle', 'run', 'jump']);
-  await ladowanie('Razoretta ostrzy scyzoryk…');
+  await ladowanie(T('Razoretta ostrzy scyzoryk…', 'Razoretta sharpens a knife…'));
   await buildChar('radishetta_razoretta', ['idle', 'run', 'jump']);
-  await ladowanie('Pipsini wychodzi z jabłka…');
+  await ladowanie(T('Pipsini wychodzi z jabłka…', 'Pipsini climbs out of the apple…'));
   await buildChar('pipsini_nipotini', ['idle', 'run']);
   // 'aura' = animacja aktywnej umiejetnosci (katalog 'ladowanie_smrodliwej_aury').
   // Bez wypisania jej TUTAJ `buildChar` by jej nie zbudowal i `play('aura')`
   // spadloby na fallback do idle — umiejetnosc bylaby niewidoczna.
-  await ladowanie('Garlicino nabiera smrodu…');
+  await ladowanie(T('Garlicino nabiera smrodu…', 'Garlicino works up a stink…'));
   await buildChar('garlicino_stinkerino', ['idle', 'run', 'jump', 'aura']);
-  await ladowanie('Zwoływanie Famiglia Snackoni…');
+  await ladowanie(T('Zwoływanie Famiglia Snackoni…', 'Summoning the Famiglia Snackoni…'));
   for (const w of ['chipsetti_soldatetti', 'marshmallini_fluffini', 'gummini_bouncini',
                    'friesetti_spearetti', 'sodino_explodino', 'lollini_spinnini']) {
     await buildChar(w, ['run']);
@@ -7968,11 +8137,11 @@ if (loadTip) {
   // 'punch' = animacja WYCISKANIA SIĘ z paczki PixelLaba; packer ją wcześniej po cichu
   // pomijał, bo katalog nazywał się 'squeezes_its_own_body_hard_with_tiny_arms_compress'
   await buildChar('ketchupino_splatterino', ['run', 'punch']);   // pierwszy wróg dystansowy
-  await ladowanie('Don Chipso poprawia kapelusz…');
+  await ladowanie(T('Don Chipso poprawia kapelusz…', 'Don Chipso straightens his fedora…'));
   await buildChar('don_chipso', ['run']);          // boss ma wreszcie własny arkusz
   // Kernello ma WLASNA animacje eksplozji — jedyny wrog z prawdziwym `death`
   await buildChar('kernello_boomello', ['idle', 'run', 'death']);
-  await ladowanie('Sadzenie krzaków…');
+  await ladowanie(T('Sadzenie krzaków…', 'Planting the bushes…'));
   await loadDecoMats();
   chunkMat = addCloudShadow(new THREE.MeshLambertMaterial({ map: grassTexC, vertexColors: true }));
   chunkMatIndoor = new THREE.MeshLambertMaterial({ map: floorTexC, vertexColors: true });
@@ -8017,16 +8186,16 @@ if (loadTip) {
     alphaTest: 0.4, side: THREE.DoubleSide, depthWrite: false });
   resetStats();          // P.pos musi istnieć PRZED chunkami i skrzyniami
   setMap(mapKey);        // buduje świat + rozstawia skrzynie/totemy
-  await ladowanie('Ukrywanie skrzyń…');
+  await ladowanie(T('Ukrywanie skrzyń…', 'Hiding the crates…'));
   spawnChests(9);
-  await ladowanie('Stawianie garnków Nonny…');
+  await ladowanie(T('Stawianie garnków Nonny…', "Setting out Nonna's pots…"));
   await ladujGarnek();      // sprite garnka; bez niego zostaje proceduralny
   spawnTotems(3);
   // `setMap` poszedł WCZEŚNIEJ niż wczytanie sprite'a, a `spawnTotems` bierze teksturę
   // proceduralną — bez tego wywołania garnek zostawał rysowany kodem.
   ustawWygladGarnkow(mapKey);
   drawHearts();
-  await ladowanie('Otwieranie sklepu…');
+  await ladowanie(T('Otwieranie sklepu…', 'Opening the shop…'));
   renderShop(); renderMaps(); renderChars(); renderStats(); renderBestiary(); renderPick();
   renderSterowanie();    // zakładka Sterowanie (mapowanie pada)
   AUDIO.initUI();        // suwaki głośności w zakładce Dźwięk
@@ -8042,13 +8211,14 @@ if (loadTip) {
   camera.lookAt(0, 1.3, -2.2);
   refreshSpriteTilt();                   // pierwsza klatka też ma mieć poprawne pochylenie
   playerBB.update(0, P.pos, P.y, P.y);
-  await ladowanie('Sól i cukier na pozycjach…');
+  await ladowanie(T('Sól i cukier na pozycjach…', 'Salt and sugar in position…'));
   loop();
-  await ladowanie('Gotowe!');
+  await ladowanie(T('Gotowe!', 'Ready!'));
   if (loadOv) { loadOv.classList.add('znika'); setTimeout(() => loadOv.remove(), 500); }
 
   const menu = document.getElementById('startOv');
   initEkranUI();                       // przełącznik pełnego ekranu + instalacja PWA
+  initJezykUI();                       // przełącznik PL | EN (róg menu + zakładka „Dźwięk i ekran")
   // PEŁNY EKRAN NAJPIERW: `requestFullscreen` liczy się tylko wewnątrz gestu
   // użytkownika, a `newGame()` robi swoje długo — po nim gest bywa już „zużyty".
   document.getElementById('btnStart').onclick = () => {
@@ -8064,6 +8234,20 @@ if (loadTip) {
     document.getElementById('overOv').style.display = 'none';
     menu.style.display = 'flex';
   };
+  // ---- KOMIKS WPROWADZAJĄCY ----
+  // Przy PIERWSZYM uruchomieniu leci PO ekranie ładowania i PRZED menu: menu chowamy
+  // na czas komiksu, bo `#startOv` jest widoczny od startu (zakrywał go tylko `#loadOv`),
+  // a dwa `.ov` naraz to prześwitujące logo pod planszą i pad nawigujący po menu pod spodem.
+  // `META.ui.komiks` zapisujemy DOPIERO po zamknięciu — kto zamknie kartę w połowie,
+  // dostanie komiks jeszcze raz. Z menu (FABUŁA) nie zapisujemy nic.
+  document.getElementById('fabulaBtn').onclick = e => { e.preventDefault(); pokazKomiks({ zMenu: true }); };
+  if (!META.ui.komiks) {
+    menu.style.display = 'none';
+    pokazKomiks().then(() => {
+      META.ui.komiks = true; saveMeta();
+      menu.style.display = 'flex';
+    });
+  }
   // ---- KODY ----
   // Kod odblokowuje WSZYSTKO + 5000 monet, a `main.js` w demo na GitHub Pages jest
   // publiczny — kazdy moglby go odczytac z zrodla i sklep przestalby cokolwiek znaczyc.
@@ -8083,11 +8267,11 @@ if (loadTip) {
       renderShop(); renderChars(); renderPick();
       if (typeof renderBestiary === 'function') renderBestiary();
       kodInfo.className = '';
-      kodInfo.textContent = 'KOD PRZYJĘTY! Odblokowano wszystko + 5000 monet.';
+      kodInfo.textContent = T('KOD PRZYJĘTY! Odblokowano wszystko + 5000 monet.', 'CODE ACCEPTED! Everything unlocked + 5000 coins.');
       kodInput.value = '';
     } else if (kod) {
       kodInfo.className = 'zle';
-      kodInfo.textContent = 'Nieznany kod.';
+      kodInfo.textContent = T('Nieznany kod.', 'Unknown code.');
     }
   }
   if (kodInput) document.getElementById('kodBtn').onclick = uzyjKodu;
@@ -8157,6 +8341,9 @@ if (loadTip) {
     render() { renderer.render(scene, camera); },
     PAD, pollPads, get camYaw() { return camYaw; }, get gpSel() { return gpSel; },
     padGlyph, padRodzina, padWibruj, navItems, topOverlay, renderSterowanie,
+    // komiks: `pokazKomiks()` do scenariuszy testera, `initKomiks` do podmiany T()
+    // (podgląd podpisów po angielsku bez przeładowania i bez ruszania META)
+    pokazKomiks, initKomiks,
     // staty pochodne + pula kart: do pomiarow balansu (projektant/tester nie mieli
     // jak zmierzyc, czy karta faktycznie cokolwiek robi — stad martwy `fireMul`)
     get staty() {

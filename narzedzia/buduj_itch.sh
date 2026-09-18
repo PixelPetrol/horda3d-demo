@@ -27,7 +27,7 @@ fi
 # `/coś` wskaże korzeń cudzego serwera. Lepiej wyłapać to tutaj niż po wgraniu.
 echo "-- szukam ścieżek absolutnych…"
 if grep -nE "[\"']/assets|url\(/|src=\"/|href=\"/" \
-     index.html main.js audio.js icons.js spritedata.js sw.js manifest.webmanifest; then
+     index.html main.js audio.js icons.js spritedata.js komiks.js sw.js manifest.webmanifest; then
   echo "BŁĄD: powyższe ścieżki są absolutne — na itch/Pages nic się z nich nie wczyta." >&2
   exit 1
 fi
@@ -41,7 +41,7 @@ rm -f "$ZIP"
 # `assets/portrety` NIE wchodzi: to rendery robocze do dokumentacji, w kodzie
 # nikt się do nich nie odwołuje (sprawdzone grepem) — 550 KB za darmo.
 zip -r -q -X "$ZIP" \
-  index.html main.js spritedata.js icons.js audio.js \
+  index.html main.js spritedata.js icons.js audio.js komiks.js \
   manifest.webmanifest sw.js \
   lib/three.module.js \
   assets fonts \

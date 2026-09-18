@@ -234,6 +234,57 @@
   #ctrlBox .snd.czeka label{color:#ffd75e}
   .btn2.sel{background:#4a3a14;color:#ffd75e}
 
+  /* ================= KOMIKS ================= */
+  /* Plansza ma STAŁE proporcje 16:9 (obrazki to 640×360), więc szerokość liczy się
+     tak, żeby wysokość nigdy nie przekroczyła 62vh: 62vh × 16/9 ≈ 110vh. Bez tego
+     na telefonie W POZIOMIE plansza zjadała cały ekran i podpis z przyciskami
+     lądowały pod krawędzią (overlay dałby się przewinąć, ale nikt by nie zgadł, że trzeba).
+     Warstwy: <canvas> = rysunek zastępczy (gdy pliku planszy jeszcze nie ma),
+     <img> nad nim — pojawia się dopiero, gdy plik NA PEWNO się wczytał. */
+  #komiksOv{display:none;gap:0}
+  /* flex:0 0 auto — inaczej flexbox ŚCISKA ramkę zanim pojawi się przewijanie i aspect-ratio
+     przestaje obowiązywać (telefon w poziomie, podpis na 3 linie) */
+  #komiksRama{flex:0 0 auto;position:relative;width:min(96vw,960px,110vh);aspect-ratio:16/9;margin:0 auto;
+      background:#121a12;cursor:pointer;transition:opacity .18s;
+      box-shadow:-3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  #komiksRama.ciemno{opacity:0}
+  #komiksCv,#komiksImg{position:absolute;inset:0;width:100%;height:100%;display:block;
+      image-rendering:pixelated}
+  #komiksImg{opacity:0;transition:opacity .18s}
+  #komiksImg.on{opacity:1}
+  /* pasek podpisu: czcionka gry, do trzech linii; szerokość taka jak plansza */
+  #komiksPodpis{width:min(96vw,960px,110vh);margin:10px auto 0;box-sizing:border-box;
+      padding:8px 12px;background:rgba(8,12,20,.66);color:#e9f0dc;text-align:center;
+      font-size:clamp(13px,3.2vw,19px);line-height:1.34;letter-spacing:.5px;
+      display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;
+      box-shadow:-3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22;
+      transition:opacity .18s, transform .18s}
+  #komiksPodpis.poza{opacity:0;transform:translateY(8px)}
+  #komiksKropki{display:flex;gap:7px;justify-content:center;margin:12px 0 2px}
+  #komiksKropki i{width:9px;height:9px;background:#2b3550;
+      box-shadow:-2px 0 0 0 #1b1b22, 2px 0 0 0 #1b1b22, 0 -2px 0 0 #1b1b22, 0 2px 0 0 #1b1b22}
+  #komiksKropki i.on{background:#f5c542}
+  #komiksBtns{display:flex;flex-wrap:wrap;align-items:center;justify-content:center}
+  /* akapit fabuły nad bestiariuszem — drobniejszy od zwykłego `.ov p`, żeby zmieścił
+     się w trzech liniach na 375 px (selektor z `.ov`, bo blok EKRANY jest NIŻEJ) */
+  .ov p.lore{font-size:clamp(11px,2.9vw,13px);max-width:560px;opacity:.85;
+      line-height:1.4;margin:0 auto 8px}
+  /* ikony z icons.js są ŻÓŁTE, a przycisk DALEJ jest złoty — bez przyciemnienia
+     strzałka znikała w tle. `brightness` zamiast osobnej ikony: paleta icons.js
+     jest wspólna dla całej gry i nie chcemy jej rozgałęziać pod jeden przycisk. */
+  #komiksBtns .bigbtn img{filter:brightness(.18);margin-left:2px}
+  #komiksBtns .bigbtn.koniec{background:#9adf58}
+  #komiksBtns .bigbtn.koniec:hover{background:#c2f074}
+  /* telefon w poziomie: wszystko ma się zmieścić BEZ przewijania (667×375) */
+  @media (max-height:520px){
+    #komiksRama,#komiksPodpis{width:min(96vw,960px,104vh)}
+    #komiksPodpis{margin-top:6px;padding:5px 10px;font-size:12px;line-height:1.28}
+    #komiksKropki{margin:6px 0 0}
+    #komiksKropki i{width:7px;height:7px}
+    #komiksBtns .bigbtn{margin:6px 6px 8px}
+    #komiksBtns .btn2{margin:6px 5px}
+  }
+
   /* ================= EKRANY ================= */
   /* justify-content:center + overflow-y:auto to PUŁAPKA: przy treści wyższej niż ekran
      (Sklep, Bestiariusz na niskich telefonach) czyste "center" centruje NAD zakresem
@@ -277,10 +328,37 @@
         inset 0 4px 0 0 #46557a, inset 0 -4px 0 0 #1a2135,
         -4px 0 0 0 #1b1b22, 4px 0 0 0 #1b1b22, 0 -4px 0 0 #1b1b22, 0 4px 0 0 #1b1b22}
 
+  /* ---- PRZEŁĄCZNIK JĘZYKA PL | EN (prawy górny róg ekranu startowego) ----
+     Bez flag-emoji (na Windowsie i tak nie ma flag, a emoji rozbija pixelowy font):
+     dwa małe `.btn2`, aktywny świeci złotem jak `.tab.sel`. `position:absolute`
+     liczy się od `#startOv` (to `.ov`, czyli `position:fixed`), a `env(safe-area-inset-*)`
+     trzyma go poza notchem. `.btn2` wystarcza, żeby pad go widział w `navItems()`. */
+  #langSw{position:absolute;z-index:3;display:flex;
+      top:calc(6px + env(safe-area-inset-top));right:calc(8px + env(safe-area-inset-right))}
+  #langSw .btn2{margin:0 0 0 6px;padding:6px 11px;font-size:13px;min-width:32px}
+  #langSw .btn2.sel{background:#4a3a14;color:#ffd75e;
+      box-shadow:
+        inset 0 4px 0 0 #6b5520, inset 0 -4px 0 0 #2a2008,
+        -4px 0 0 0 #ffd75e, 4px 0 0 0 #ffd75e, 0 -4px 0 0 #ffd75e, 0 4px 0 0 #ffd75e,
+        0 8px 0 0 #ffd75e, 0 8px 0 4px #ffd75e}
+  /* wąski ekran: mniejsze kafelki + logo schodzi niżej, żeby nic nie zachodziło */
+  @media (max-width:520px){
+    #langSw .btn2{padding:4px 7px;font-size:11px;min-width:26px}
+  }
+  /* 44 px = wysokość przycisku (21) + jego dolny cień (8) + górny odstęp (6) + zapas.
+     Zmierzone przy 375 px: dół `#langSw` na y=39, góra `#logo` na y=44.
+     Do 700 px, nie 520: logo ma width:min(84vw,560px), więc przełącznik (right:8px, ~100 px)
+     siadał na logo jeszcze przy 521..674 px (tablety w pionie, wąskie okna) — recenzja 18.09. */
+  @media (max-width:700px){
+    #startOv{padding-top:calc(44px + env(safe-area-inset-top))}
+  }
+
   /* ================= HIERARCHIA EKRANU TYTUŁOWEGO =================
      logo → jeden duży GRAJ (#playCta, zawsze widoczny) → drugorzędny rząd zakładek
      (#tabs, mniejsza waga wizualna) → drobne informacje na dole (#startFoot). */
   #playCta{display:flex;flex-direction:column;align-items:center;margin:6px 0 2px}
+  #ctaRow{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:2px}
+  #ctaRow .btn2{margin-top:0}
   #playCta .bigbtn{padding:18px 58px;font-size:clamp(20px,5.8vw,29px);margin:2px 6px 10px}
   #wybor{margin:0 0 2px;opacity:.85;font-size:clamp(12px,3.2vw,14.5px)}
   /* drobne informacje na dole — zawsze na końcu ekranu, niezależnie od otwartego panelu */
@@ -341,6 +419,9 @@
   .tile.bst.dark .ico img{filter:brightness(0)}
   .tile.bst.dark .nm{color:#6b7690}
   .tile .bs{margin-top:7px;font-size:clamp(9px,2.6vw,11.5px);line-height:1.45;color:#8fd3ff;opacity:.9}
+  /* jedno zdanie o roli wroga w planie Dona — ciemniej i kursywą pod opisem */
+  .tile.bst .lore{margin-top:6px;font-size:clamp(9px,2.5vw,11px);line-height:1.4;
+      font-style:italic;color:#9aa7c0;opacity:.85}
 
   /* pole na kod */
   #kodBox{margin:6px 0 16px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap}
@@ -489,6 +570,16 @@
   #ekranBox{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:10px}
   #ekranBox .btn2{display:inline-flex;align-items:center;gap:8px}
   #ekranBox .info{font-size:clamp(10px,2.8vw,12px);color:#9fd08a;max-width:420px;line-height:1.5}
+  /* wiersz „Język / Language" w zakładce „Dźwięk i ekran" */
+  #langBox{display:flex;flex-direction:column;align-items:center;gap:4px;margin-top:14px}
+  #langBox .snd{gap:8px}
+  #langBox .btn2{margin:0;padding:7px 16px;min-width:46px}
+  #langBox .btn2.sel{background:#4a3a14;color:#ffd75e;
+      box-shadow:
+        inset 0 4px 0 0 #6b5520, inset 0 -4px 0 0 #2a2008,
+        -4px 0 0 0 #ffd75e, 4px 0 0 0 #ffd75e, 0 -4px 0 0 #ffd75e, 0 4px 0 0 #ffd75e,
+        0 8px 0 0 #ffd75e, 0 8px 0 4px #ffd75e}
+  #langBox .info{font-size:clamp(10px,2.8vw,12px);color:#9fd08a;max-width:420px;line-height:1.5;margin-top:6px}
   /* PODPOWIEDŹ DLA iPHONE'A pod przyciskiem GRAJ. Safari nie daje stronom
      Fullscreen API — jedyny pełny ekran na iOS to ikona na ekranie początkowym.
      Pokazywana RAZ (META.ui.pwaHint) i nigdy nie blokuje gry. */
@@ -608,14 +699,14 @@
 <div id="loadOv">
   <img id="loadLogo" class="pxi" src="assets/logo.png" alt="VEGGIE FAMIGLIA">
   <div id="loadBarWrap"><div id="loadBar"></div></div>
-  <div id="loadTxt">Krojenie warzyw…</div>
+  <div id="loadTxt" data-pl="Krojenie warzyw…" data-en="Chopping the vegetables…">Krojenie warzyw…</div>
   <div id="loadTip"></div>
 </div>
 
 <div id="hud">
   <div id="xpwrap"><div id="xpbar"></div></div>
-  <div id="lvl">POZIOM 1</div>
-  <div id="ranga">RANGA 0</div>
+  <div id="lvl" data-pl="POZIOM 1" data-en="LEVEL 1">POZIOM 1</div>
+  <div id="ranga" data-pl="RANGA 0" data-en="RANK 0">RANGA 0</div>
   <div id="rangawrap"><div id="rangabar"></div></div>
   <div id="timer">0:00</div>
   <div id="kills"></div>
@@ -637,12 +728,12 @@
 </div>
 <div id="fpsFlash"></div>
 <div id="stick"><div id="knob"></div></div>
-<div id="jbtn">SKOK</div>
-<div id="karabinBtn"><div class="kimg"></div><div>KARABIN</div><div class="klaw">R</div></div>
+<div id="jbtn" data-pl="SKOK" data-en="JUMP">SKOK</div>
+<div id="karabinBtn"><div class="kimg"></div><div data-pl="KARABIN" data-en="RIFLE">KARABIN</div><div class="klaw">R</div></div>
 <div id="stawBtn"><div class="kimg"></div><div class="lad"></div><div class="klaw">F</div><div class="pas"><b></b></div></div>
 <div id="pauseBtn"></div>
 <!-- przełącznik pełnego ekranu w biegu — widoczny TYLKO na dotyku (CSS: pointer:coarse) -->
-<div id="fsBtn" title="Pełny ekran"><i class="fsIco"></i></div>
+<div id="fsBtn" title="Pełny ekran" data-pl="Pełny ekran" data-en="Fullscreen" data-attr="title"><i class="fsIco"></i></div>
 <!-- podpowiedzi pada: rząd w biegu (#padHud) i stopka w overlayach (#padFoot).
      Treść wypełnia main.js (padHudOdswiez / padFootOdswiez) — pokazują się TYLKO
      przy żywym padzie, gasną po 4 s bez wejścia albo po ruchu myszy/klawiatury. -->
@@ -661,83 +752,118 @@
   <img id="logo" class="pxi" src="assets/logo.png" alt="VEGGIE FAMIGLIA — Brainrot Survivors">
 
   <div id="playCta">
-    <button class="bigbtn" id="btnStart">GRAJ</button>
-    <p id="wybor">Mapa: <b id="selMapNm">Łąki</b> · Postać: <b id="selCharNm">Kasia</b></p>
-    <!-- link „postaw kawę" — adres ustawia main.js (KAWA_URL); bez adresu ukryty -->
-    <a id="kawaBtn" class="btn2" href="#" target="_blank" rel="noopener" style="display:none">POSTAW MI KAWĘ</a>
+    <button class="bigbtn" id="btnStart" data-pl="GRAJ" data-en="PLAY">GRAJ</button>
+    <!-- etykiety w osobnych <span>: `#wybor` NIE może dostać data-pl, bo zastosujJezyk()
+         nadpisuje innerHTML i skasowałoby <b id="selMapNm"> / <b id="selCharNm"> -->
+    <p id="wybor"><span data-pl="Mapa:" data-en="Map:">Mapa:</span> <b id="selMapNm">Łąki</b>
+       · <span data-pl="Postać:" data-en="Character:">Postać:</span> <b id="selCharNm">Kasia</b></p>
+    <!-- FABUŁA i KAWA w jednym rzędzie (kolumna dokładała ~45 px nad zakładkami na niskich telefonach) -->
+    <div id="ctaRow">
+      <!-- komiks wprowadzający na żądanie (przy pierwszym uruchomieniu leci sam) -->
+      <a id="fabulaBtn" class="btn2" href="#" data-pl="FABUŁA" data-en="STORY">FABUŁA</a>
+      <!-- link „postaw kawę" — adres ustawia main.js (KAWA_URL); bez adresu ukryty -->
+      <a id="kawaBtn" class="btn2" href="#" target="_blank" rel="noopener" style="display:none"
+         data-pl="POSTAW MI KAWĘ" data-en="BUY ME A COFFEE">POSTAW MI KAWĘ</a>
+    </div>
     <!-- podpowiedź dla iPhone'a (pokazuje main.js raz — META.ui.pwaHint) -->
     <div id="pwaHint">
-      <span>Pełny ekran na iPhone: <b>Udostępnij</b> → <b>Dodaj do ekranu początkowego</b>.</span>
+      <span data-pl="Pełny ekran na iPhone: <b>Udostępnij</b> → <b>Dodaj do ekranu początkowego</b>."
+            data-en="Fullscreen on iPhone: <b>Share</b> → <b>Add to Home Screen</b>.">Pełny ekran na iPhone: <b>Udostępnij</b> → <b>Dodaj do ekranu początkowego</b>.</span>
       <span class="x" id="pwaHintX">X</span>
     </div>
   </div>
 
   <div id="tabs">
-    <div class="tab sel" data-tab="graj" data-ico="play">Graj</div>
+    <div class="tab sel" data-tab="graj" data-ico="play" data-pl="Graj" data-en="Play">Graj</div>
 
-    <div class="tab" data-tab="mapy" data-ico="mapa">Mapy</div>
-    <div class="tab" data-tab="postacie" data-ico="postac">Postacie</div>
-    <div class="tab" data-tab="bestia" data-ico="czaszka">Bestiariusz</div>
-    <div class="tab" data-tab="sklep" data-ico="sklep">Sklep</div>
-    <div class="tab" data-tab="dzwiek" data-ico="glosnik">Dźwięk</div>
-    <div class="tab" data-tab="staty" data-ico="wykres">Statystyki</div>
-    <div class="tab" data-tab="sterowanie" data-ico="strzalka">Sterowanie</div>
+    <div class="tab" data-tab="mapy" data-ico="mapa" data-pl="Mapy" data-en="Maps">Mapy</div>
+    <div class="tab" data-tab="postacie" data-ico="postac" data-pl="Postacie" data-en="Heroes">Postacie</div>
+    <div class="tab" data-tab="bestia" data-ico="czaszka" data-pl="Bestiariusz" data-en="Bestiary">Bestiariusz</div>
+    <div class="tab" data-tab="sklep" data-ico="sklep" data-pl="Sklep" data-en="Shop">Sklep</div>
+    <div class="tab" data-tab="dzwiek" data-ico="glosnik" data-pl="Dźwięk" data-en="Sound">Dźwięk</div>
+    <div class="tab" data-tab="staty" data-ico="wykres" data-pl="Statystyki" data-en="Stats">Statystyki</div>
+    <div class="tab" data-tab="sterowanie" data-ico="strzalka" data-pl="Sterowanie" data-en="Controls">Sterowanie</div>
   </div>
 
   <div class="panel on" id="p-graj"></div>
 
-  <div class="panel" id="p-mapy"><h2>MAPY</h2><div class="grid" id="mapGrid"></div></div>
-  <div class="panel" id="p-postacie"><h2>POSTACIE</h2><div class="grid" id="charGrid"></div></div>
+  <div class="panel" id="p-mapy"><h2 data-pl="MAPY" data-en="MAPS">MAPY</h2><div class="grid" id="mapGrid"></div></div>
+  <div class="panel" id="p-postacie"><h2 data-pl="POSTACIE" data-en="HEROES">POSTACIE</h2><div class="grid" id="charGrid"></div></div>
   <div class="panel" id="p-bestia">
-    <h2>BESTIARIUSZ</h2>
-    <p>Encyklopedia hordy. Wpis odblokowuje się po PIERWSZYM zabiciu danego typu.
-       Odkryto: <b id="bestProg">0/0</b></p>
+    <h2 data-pl="BESTIARIUSZ" data-en="BESTIARY">BESTIARIUSZ</h2>
+    <p class="lore" data-pl="Osiedle Grządkowo żyło spokojnie, aż przyjechała La Famiglia Snackoni — mafia przekąsek Dona Chipso. Plan: sól, cukier i automat w miejscu warzywniaka. Warzywa na to: „nie na moim osiedlu”. Broń: witaminy." data-en="the Blockyard was quiet until La Famiglia Snackoni rolled in — Don Chipso’s snack mafia. The plan: salt, sugar and a vending machine where the veggie stand stood. The vegetables said “not on my block.” Weapon: vitamins.">Osiedle Grządkowo żyło spokojnie, aż przyjechała La Famiglia Snackoni — mafia przekąsek Dona Chipso. Plan: sól, cukier i automat w miejscu warzywniaka. Warzywa na to: „nie na moim osiedlu”. Broń: witaminy.</p>
+    <p><span data-pl="Encyklopedia hordy. Wpis odblokowuje się po PIERWSZYM zabiciu danego typu. Odkryto:"
+             data-en="An encyclopedia of the horde. An entry unlocks the FIRST time you kill that type. Discovered:">Encyklopedia hordy. Wpis odblokowuje się po PIERWSZYM zabiciu danego typu.
+       Odkryto:</span> <b id="bestProg">0/0</b></p>
     <div class="grid" id="bestGrid"></div>
   </div>
   <div class="panel" id="p-sklep">
-    <h2>SKLEP</h2>
-    <p>Monety zbierasz w biegach — zostają po śmierci. Masz: <b id="shopCoins">0</b></p>
+    <h2 data-pl="SKLEP" data-en="SHOP">SKLEP</h2>
+    <p><span data-pl="Monety zbierasz w biegach — zostają po śmierci. Masz:"
+             data-en="You earn coins in runs — they survive your death. You have:">Monety zbierasz w biegach — zostają po śmierci. Masz:</span> <b id="shopCoins">0</b></p>
     <div id="kodBox">
-      <input id="kodInput" type="text" placeholder="wpisz kod" autocomplete="off" spellcheck="false" maxlength="24">
-      <button class="btn2" id="kodBtn">UŻYJ KODU</button>
+      <input id="kodInput" type="text" placeholder="wpisz kod" autocomplete="off" spellcheck="false" maxlength="24"
+             data-pl="wpisz kod" data-en="enter a code" data-attr="placeholder">
+      <button class="btn2" id="kodBtn" data-pl="UŻYJ KODU" data-en="USE CODE">UŻYJ KODU</button>
       <div id="kodInfo"></div>
     </div>
     <div class="grid" id="shopItems"></div>
   </div>
   <div class="panel" id="p-dzwiek">
-    <h2>DŹWIĘK I EKRAN</h2>
-    <p>Muzyka rusza po pierwszym kliknięciu — tak wymagają przeglądarki.
+    <h2 data-pl="DŹWIĘK I EKRAN" data-en="SOUND AND SCREEN">DŹWIĘK I EKRAN</h2>
+    <p data-pl="Muzyka rusza po pierwszym kliknięciu — tak wymagają przeglądarki. W menu gra motyw główny, w biegu utwór losowany, przy bossie osobny kawałek. Efekty są generowane na żywo (nie ważą nic), więc bez obaw o pakiet."
+       data-en="Music starts on your first click — browsers insist on it. The menu plays the main theme, a run gets a random track, the boss gets his own. Effects are generated live (they weigh nothing), so no worries about your data.">Muzyka rusza po pierwszym kliknięciu — tak wymagają przeglądarki.
        W menu gra motyw główny, w biegu utwór losowany, przy bossie osobny kawałek.
        Efekty są generowane na żywo (nie ważą nic), więc bez obaw o pakiet.</p>
     <div id="sndBox">
-      <div class="snd"><label id="etyMuz" for="volMuz">Muzyka</label>
+      <div class="snd"><label id="etyMuz" for="volMuz" data-pl="Muzyka" data-en="Music">Muzyka</label>
         <input id="volMuz" type="range" min="0" max="100" step="1" value="15"><b id="volMuzV">15%</b></div>
-      <div class="snd"><label id="etyGlos" for="volGlos">Głosy postaci</label>
+      <div class="snd"><label id="etyGlos" for="volGlos" data-pl="Głosy postaci" data-en="Character voices">Głosy postaci</label>
         <input id="volGlos" type="range" min="0" max="100" step="1" value="90"><b id="volGlosV">90%</b></div>
-      <div class="snd"><label id="etyEfe" for="volEfe">Efekty</label>
+      <div class="snd"><label id="etyEfe" for="volEfe" data-pl="Efekty" data-en="Effects">Efekty</label>
         <input id="volEfe" type="range" min="0" max="100" step="1" value="70"><b id="volEfeV">70%</b></div>
-      <button class="btn2" id="btnMute">WYCISZ WSZYSTKO</button>
+      <button class="btn2" id="btnMute" data-pl="WYCISZ WSZYSTKO" data-en="MUTE EVERYTHING">WYCISZ WSZYSTKO</button>
+    </div>
+    <!-- JĘZYK — ten sam przełącznik co w prawym górnym rogu menu (main.js spina
+         oba zestawy przycisków w `initJezykUI`). Zmiana przeładowuje stronę. -->
+    <div id="langBox">
+      <div class="snd"><label data-pl="Język / Language" data-en="Language / Język">Język / Language</label>
+        <button class="btn2" id="langPl2">PL</button><button class="btn2" id="langEn2">EN</button></div>
+      <div class="info" data-pl="Głosy postaci zostają po polsku — to część klimatu."
+           data-en="Character voices stay in Polish — that is part of the flavour.">Głosy postaci zostają po polsku — to część klimatu.</div>
     </div>
     <!-- EKRAN. `#btnInstall` jest ukryty do czasu `beforeinstallprompt` (tylko
          Chrome/Android; iOS i desktop go nie wysyłają), a `#btnFs` znika tam,
          gdzie Fullscreen API nie istnieje — main.js decyduje, nie CSS. -->
     <div id="ekranBox">
-      <button class="btn2" id="btnFs"><i class="fsIco"></i><span>PEŁNY EKRAN</span></button>
-      <button class="btn2" id="btnInstall" style="display:none">ZAINSTALUJ GRĘ</button>
-      <div class="info" id="ekranInfo">Na telefonie pełny ekran włącza się też sam po dotknięciu GRAJ.</div>
+      <button class="btn2" id="btnFs"><i class="fsIco"></i><span data-pl="PEŁNY EKRAN" data-en="FULLSCREEN">PEŁNY EKRAN</span></button>
+      <button class="btn2" id="btnInstall" style="display:none" data-pl="ZAINSTALUJ GRĘ" data-en="INSTALL THE GAME">ZAINSTALUJ GRĘ</button>
+      <div class="info" id="ekranInfo"
+           data-pl="Na telefonie pełny ekran włącza się też sam po dotknięciu GRAJ."
+           data-en="On a phone, fullscreen also kicks in by itself when you tap PLAY.">Na telefonie pełny ekran włącza się też sam po dotknięciu GRAJ.</div>
     </div>
   </div>
-  <div class="panel" id="p-staty"><h2>STATYSTYKI</h2><div id="statsList"></div></div>
+  <div class="panel" id="p-staty"><h2 data-pl="STATYSTYKI" data-en="STATS">STATYSTYKI</h2><div id="statsList"></div></div>
   <!-- STEROWANIE: rzędy generuje main.js (renderSterowanie), bo glify muszą się
        przerysować po podłączeniu pada innej rodziny i po każdej zmianie mapowania -->
   <div class="panel" id="p-sterowanie">
-    <h2>STEROWANIE</h2>
-    <p>Podpowiedzi same dopasują się do rodziny pada (Xbox, PlayStation, Switch, Steam Deck).
+    <h2 data-pl="STEROWANIE" data-en="CONTROLS">STEROWANIE</h2>
+    <p data-pl="Podpowiedzi same dopasują się do rodziny pada (Xbox, PlayStation, Switch, Steam Deck). Bez pada gra chodzi na klawiaturze i myszy dokładnie jak dotąd."
+       data-en="The button prompts match your pad family by themselves (Xbox, PlayStation, Switch, Steam Deck). With no pad, keyboard and mouse work exactly as before.">Podpowiedzi same dopasują się do rodziny pada (Xbox, PlayStation, Switch, Steam Deck).
        Bez pada gra chodzi na klawiaturze i myszy dokładnie jak dotąd.</p>
     <div id="ctrlBox"></div>
   </div>
 
-  <p id="startFoot">Klawiatura: <b>WASD</b> ruch · <b>SPACJA</b> skok · <b>Q/E</b> obrót · <b>ESC</b> pauza<br>
+  <!-- PL | EN — obsługa w main.js (ustawJezyk); klasa `sel` na aktywnym języku.
+       CELOWO NA KOŃCU #startOv, mimo że wizualnie siedzi w prawym górnym rogu
+       (position:absolute): pad bierze `navItems()[0]` jako domyślne zaznaczenie,
+       a tym ma być GRAJ, nie przełącznik języka. Ruch padem jest geometryczny,
+       więc kolejność w DOM nie psuje nawigacji D-padem. -->
+  <div id="langSw"><button class="btn2" id="langPl">PL</button><button class="btn2" id="langEn">EN</button></div>
+
+  <p id="startFoot"
+     data-pl="Klawiatura: <b>WASD</b> ruch · <b>SPACJA</b> skok · <b>Q/E</b> obrót · <b>ESC</b> pauza<br>Telefon: lewa połowa = joystick · prawa = obrót kamery · przycisk skoku po prawej<br>Kontroler: lewy drążek ruch · prawy kamera · pełne mapowanie w zakładce <b>Sterowanie</b><br>Masz Liść sałaty? <b>PRZYTRZYMAJ skok w locie</b> — szybujesz i uciekasz hordzie"
+     data-en="Keyboard: <b>WASD</b> move · <b>SPACE</b> jump · <b>Q/E</b> turn · <b>ESC</b> pause<br>Phone: left half = joystick · right half = camera · jump button on the right<br>Controller: left stick moves · right stick looks · full mapping in the <b>Controls</b> tab<br>Got the Lettuce Leaf? <b>HOLD jump in mid-air</b> — you glide and outrun the horde">Klawiatura: <b>WASD</b> ruch · <b>SPACJA</b> skok · <b>Q/E</b> obrót · <b>ESC</b> pauza<br>
      Telefon: lewa połowa = joystick · prawa = obrót kamery · przycisk skoku po prawej<br>
      Kontroler: lewy drążek ruch · prawy kamera · pełne mapowanie w zakładce <b>Sterowanie</b><br>
      Masz Liść sałaty? <b>PRZYTRZYMAJ skok w locie</b> — szybujesz i uciekasz hordzie</p>
@@ -745,27 +871,46 @@
 
 <!-- ================= EKRANY W GRZE ================= -->
 <div id="cardsOv" class="ov">
-  <h2>AWANS! Wybierz ulepszenie</h2>
+  <h2 data-pl="AWANS! Wybierz ulepszenie" data-en="LEVEL UP! Pick an upgrade">AWANS! Wybierz ulepszenie</h2>
   <div id="cards"></div>
 </div>
 
 <div id="swapOv" class="ov">
-  <h2 id="swapTitle">WYMIENNIK!</h2>
+  <!-- tekst nagłówka nadpisuje main.js (openSwap / openNewWeapon) przez T() -->
+  <h2 id="swapTitle" data-pl="WYMIENNIK!" data-en="SWAP TIME!">WYMIENNIK!</h2>
   <div id="swapList"></div>
 </div>
 
 <div id="pauseOv" class="ov">
-  <h2>PAUZA</h2>
+  <h2 data-pl="PAUZA" data-en="PAUSED">PAUZA</h2>
   <div id="pauseStats" style="margin-bottom:10px"></div>
-  <button class="bigbtn" id="btnResume">WRACAM</button>
-  <button class="btn2" id="btnQuit">Do menu (kończy bieg)</button>
+  <button class="bigbtn" id="btnResume" data-pl="WRACAM" data-en="BACK IN">WRACAM</button>
+  <button class="btn2" id="btnQuit" data-pl="Do menu (kończy bieg)" data-en="To menu (ends the run)">Do menu (kończy bieg)</button>
 </div>
 
 <div id="overOv" class="ov">
-  <h1>KONIEC</h1>
+  <h1 data-pl="KONIEC" data-en="GAME OVER">KONIEC</h1>
   <p id="overStats"></p>
-  <button class="bigbtn" id="btnRetry">JESZCZE RAZ</button>
-  <button class="btn2" id="btnMenu">Menu</button>
+  <button class="bigbtn" id="btnRetry" data-pl="JESZCZE RAZ" data-en="ONE MORE">JESZCZE RAZ</button>
+  <button class="btn2" id="btnMenu" data-pl="Menu" data-en="Menu">Menu</button>
+</div>
+
+<!-- KOMIKS WPROWADZAJĄCY — treść (plansze, podpisy, kropki) wypełnia komiks.js.
+     Stoi jako OSTATNI overlay w DOM, bo topOverlay() bierze ostatni widoczny `.ov`:
+     komiks odpalony z menu musi przebić #startOv, inaczej pad sterowałby menu pod spodem.
+     Podpisy są ustawiane z JS przez T() — świadomie BEZ data-pl/data-en, żeby
+     zastosujJezyk() nie nadpisało napisu „GRAJMY!" na ostatniej planszy. -->
+<div id="komiksOv" class="ov">
+  <div id="komiksRama">
+    <canvas id="komiksCv" width="640" height="360"></canvas>
+    <img id="komiksImg" alt="">
+  </div>
+  <div id="komiksPodpis"></div>
+  <div id="komiksKropki"></div>
+  <div id="komiksBtns">
+    <button class="bigbtn" id="komiksDalej">DALEJ</button>
+    <button class="btn2" id="komiksPomin">POMIŃ</button>
+  </div>
 </div>
 
 <script>
@@ -782,6 +927,6 @@
     addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
   }
 </script>
-<script type="module" src="main.js?v=152"></script>
+<script type="module" src="main.js?v=154"></script>
 </body>
 </html>

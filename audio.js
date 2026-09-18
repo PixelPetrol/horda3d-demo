@@ -61,6 +61,10 @@ const S = {
   glosy: new Map(),              // ścieżka -> HTMLAudioElement (kwestie są małe, cache się opłaca)
   glosT: -99, ostatni: null, seriaT: -99,
   ostatniBieg: null,             // żeby nie losować dwa razy z rzędu tego samego utworu
+  // Jedyne teksty dla gracza, jakie wychodzą z audio.js (przycisk wyciszenia).
+  // Tłumaczenia wstrzykuje main.js przez `AUDIO.init(META, saveMeta, teksty)` —
+  // import `T()` z main.js dałby cykl modułów, więc idą parametrem.
+  txt: { wlacz: 'WŁĄCZ DŹWIĘK', wycisz: 'WYCISZ WSZYSTKO' },
 };
 
 // ============================== GŁOŚNOŚCI ==============================
@@ -288,7 +292,9 @@ function odswiezUI() {
   if (f) { f.value = Math.round(S.ust.efe * 100); document.getElementById('volEfeV').textContent = f.value + '%'; }
   stosujWzmEfe();
   const b = document.getElementById('btnMute');
-  b.innerHTML = cichoBo() ? ico('cisza', 16) + ' WŁĄCZ DŹWIĘK' : ico('glosnik', 16) + ' WYCISZ WSZYSTKO';
+  // Napisy przychodzą z main.js (AUDIO.init), bo tłumaczy je `T()` — audio.js NIE
+  // MOŻE importować main.js (byłby cykl modułów). Domyślne wartości = polskie.
+  b.innerHTML = cichoBo() ? ico('cisza', 16) + ' ' + S.txt.wlacz : ico('glosnik', 16) + ' ' + S.txt.wycisz;
   b.classList.toggle('sel', cichoBo());
 }
 
@@ -323,9 +329,10 @@ function zapiszUst() {
 // ============================== API DLA GRY ==============================
 export const AUDIO = {
   // META i saveMeta wstrzykujemy z main.js (bez tego byłby import w kółko)
-  init(meta, zapisz) {
+  init(meta, zapisz, teksty) {
     S.meta = meta;
     S.zapisz = zapisz || (() => {});
+    if (teksty) Object.assign(S.txt, teksty);      // napisy UI już przetłumaczone przez main.js
     S.ust = Object.assign(domyslne(), meta && meta.audio);
     // stare zapisy siedza na dawnej domyslnej 0.55 — sciagamy je raz do 0.15
     if (S.ust.muz === 0.55) S.ust.muz = 0.15;

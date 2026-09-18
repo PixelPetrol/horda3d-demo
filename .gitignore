@@ -1,2 +1,6 @@
 .DS_Store
 dist/
+apikey*
+*.rtf
+.veggie_google_key
+*_key

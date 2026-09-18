@@ -21,7 +21,7 @@ stał warzywniak Nonny. Aż przyjechała **La Famiglia Snackoni** — mafia prze
 Dona Chipso — z jednym planem: zasypać osiedle solą i cukrem, a w miejscu warzywniaka
 postawić automat. Warzywa powiedziały „nie na moim osiedlu". Broń: witaminy. Motto rodziny:
 „Nic osobistego. Sama sól."
-EN: Grządkowo Estate was a quiet block: the carpet rack was the gym, the sandbox was the
+EN: The Blockyard (Grządkowo Estate) was a quiet block: the carpet rack was the gym, the sandbox was the
 ring, and Nonna's veggie stand stood on the corner. Then **La Famiglia Snackoni** rolled in,
 a snack mafia run by Don Chipso, with one plan: bury the block in salt and sugar and put a
 vending machine where the veggie stand used to be. The vegetables said "not on my block."
@@ -34,7 +34,7 @@ Their weapon: vitamins. The family motto: "Nothing personal. Just salt."
   na rogu mały drewniany warzywniak z daszkiem w paski; w tle drzewa jak w grze. Spokój.
 - **Podpis PL:** „Osiedle Grządkowo. Trzepak był siłownią, piaskownica ringiem, a na rogu
   stał warzywniak Nonny."
-- **Podpis EN:** "Grządkowo Estate. The carpet rack was the gym, the sandbox was the ring,
+- **Podpis EN:** "The Blockyard. The carpet rack was the gym, the sandbox was the ring,
   and Nonna's veggie stand stood on the corner."
 - **Prompt:** `pixel art illustration, 16:9, wide establishing shot of a sunny Polish housing
   estate block of flats, prefab concrete building, a metal carpet-beating rack and a sandbox
