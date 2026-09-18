@@ -193,7 +193,7 @@ window.STATY = STATY;                              // PWA (`appinstalled`) woła
 // ============================== „POSTAW MI KAWĘ" ==============================
 // Życzenie właściciela (18.09). Link WPISUJE WŁAŚCICIEL (buycoffee.to / Ko-fi / suppi);
 // pusty = przycisk schowany. Klik liczy się jako zdarzenie w statystykach.
-const KAWA_URL = '';
+const KAWA_URL = 'https://buycoffee.to/piotr.korona';   // ten sam link co w K-OS (SPEC-K-OS.md)
 {
   const k = document.getElementById('kawaBtn');
   if (k) {
@@ -2671,6 +2671,7 @@ function loadMeta() {
     // pełny ekran robi się przez „Dodaj do ekranu początkowego" (Safari nie ma
     // Fullscreen API dla stron). Raz pokazane = nigdy więcej.
     ui: { pwaHint: false },
+    lang: '',                                      // '' = automatycznie z przeglądarki; 'pl' | 'en' po wyborze gracza
   });
   try {
     const m = JSON.parse(localStorage.getItem(META_KEY)) || {};
@@ -2694,6 +2695,25 @@ function loadMeta() {
   } catch { return def(); }
 }
 const META = loadMeta();
+
+// ============================== JĘZYK (PL / EN) ==============================
+// Decyzja właściciela (18.09): dwa języki, start w języku przeglądarki, przełącznik w menu,
+// głosy zostają polskie. Jeden helper `T(pl, en)` zamiast słownika z kluczami: gra ma
+// ~200 tekstów rozsianych po szablonach HTML w JS, a para „obok siebie" jest odporna
+// na literówki w kluczach i czytelna w diffie. Etykiety w index.html: atrybuty
+// `data-pl` / `data-en` + `zastosujJezyk()`. Zmiana języka przerysowuje menu
+// (`ustawJezyk`), teksty w biegu biorą T() w chwili rysowania.
+const JEZYK = { cur: META.lang || ((navigator.language || 'pl').toLowerCase().startsWith('pl') ? 'pl' : 'en') };
+const T = (pl, en) => (JEZYK.cur === 'en' && en != null ? en : pl);
+function zastosujJezyk(root = document) {
+  const en = JEZYK.cur === 'en';
+  root.querySelectorAll('[data-pl]').forEach(el => {
+    const v = en ? el.dataset.en : el.dataset.pl;
+    if (v == null) return;
+    if (el.dataset.attr) el.setAttribute(el.dataset.attr, v); else el.innerHTML = v;
+  });
+  document.documentElement.lang = JEZYK.cur;
+}
 const saveMeta = () => localStorage.setItem(META_KEY, JSON.stringify(META));
 // zapis „za chwilę" — liczniki bestiariusza tykają co zabicie, nie chcemy pisać
 // do localStorage kilkaset razy na minutę
