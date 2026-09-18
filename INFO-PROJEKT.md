@@ -1323,8 +1323,9 @@ zasłaniająca menu >520 px, granatowa faza `#ctrlBox .btn2`, scenka zgniatana 9
 (breakpoint 1199), `@keyframes karPuls/stawPuls` bijące nową ramę, `mn()` „×1.0", toast
 `#buff` mierzony przed wpisaniem tekstów paska bossa (tester). Tester: menu desktop/375/667,
 pad, overlaye, Beetino 4/4 i 7/7, PL/EN, pamięć — OK. Dług: stare reguły menu/HUD w `<style>`
-zostają nadpisane (posprzątać osobno). Otwarte: 3 karty awansu przy 375 px łamią się 2+1
-(stan sprzed), `HORDA.setPlayerChar` nie odświeża scenki (tylko API).
+zostają nadpisane (posprzątać osobno). Karty awansu przy ≤520 px: **trzy wąskie w jednym
+rzędzie** (decyzja właściciela; `#cards .card{width:calc((100vw - 40px)/3)}` w ui-hud.css,
+zmierzone 3×112 px). Otwarte: `HORDA.setPlayerChar` nie odświeża scenki (tylko API).
 Decyzje właściciela były:
 Decyzje właściciela: styl **„WARZYWNIAK NONNY"** (drewno, skrzynki na warzywa, kredowe
 tabliczki cen; ciepło i czytelnie na limonkowej trawie) oraz **menu na jednym ekranie**

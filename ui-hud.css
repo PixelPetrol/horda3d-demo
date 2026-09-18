@@ -308,6 +308,18 @@ body:has(#startOv:not([style*="none"])) #hud::before{opacity:0}
 
 /* --- karty awansu / wymiennik: układ (rozmiary i odstępy), nie wygląd --- */
 #cards,#swapList{gap:14px}
+/* TELEFON W PIONIE: trzy WĄSKIE karty w jednym rzędzie (decyzja właściciela 18.09) — dotąd
+   `.card{width:min(43vw,164px)}` łamało je na 2+1. (100vw − 24 px paddingu .ov − 2×8 px
+   odstępu) / 3 ≈ 111 px przy 375 px; opisy mniejszą czcionką w 3-4 liniach. */
+@media (max-width:520px){
+  #cards,#swapList{gap:8px;flex-wrap:nowrap;align-items:stretch}
+  #cards .card,#swapList .card{width:calc((100vw - 40px) / 3);padding:8px 5px 9px;border-width:6px;
+    box-shadow:inset 0 0 0 2px rgba(0,0,0,.45), 0 0 0 3px var(--kontur,#1b1b22), 0 4px 0 3px var(--cien,rgba(0,0,0,.45))}
+  #cards .card .ico,#swapList .card .ico{font-size:24px}
+  #cards .card .ico img,#swapList .card .ico img{height:28px!important}
+  #cards .card .nm,#swapList .card .nm{font-size:11px;margin:5px 0 3px;line-height:1.15}
+  #cards .card .ds,#swapList .card .ds{font-size:9.5px;line-height:1.25}
+}
 #cardsOv h2,#swapOv h2{max-width:min(92vw,620px)}
 
 /* --- pauza: kredowa lista pod tablicą „PAUZA" --- */
