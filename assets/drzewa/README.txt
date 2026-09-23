@@ -1,0 +1,1 @@
+Tekstury liści (liscie_*.png) pochodzą z projektu ez-tree (https://github.com/dgreenheck/ez-tree), Copyright (c) 2024 Daniel Greenheck, licencja MIT — patrz LICENSE-ez-tree.txt. Przeskalowane z 1024 do 512 px.

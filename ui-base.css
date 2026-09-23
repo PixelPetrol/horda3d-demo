@@ -1,0 +1,293 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   ui-base.css — WSPÓLNY SYSTEM WIZUALNY „WARZYWNIAK NONNY" (etap 3, 18.09.2026)
+
+   DLACZEGO OSOBNY PLIK, A NIE <style> W index.html:
+   nad menu i nad HUD-em pracujemy równolegle — jeden <style> to jeden plik do
+   edycji i pewny konflikt. Tu siedzą TOKENY i KOMPONENTY WSPÓLNE (przyciski,
+   kafle, karty, suwaki, tło overlaya), z których korzystają oba arkusze:
+   `ui-menu.css` (ekran startowy) i `ui-hud.css` (HUD w biegu + overlaye).
+
+   DLACZEGO <link> STOI PO </style>, A NIE W <head> PRZED NIM:
+   stare reguły menu zostają w <style> (żeby nie tykać cudzej pracy). Przy równej
+   specyficzności wygrywa PÓŹNIEJSZY arkusz — więc nasz musi być po nim. Z tego
+   samego powodu powtarzamy tu reguły z `@media` ze <style>: media query NIE
+   podnosi specyficzności, więc zwykłe `.bigbtn` z tego pliku i tak by je pobiło.
+
+   ZASADY STYLU: twarde krawędzie (border-radius 0), zero gradientów „gładkich",
+   cienie jako skokowe `box-shadow`, tekstury pixel-art z `assets/ui/` skalowane
+   ×2 z `image-rendering: pixelated` (64 px kafel → 128 px na ekranie).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root{
+  /* ---- PALETA WARZYWNIAKA (nazwy uzgodnione z drugim agentem — NIE zmieniać) ---- */
+  --drewno:#8b5a2b;          /* deska w słońcu */
+  --drewno-jasne:#b07a3f;    /* światło na krawędzi, ramy skrzynek */
+  --drewno-ciemne:#5a3618;   /* szczelina, wnętrze skrzynki, spód deski */
+  --kontur:#1b1b22;          /* czarny obrys wszystkiego (jak w sprite'ach) */
+  --tablica:#223328;         /* kredowa tablica z cenami */
+  --kreda:#f2f0e4;           /* napis kredą */
+  --kreda-ciemna:#cfcbb8;    /* kreda starta, tekst drugorzędny */
+  --zloto:#ffd75e;           /* monety, wyróżnienia, GRAJ */
+  --limonka:#9adf58;         /* trawa, „tak”, postęp */
+  --pomidor:#ff4a4a;         /* „nie”, brak monet, zagrożenie */
+  --papier:#f5e6c8;          /* etykieta z ceną */
+  --cien:rgba(0,0,0,.45);    /* cień rzucany pod elementem */
+
+  /* ---- ŚCIEŻKI TEKSTUR (żeby nie powtarzać url() w dziesięciu miejscach) ---- */
+  --tex-deska:url(assets/ui/deska.png);
+  --tex-deska-jasna:url(assets/ui/deska_jasna.png);
+  --tex-deska-ciemna:url(assets/ui/deska_ciemna.png);
+  --tex-skrzynka:url(assets/ui/skrzynka.png);
+  --tex-tablica:url(assets/ui/tablica.png);
+  --tex-papier:url(assets/ui/papier.png);
+
+  /* ---- GWÓŹDŹ (główka + cień) — jeden kwadracik 6×6 px rysowany gradientem.
+         Robimy go tokenem, bo wchodzi w ::before czterech różnych komponentów. ---- */
+  --gwozdz:radial-gradient(circle at 40% 40%,
+      #efe9d6 0 1.2px, #a09880 1.2px 2.2px, rgba(0,0,0,.55) 2.2px 3px, transparent 3px);
+}
+
+/* ═══════════ KLASY POMOCNICZE: SAME TEKSTURY ═══════════
+   `.tx-deska` układa deski W PIONIE (kafel jest poziomą deską, więc powtarzanie
+   w dół daje ścianę z desek). Reszta to zwykłe powtarzanie w obu osiach. */
+.tx-deska{background:var(--drewno) var(--tex-deska) repeat top left/128px 64px;image-rendering:pixelated}
+.tx-skrzynka{background:var(--drewno-ciemne) var(--tex-skrzynka) repeat top left/128px 128px;image-rendering:pixelated}
+.tx-tablica{background:var(--tablica) var(--tex-tablica) repeat top left/128px 128px;image-rendering:pixelated}
+.tx-papier{background:var(--papier) var(--tex-papier) repeat top left/64px 64px;image-rendering:pixelated;color:#3a2a12}
+
+/* GWOŹDZIE W ROGACH — wspólny „mixin”. Jedno ::before z czterema warstwami tła,
+   `inset:0` i `pointer-events:none`, żeby nie zjadało kliknięć w kafel. */
+.gwozdzie::before,
+.bigbtn::before,
+.tile::before,
+.card::before{
+  content:'';position:absolute;inset:0;pointer-events:none;z-index:2;
+  background-image:var(--gwozdz),var(--gwozdz),var(--gwozdz),var(--gwozdz);
+  background-repeat:no-repeat;
+  background-size:6px 6px;
+  background-position:4px 4px, calc(100% - 4px) 4px, 4px calc(100% - 4px), calc(100% - 4px) calc(100% - 4px);
+}
+/* pozycjonowanie dla gwoździ (bez tego ::before uciekłby do najbliższego przodka) */
+.gwozdzie,.bigbtn,.tile,.card{position:relative}
+
+/* ═══════════ TŁO OVERLAYA ═══════════
+   TYLKO tło i winieta. `display/flex-direction/justify-content/overflow` NIE są
+   tu ruszane celowo — na zachowaniu `.ov` wiszą komiks (ostatni widoczny .ov)
+   i nawigacja padem (`topOverlay`, `navItems`). */
+.ov{
+  background:
+    radial-gradient(ellipse 120% 90% at 50% 42%, rgba(0,0,0,0) 30%, rgba(0,0,0,.62) 100%),
+    rgba(9,14,11,.90);
+}
+/* kredowe nagłówki paneli i overlayów */
+.ov h2{
+  color:var(--kreda);letter-spacing:2px;
+  text-shadow:0 3px 0 rgba(0,0,0,.65), 0 0 10px rgba(242,240,228,.18);
+}
+.ov p{color:var(--kreda-ciemna)}
+
+/* ═══════════ .bigbtn — ZŁOTA TABLICZKA (GRAJ, WRACAM, JESZCZE RAZ) ═══════════
+   Złoto zamiast kredy na desce: to JEDYNY przycisk, który ma krzyczeć, a kredowy
+   napis na drewnie przegrywał z limonkową trawą w tle (test na jasnym tle 18.09).
+   „Klik”: :active zsuwa o 3 px i zabiera dolny cień — deska wchodzi w blat. */
+.bigbtn{
+  pointer-events:auto;cursor:pointer;border:0;border-radius:0;font-family:inherit;
+  padding:15px 40px;font-size:clamp(17px,4.5vw,22px);font-weight:700;letter-spacing:2px;
+  color:#2a1c05;background:var(--zloto);margin:10px 6px;
+  image-rendering:pixelated;
+  box-shadow:
+    inset 0 5px 0 0 #ffeaa6, inset 0 -6px 0 0 #c08f14,   /* fazowanie blachy */
+    0 0 0 5px var(--drewno-ciemne),                      /* rama z deski */
+    0 0 0 8px var(--kontur),                             /* obrys */
+    0 8px 0 8px var(--kontur),                           /* grubość tabliczki */
+    0 12px 0 8px var(--cien);                            /* cień na ziemi */
+}
+.bigbtn:hover{background:#ffe480}
+.bigbtn:active{
+  transform:translateY(3px);
+  box-shadow:
+    inset 0 5px 0 0 #ffeaa6, inset 0 -6px 0 0 #c08f14,
+    0 0 0 5px var(--drewno-ciemne),
+    0 0 0 8px var(--kontur),
+    0 5px 0 8px var(--kontur);
+}
+
+/* ═══════════ .btn2 — MAŁA DESECZKA ═══════════ */
+.btn2{
+  pointer-events:auto;cursor:pointer;border:0;border-radius:0;font-family:inherit;
+  padding:9px 18px;font-size:14px;font-weight:700;letter-spacing:1px;margin:8px 5px;
+  color:var(--kreda);text-shadow:0 2px 0 rgba(0,0,0,.55);
+  background:var(--drewno) var(--tex-deska) repeat top left/128px 64px;
+  image-rendering:pixelated;
+  box-shadow:
+    inset 0 3px 0 0 rgba(255,255,255,.22), inset 0 -4px 0 0 rgba(0,0,0,.38),
+    0 0 0 3px var(--kontur),
+    0 5px 0 3px var(--kontur),
+    0 8px 0 3px var(--cien);
+}
+.btn2:hover{color:#fff;filter:brightness(1.14)}
+.btn2:active{
+  transform:translateY(3px);
+  box-shadow:
+    inset 0 3px 0 0 rgba(255,255,255,.22), inset 0 -4px 0 0 rgba(0,0,0,.38),
+    0 0 0 3px var(--kontur),
+    0 2px 0 3px var(--kontur);
+}
+/* wybrany wariant (język, wyciszenie, układ pada) = kredowa tabliczka na złoto */
+.btn2.sel{
+  color:#2a1c05;text-shadow:none;
+  background:var(--zloto);
+  box-shadow:
+    inset 0 3px 0 0 #ffeaa6, inset 0 -4px 0 0 #c08f14,
+    0 0 0 3px var(--kontur),
+    0 5px 0 3px var(--kontur),
+    0 8px 0 3px var(--cien);
+}
+
+/* ═══════════ .tile — SKRZYNKA NA WARZYWA ═══════════
+   Front skrzynki składamy Z WARSTW TŁA, a nie z `skrzynka.png` w całości:
+   kafel ma stałe 64 px, a kafelki w siatce mają od 110 do 200 px szerokości —
+   rozciągnięty PNG rozjeżdżał proporcje ram. Tu listwy (deska.png) powtarzają
+   się w pionie, a pionowe ramy rysuje gradient, więc skaluje się dowolnie. */
+.tile{
+  pointer-events:auto;cursor:pointer;box-sizing:border-box;border:0;border-radius:0;
+  padding:10px 14px 11px;color:var(--kreda);text-align:center;
+  background-color:var(--drewno-ciemne);
+  background-image:
+    linear-gradient(90deg,var(--kontur) 0 2px,var(--drewno-jasne) 2px 9px,var(--kontur) 9px 11px),
+    linear-gradient(90deg,var(--kontur) 0 2px,var(--drewno-jasne) 2px 9px,var(--kontur) 9px 11px),
+    var(--tex-deska);
+  background-repeat:no-repeat,no-repeat,repeat;
+  background-size:11px 100%, 11px 100%, 128px 64px;
+  background-position:left top, right top, left top;
+  image-rendering:pixelated;
+  transition:transform .1s;
+  box-shadow:
+    inset 0 3px 0 0 rgba(255,255,255,.16), inset 0 -4px 0 0 rgba(0,0,0,.40),
+    0 0 0 4px var(--kontur),
+    0 6px 0 4px var(--cien);
+}
+.tile:hover{transform:translateY(-4px);filter:brightness(1.10)}
+.tile.sel{
+  box-shadow:
+    inset 0 3px 0 0 rgba(255,255,255,.22), inset 0 -4px 0 0 rgba(0,0,0,.40),
+    0 0 0 4px var(--zloto),
+    0 0 0 7px var(--kontur),
+    0 7px 0 7px var(--cien),
+    0 0 20px rgba(255,215,94,.35);
+}
+.tile.lock{opacity:.62}
+.tile .ico{line-height:1.1;filter:drop-shadow(0 3px 0 rgba(0,0,0,.45))}
+/* render HD w kaflu: ZMNIEJSZANY (420 px → 62 px), więc `pixelated` z `.pxi`
+   rozsypałby go na kratkę — tylko tu wracamy do gładkiego skalowania */
+.tile .ico img.hd{image-rendering:auto;object-fit:contain}
+/* NAZWA = papierowa etykieta przybita do listwy (ujemny margines = wychodzi na ramy) */
+.tile .nm{
+  display:block;margin:8px -8px 6px;padding:3px 6px;
+  font-weight:800;font-size:clamp(12px,3.4vw,15px);line-height:1.15;
+  color:#3a2a12;text-shadow:none;
+  background:var(--papier) var(--tex-papier) repeat top left/64px 64px;
+  box-shadow:0 0 0 2px var(--kontur), 0 3px 0 2px rgba(0,0,0,.35);
+}
+.tile .ds{font-size:clamp(10px,2.9vw,12.5px);line-height:1.35;color:var(--kreda-ciemna);opacity:.92}
+/* CENA = mała karteczka z ceną, jak w warzywniaku */
+.tile .pr{
+  display:inline-block;margin-top:8px;padding:2px 8px;font-weight:800;font-size:13px;
+  color:#3a2a12;
+  background:var(--papier) var(--tex-papier) repeat top left/64px 64px;
+  box-shadow:0 0 0 2px var(--kontur), 0 3px 0 2px rgba(0,0,0,.35);
+}
+/* pasek postępu (postać za zabójstwa) — w kolorach warzywniaka */
+.tile .pbar{
+  margin:8px auto 0;width:82%;height:9px;background:var(--drewno-ciemne);
+  box-shadow:0 0 0 2px var(--kontur)}
+.tile .pbar i{display:block;height:100%;
+  background:repeating-linear-gradient(90deg,var(--zloto) 0 6px,#e0a832 6px 12px)}
+/* bestiariusz: kafel opisowy, nieklikalny */
+.tile.bst{cursor:default}
+.tile.bst:hover{transform:none;filter:none}
+.tile .bs{margin-top:7px;font-size:clamp(9px,2.6vw,11.5px);line-height:1.45;color:#bfe8ff;opacity:.95}
+.tile.bst .lore{margin-top:6px;font-size:clamp(9px,2.5vw,11px);line-height:1.4;
+  font-style:italic;color:var(--kreda-ciemna);opacity:.8}
+.tile.bst.dark .nm{color:#6d6250}
+
+/* ═══════════ .card — KREDOWA TABLICA W DREWNIANEJ RAMIE ═══════════
+   (karty awansu i wymiennika robi drugi agent — tu tylko WYGLĄD, nazwy klas
+   `.card.gold`, `.card .ico/.nm/.ds` zostają nietknięte.)
+   RAMA JEST `border`em, nie paddingiem: dopiero wtedy `background-clip:padding-box`
+   wpuszcza teksturę tablicy w środek, a deska zostaje na obwodzie — i `inset`
+   box-shadow (liczony od krawędzi paddingu) rysuje ciemny rowek między nimi. */
+.card{
+  pointer-events:auto;cursor:pointer;box-sizing:border-box;border-radius:0;
+  border:9px solid transparent;padding:11px 9px;
+  color:var(--kreda);text-align:center;
+  background-color:var(--tablica);
+  background-image:var(--tex-tablica), var(--tex-deska);
+  background-clip:padding-box, border-box;
+  background-origin:padding-box, border-box;
+  background-repeat:repeat, repeat;
+  background-size:128px 128px, 128px 64px;
+  image-rendering:pixelated;
+  transition:transform .1s;
+  box-shadow:
+    inset 0 0 0 3px rgba(0,0,0,.45),
+    0 0 0 4px var(--kontur),
+    0 7px 0 4px var(--cien);
+}
+.card:hover{transform:translateY(-5px);filter:brightness(1.10)}
+.card.gold{
+  box-shadow:
+    inset 0 0 0 3px rgba(0,0,0,.45),
+    0 0 0 4px var(--zloto),
+    0 0 0 7px var(--kontur),
+    0 8px 0 7px var(--cien),
+    0 0 22px rgba(255,215,94,.45);
+}
+.card .ico{font-size:clamp(28px,8vw,42px);line-height:1;filter:drop-shadow(0 3px 0 rgba(0,0,0,.5))}
+.card .nm{font-weight:800;font-size:clamp(12px,3.4vw,15px);margin:8px 0 5px;
+  color:var(--zloto);text-shadow:0 2px 0 rgba(0,0,0,.6)}
+.card.gold .nm{color:#ffe9a0}
+.card .ds{font-size:clamp(10px,2.9vw,12.5px);opacity:.88;line-height:1.32;color:var(--kreda)}
+
+/* ═══════════ .snd — WIERSZ USTAWIENIA (etykieta + suwak) ═══════════
+   Listwa z deski, w niej wyżłobiony rowek, a w rowku mosiężne pokrętło. */
+.snd{
+  pointer-events:auto;box-sizing:border-box;
+  background:var(--drewno) var(--tex-deska) repeat top left/128px 64px;
+  image-rendering:pixelated;
+  box-shadow:
+    inset 0 3px 0 0 rgba(255,255,255,.18), inset 0 -4px 0 0 rgba(0,0,0,.38),
+    0 0 0 3px var(--kontur),
+    0 4px 0 3px var(--cien);
+}
+.snd label{color:var(--kreda);text-shadow:0 2px 0 rgba(0,0,0,.55)}
+.snd b{color:var(--zloto);text-shadow:0 2px 0 rgba(0,0,0,.55)}
+/* ROWEK: ciemne wyżłobienie w desce */
+.snd input[type=range]{
+  -webkit-appearance:none;appearance:none;background:#2a1a0c;border:0;outline:0;cursor:pointer;
+  box-shadow:inset 0 3px 0 0 rgba(0,0,0,.55), 0 0 0 3px var(--kontur);
+}
+/* POKRĘTŁO: mosiądz z jasną górą i ciemnym spodem (te same fazy co .bigbtn) */
+.snd input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;width:16px;height:24px;border:0;border-radius:0;
+  background:var(--zloto);
+  box-shadow:inset 0 4px 0 0 #ffeaa6, inset 0 -5px 0 0 #c08f14, 0 0 0 3px var(--kontur);
+}
+.snd input[type=range]::-moz-range-thumb{
+  width:16px;height:24px;border:3px solid var(--kontur);border-radius:0;background:var(--zloto);
+}
+
+/* ═══════════ TELEFON: NISKI EKRAN (poziom) ═══════════
+   Powtórka rozmiarów z `@media (max-height:520px)` ze <style> — media query nie
+   podbija specyficzności, więc bez tego nasze bazowe reguły by je pobiły. */
+@media (max-height:520px){
+  .bigbtn{padding:9px 26px;font-size:16px;margin:6px 5px}
+  .btn2{padding:6px 14px;font-size:13px;margin:6px 4px}
+  .tile{padding:7px 10px 8px}
+  .card{border-width:7px;padding:8px 7px}
+  .tile .ico,.card .ico{font-size:24px}
+  .tile .nm{margin:6px -6px 4px}
+}
+@media (max-width:520px){
+  .bigbtn{padding:13px 28px}
+}

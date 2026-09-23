@@ -1,0 +1,495 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   ui-menu.css — MENU GŁÓWNE (#startOv) W UKŁADZIE „JAK W MEGABONKU"
+
+   Decyzje właściciela 18.09:
+   • MENU NA JEDNYM EKRANIE — na wprost duży portret wybranej postaci, wybrana
+     mapa i GRAJ; po lewej pionowy pasek ikon (Postacie, Mapy, Sklep, Bestiariusz,
+     Statystyki, Ustawienia); panele otwierają się OBOK, nie zamiast.
+   • Stylistyka „WARZYWNIAK NONNY" — drewno, skrzynki, kredowe tabliczki cen.
+     Tokeny i komponenty wspólne siedzą w `ui-base.css` (ładowanym przed tym).
+
+   TRZY UKŁADY:
+   1. ≥900 px  — pasek | scenka | tablica z panelem (trzy kolumny).
+   2. <900 px  — pasek | scenka; otwarty panel ZASŁANIA scenkę (telefon w poziomie).
+   3. ≤520 px  — pasek IKON NA DOLE ekranu, scenka nad nim, panel na całą szerokość.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ═══════════ RAMA EKRANU ═══════════ */
+#startOv{
+  /* `env()` u góry zostaje po starej regule ze <style> (notch iPhone'a). Sama
+     rezerwa 44 px na przełącznik PL|EN jest już niepotrzebna: logo zjechało
+     z min(84vw,560px) do min(46vw,400px) i nie sięga prawego górnego rogu. */
+  padding:calc(10px + env(safe-area-inset-top,0px)) 12px 12px;
+  gap:6px;
+  /* BEZ backdrop-filter: `backdrop-filter` tworzy blok zawierający dla `position:fixed`
+     (jak transform), więc pasek `#tabs` na telefonie przewijałby się razem z menu
+     zamiast trzymać się dołu ekranu (recenzja 18.09). Tło .ov ma alfę .90 — rozmycia
+     i tak nie było widać. */
+  backdrop-filter:none;-webkit-backdrop-filter:none;
+  /* html,body mają `touch-action:none` (blokada przewijania strony w biegu), przez
+     co palcem nie dało się przewinąć paneli menu. Menu nie jest sceną 3D — tu
+     pionowe przewijanie jest dokładnie tym, czego gracz chce. */
+  touch-action:pan-y;
+}
+#logo{
+  width:min(46vw,400px);max-height:22vh;margin:0 0 2px;
+  filter:drop-shadow(0 6px 0 rgba(0,0,0,.55));
+}
+/* stopka: jedna linia drobnym drukiem, reszta instrukcji jest w Ustawieniach */
+#startFoot{
+  margin:10px 0 2px;opacity:.7;color:var(--kreda-ciemna);
+  font-size:clamp(10px,2.4vw,12px);line-height:1.4;
+}
+#startFoot b{color:var(--zloto)}
+
+/* ═══════════ SIATKA: PASEK | SCENKA | PANEL ═══════════
+   Kolejność kolumn ustawiamy `grid-column`, NIE kolejnością w DOM — w DOM scenka
+   z przyciskiem GRAJ musi stać pierwsza, bo pad bierze `navItems()[0]`. */
+#menuUklad{
+  /* --pasek = szerokość paska ikon. Kolumna 3 ma przy ZAMKNIĘTYM panelu dokładnie
+     tyle samo, żeby scenka stała na ŚRODKU ekranu, a nie była zepchnięta w prawo
+     o szerokość paska (zmierzone: GRAJ leciał 42 px za daleko). */
+  --pasek:96px;
+  display:grid;
+  grid-template-columns:var(--pasek) minmax(0,1fr) var(--pasek);
+  gap:12px;
+  width:100%;max-width:1220px;align-items:start;justify-items:center;
+}
+#startOv.panel-open #menuUklad{grid-template-columns:var(--pasek) minmax(0,1fr) auto}
+#tabs{grid-column:1;grid-row:1}
+#heroStage{grid-column:2;grid-row:1}
+#panele{grid-column:3;grid-row:1}
+
+/* ═══════════ PASEK IKON (#tabs) ═══════════
+   Każda zakładka = mała skrzynka z ikoną i podpisem pod nią. */
+#tabs{
+  display:flex;flex-direction:column;flex-wrap:nowrap;gap:7px;margin:0;
+  align-self:start;justify-content:flex-start;
+}
+.tab{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  box-sizing:border-box;width:84px;padding:8px 4px 7px;
+  font-size:11px;font-weight:700;letter-spacing:.5px;line-height:1.1;
+  color:var(--kreda);text-shadow:0 2px 0 rgba(0,0,0,.6);opacity:1;
+  background-color:var(--drewno-ciemne);
+  background-image:var(--tex-deska);
+  background-size:128px 64px;background-repeat:repeat;
+  image-rendering:pixelated;border-radius:0;
+  box-shadow:
+    inset 0 3px 0 0 rgba(255,255,255,.16), inset 0 -4px 0 0 rgba(0,0,0,.42),
+    0 0 0 3px var(--kontur),
+    0 4px 0 3px var(--cien);
+}
+/* ikonę wstawia main.js z `style="height:16px"` (inline!) — 16 px ginie na pasku,
+   a `!important` to jedyny sposób, żeby CSS pobił styl inline bez ruszania JS-a */
+#tabs .tab img{height:26px!important;width:auto;margin:0 0 3px;
+  filter:drop-shadow(0 2px 0 rgba(0,0,0,.5))}
+.tab:hover{filter:brightness(1.15)}
+.tab:active{transform:translateY(2px)}
+.tab.sel{
+  color:#2a1c05;text-shadow:none;
+  background-color:var(--zloto);background-image:none;
+  box-shadow:
+    inset 0 4px 0 0 #ffeaa6, inset 0 -5px 0 0 #c08f14,
+    0 0 0 3px var(--kontur),
+    0 4px 0 3px var(--cien),
+    0 0 16px rgba(255,215,94,.35);
+}
+.tab.sel img{filter:none}
+
+/* ═══════════ SCENKA (#heroStage) ═══════════ */
+#heroStage{
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  width:100%;min-width:0;
+}
+#heroScena{
+  display:flex;flex-direction:row;align-items:flex-end;justify-content:center;
+  gap:18px;width:100%;min-width:0;
+}
+#heroBox{display:flex;flex-direction:column;align-items:center;flex:0 0 auto;min-width:0}
+/* PORTRET: render 280×420 skalowany do wysokości; sprite'owy fallback (klasa `mini`)
+   jest kilkanaście razy mniejszy, więc dostaje własną, skromniejszą wysokość —
+   rozciągnięty do 40vh rozpadał się na wielkie kwadraty. */
+#heroPortret{
+  height:min(40vh,370px);width:auto;max-width:44vw;object-fit:contain;
+  image-rendering:auto;display:block;                /* render HD: gładkie zmniejszenie */
+  margin-bottom:-12px;position:relative;z-index:1;
+  filter:drop-shadow(0 8px 0 rgba(0,0,0,.35));
+}
+/* sprite (96/256 px) powiększany w górę — TU pixelated, inaczej zrobi się papka */
+#heroPortret.mini{height:min(26vh,230px);image-rendering:pixelated}
+/* LADA WARZYWNIAKA: skrzynka z listew, na której stoi postać.
+   `align-self:stretch` + ujemne marginesy: lada bierze szerokość PORTRETU
+   (to on ustala szerokość #heroBox) i wystaje po 16 px z każdej strony —
+   sztywne 330 px wystawało przy niskich sprite'ach na pół ekranu. */
+#heroLada{
+  align-self:stretch;margin:0 -16px;min-width:140px;height:34px;flex:0 0 auto;
+  background-color:var(--drewno-ciemne);
+  background-image:
+    linear-gradient(90deg,var(--kontur) 0 2px,var(--drewno-jasne) 2px 10px,var(--kontur) 10px 12px),
+    linear-gradient(90deg,var(--kontur) 0 2px,var(--drewno-jasne) 2px 10px,var(--kontur) 12px 12px),
+    var(--tex-deska);
+  background-repeat:no-repeat,no-repeat,repeat;
+  background-size:12px 100%,12px 100%,128px 64px;
+  background-position:left top,right top,left top;
+  image-rendering:pixelated;
+  box-shadow:
+    inset 0 3px 0 0 rgba(255,255,255,.18), inset 0 -4px 0 0 rgba(0,0,0,.45),
+    0 0 0 4px var(--kontur),
+    0 6px 0 4px var(--cien);
+}
+
+/* KREDOWA TABLICZKA OBOK POSTACI (imię, opis, cztery statystyki) */
+#heroTab{
+  box-sizing:border-box;flex:0 1 340px;max-width:340px;min-width:0;text-align:left;
+  border:9px solid transparent;padding:11px 12px;
+  background-color:var(--tablica);
+  background-image:var(--tex-tablica), var(--tex-deska);
+  background-clip:padding-box,border-box;
+  background-origin:padding-box,border-box;
+  background-repeat:repeat,repeat;
+  background-size:128px 128px,128px 64px;
+  image-rendering:pixelated;
+  box-shadow:
+    inset 0 0 0 3px rgba(0,0,0,.45),
+    0 0 0 4px var(--kontur),
+    0 7px 0 4px var(--cien);
+}
+#heroNm{
+  color:var(--zloto);font-weight:800;line-height:1.05;letter-spacing:1px;
+  font-size:clamp(16px,2.3vw,25px);text-shadow:0 3px 0 rgba(0,0,0,.65);
+}
+#heroDs{
+  color:var(--kreda-ciemna);line-height:1.4;margin:6px 0 9px;
+  font-size:clamp(10.5px,1.35vw,13px);
+}
+#heroStat{display:flex;flex-direction:column;gap:3px}
+#heroStat .hs{
+  display:flex;align-items:center;gap:7px;
+  font-size:clamp(10.5px,1.3vw,13px);line-height:1.5;
+  border-top:2px solid rgba(0,0,0,.28);padding-top:3px;
+}
+#heroStat .hs:first-child{border-top:0;padding-top:0}
+#heroStat .hs span{flex:1 1 auto;color:var(--kreda-ciemna);letter-spacing:1px}
+#heroStat .hs b{color:var(--zloto);font-weight:800;text-shadow:0 2px 0 rgba(0,0,0,.5)}
+
+/* ═══════════ WYBÓR MAPY + GRAJ ═══════════ */
+#playCta{display:flex;flex-direction:column;align-items:center;margin:4px 0 0;width:100%}
+/* tabliczka „Mapa: Łąki" — kreda na tablicy, żeby nie konkurowała ze złotym GRAJ */
+#heroMapa{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:5px 16px;margin-bottom:2px;
+  font-size:clamp(12px,1.6vw,15px);letter-spacing:1px;color:var(--kreda-ciemna);
+  background-color:var(--tablica);
+  background-image:var(--tex-tablica);
+  background-size:128px 128px;background-repeat:repeat;
+  image-rendering:pixelated;
+  box-shadow:
+    inset 0 0 0 2px rgba(0,0,0,.4),
+    0 0 0 4px var(--drewno),
+    0 0 0 6px var(--kontur),
+    0 6px 0 6px var(--cien);
+}
+#heroMapa b{color:var(--kreda);font-weight:800}
+#playCta .bigbtn{padding:17px 54px;font-size:clamp(20px,3.4vw,30px);margin:10px 6px 12px}
+/* stary wiersz „Mapa: … · Postać: …" — zastąpiony scenką i tabliczką.
+   ZOSTAJE W DOM (renderPick() wpisuje do #selMapNm / #selCharNm), tylko niewidoczny. */
+#wybor{display:none}
+#ctaRow{margin-top:0}
+#ctaRow .btn2{margin-top:0}
+
+/* ═══════════ PRAWA KOLUMNA: PANEL JAKO KREDOWA TABLICA ═══════════
+   Rama z deski to `border` (nie padding) — dopiero wtedy `background-clip`
+   wpuszcza teksturę tablicy do środka, a `inset` box-shadow (liczony od krawędzi
+   paddingu) rysuje ciemny rowek między deską a tablicą. To samo co w `.card`. */
+#panele{display:none}
+#startOv.panel-open #panele{
+  display:block;box-sizing:border-box;
+  width:min(520px,45vw);
+  /* 68vh, nie 74: przy 1280×800 z otwartymi Ustawieniami cała strona urastała
+     o 33 px ponad ekran (zmierzone scrollHeight 833 vs clientHeight 800) */
+  max-height:min(68vh,660px);overflow-y:auto;overscroll-behavior:contain;
+  touch-action:pan-y;
+  border:10px solid transparent;padding:14px 13px 18px;
+  text-align:center;
+  background-color:var(--tablica);
+  background-image:var(--tex-tablica), var(--tex-deska);
+  background-clip:padding-box,border-box;
+  background-origin:padding-box,border-box;
+  background-repeat:repeat,repeat;
+  background-size:128px 128px,128px 64px;
+  image-rendering:pixelated;
+  box-shadow:
+    inset 0 0 0 3px rgba(0,0,0,.45),
+    0 0 0 4px var(--kontur),
+    0 8px 0 4px var(--cien);
+}
+.panel{width:100%;max-width:none}
+/* WRÓĆ pokazujemy dopiero tam, gdzie panel zasłania scenkę (poniżej 900 px) */
+#panelBack{display:none}
+
+.panel h2{margin:0 0 10px;font-size:clamp(16px,2.4vw,23px)}
+/* nagłówek sekcji w Ustawieniach: kreda + kreska pod spodem */
+.sekcja{
+  margin:18px 0 8px;font-size:clamp(13px,1.8vw,16px);font-weight:800;letter-spacing:3px;
+  color:var(--zloto);text-shadow:0 2px 0 rgba(0,0,0,.6);
+  padding-bottom:5px;border-bottom:2px solid rgba(0,0,0,.35);
+}
+.panel > .sekcja:first-of-type{margin-top:6px}
+.panel p{max-width:none;font-size:clamp(11px,1.5vw,13px);color:var(--kreda-ciemna)}
+.panel p b{color:var(--kreda)}
+
+/* ═══════════ SIATKI KAFELKÓW W PANELU ═══════════
+   Flex + `width:min(44vw,…)` liczyło szerokość kafla od OKNA, a kafle siedzą
+   teraz w kolumnie szerokiej na 520 px — przy 1280 px okna jeden kafel miał
+   563 px i wychodził poza tablicę. Siatka `auto-fill` liczy od RODZICA:
+   2 kolumny na telefonie, 3 w panelu na desktopie. */
+/* `align-items:stretch` = wszystkie skrzynki w RZĘDZIE równej wysokości. Bez tego
+   kafel postaci już kupionej (bez ceny) był o 40 px niższy od sąsiadów i rząd
+   wyglądał jak rozsypany. */
+.grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));
+  gap:11px;justify-content:center;align-items:stretch;
+}
+.grid .tile,.grid .tile.bst{width:auto;min-width:0;margin:0}
+/* bestiariusz ma w kaflu opis + lore + statystyki — przy 140 px kolumny robiły się
+   wąskimi słupkami tekstu, więc dostaje szersze minimum */
+#bestGrid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
+#statsList{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));
+  gap:8px;justify-content:center;
+}
+/* statystyka = mała tabliczka z kredowym opisem i złotą liczbą */
+.stat{
+  box-sizing:border-box;min-width:0;margin:0;padding:9px 6px;border-radius:0;
+  background-color:var(--tablica);
+  background-image:var(--tex-tablica);
+  background-size:128px 128px;background-repeat:repeat;
+  image-rendering:pixelated;
+  box-shadow:
+    inset 0 0 0 2px rgba(0,0,0,.4),
+    0 0 0 3px var(--drewno),
+    0 0 0 5px var(--kontur),
+    0 5px 0 5px var(--cien);
+}
+.stat .v{color:var(--zloto);text-shadow:0 2px 0 rgba(0,0,0,.55);font-size:clamp(16px,2.4vw,24px)}
+.stat .k{color:var(--kreda-ciemna);opacity:.9}
+
+/* ═══════════ USTAWIENIA: SUWAKI, JĘZYK, EKRAN, STEROWANIE ═══════════ */
+#sndBox,#ekranBox,#langBox,#ctrlBox{width:100%;box-sizing:border-box}
+.snd{width:100%;max-width:none;padding:10px 12px;gap:10px}
+.snd label{width:112px}
+#langBox .btn2,#ekranBox .btn2{margin:0 4px}
+#langBox .snd{gap:8px}
+/* przycisk wybranego języka: na złocie znika obwódka z `<style>` — dajemy własną
+   o tej samej specyficzności (id + klasa), bo tamta jest wcześniej w kaskadzie */
+/* ===== STOPKA PADA / STARE OBWÓDKI (recenzja 18.09) ===== */
+/* skrót `padding` na #startOv (1,0,0) bił `body.pad-foot .ov{padding-bottom}` (0,2,1) —
+   z podłączonym padem stopka „A wybierz · B wstecz" zasłaniała dół menu powyżej 520 px */
+body.pad-foot #startOv{padding-bottom:calc(58px + env(safe-area-inset-bottom,0px))}
+/* `#ctrlBox .btn2` ze <style> (1,1,0) zostawiał granatową fazę #46557a na drewnianej desce */
+#ctrlBox .btn2{
+  box-shadow:inset 0 3px 0 0 rgba(255,255,255,.22), inset 0 -4px 0 0 rgba(0,0,0,.38),
+    0 0 0 3px var(--kontur), 0 4px 0 3px var(--cien);
+}
+/* podpisy skrzynek w pasku nie mogą wyjeżdżać na sąsiada przy 320 px („Bestiariusz") */
+#tabs .tab{overflow:hidden}
+#langSw .btn2.sel,#langBox .btn2.sel,#btnMute.sel{
+  color:#2a1c05;background:var(--zloto);
+  box-shadow:
+    inset 0 3px 0 0 #ffeaa6, inset 0 -4px 0 0 #c08f14,
+    0 0 0 3px var(--kontur),
+    0 5px 0 3px var(--kontur),
+    0 8px 0 3px var(--cien);
+}
+#ekranBox .info,#langBox .info{color:var(--limonka);max-width:none}
+/* pole na kod (tylko DEV) */
+#kodInput{
+  width:min(220px,80%);background:#141a12;color:var(--kreda);
+  box-shadow:inset 0 3px 0 0 rgba(0,0,0,.5), 0 0 0 3px var(--kontur);
+}
+#kodInput:focus{outline:0;box-shadow:inset 0 3px 0 0 rgba(0,0,0,.5), 0 0 0 3px var(--zloto)}
+#kodInfo{color:var(--limonka)}
+#kodInfo.zle{color:var(--pomidor)}
+
+/* ═══════════ PRZEŁĄCZNIK JĘZYKA W ROGU ═══════════ */
+#langSw .btn2{margin:0 0 0 6px;padding:6px 11px;font-size:13px;min-width:32px}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UKŁAD 2 — PONIŻEJ 900 px: panel ZASŁANIA scenkę
+   (telefon w poziomie, wąskie okno, tablet w pionie). Trzecia kolumna nie ma
+   już gdzie stanąć — 520 px tablicy + 84 px paska nie zostawia miejsca na
+   portret, więc na czas panelu scenka znika, a tablica bierze całe pole.
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* 1199, nie 899: przy 900-1200 px scenka obok panelu (min(520px,45vw)) zgniatała tablicę
+   statów do ~80 px treści (recenzja 18.09) — chowamy ją, aż faktycznie jest miejsce */
+@media (max-width:1199px){
+  #startOv.panel-open #heroStage{display:none}
+  #startOv.panel-open #panele{
+    grid-column:2 / -1;width:100%;max-width:none;max-height:none;
+    /* faktyczny limit wysokości ustawiają reguły na KOŃCU pliku — zależy od tego,
+       czy pasek ikon stoi w kolumnie (przewijamy panel) czy na dole (przewijamy stronę) */
+  }
+  #startOv.panel-open #panelBack{display:inline-block;margin:0 0 10px}
+  #heroTab{flex-basis:300px}
+  #heroPortret{max-width:40vw}
+}
+
+/* ŚREDNIO NISKI EKRAN (521-700 px wysokości): laptopy 1366×600 w oknie, tablety
+   w poziomie. Zmierzone przy 900×600: cała scenka wystawała o 28 px. */
+@media (max-height:700px){
+  #logo{max-height:17vh}
+  #heroPortret{height:min(34vh,300px)}
+  #heroPortret.mini{height:min(24vh,200px)}
+  #playCta .bigbtn{padding:13px 44px;font-size:clamp(18px,3vw,26px);margin:7px 6px 8px}
+  #startFoot{margin:7px 0 0}
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UKŁAD 3 — TELEFON W PIONIE (≤520 px): pasek ikon NA DOLE EKRANU
+   Kciuk trafia w dolną krawędź, a nie w lewą — i GRAJ może być duży na środku.
+   `#tabs` jest `position:fixed`, więc nie ucieka przy przewijaniu długiego
+   panelu (Bestiariusz ma kilkanaście kafli).
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-width:520px){
+  /* 70 px = pasek ikon (zmierzone 57 px) + 13 px luzu. Przy 84 px cały ekran
+     startowy urastał o 12 px ponad 812 px iPhone'a i dawał pionowe przewijanie. */
+  #startOv{padding-bottom:calc(70px + env(safe-area-inset-bottom,0px))}
+  /* z podłączonym padem na dole siedzi jeszcze `#padFoot` (58 px) */
+  body.pad-foot #startOv{padding-bottom:calc(128px + env(safe-area-inset-bottom,0px))}
+  body.pad-foot #tabs{bottom:calc(58px + env(safe-area-inset-bottom,0px))}
+
+  /* JEDNA KOLUMNA. Selektor musi być tak samo „mocny" jak `#startOv.panel-open
+     #menuUklad` wyżej — specyficzność bije kolejność, więc samo `#menuUklad`
+     w media query przegrywało i panel dostawał 96 px szerokości (zmierzone). */
+  #menuUklad,#startOv.panel-open #menuUklad{grid-template-columns:minmax(0,1fr);gap:8px}
+  #heroStage{grid-column:1;grid-row:1}
+  #panele,#startOv.panel-open #panele{grid-column:1;grid-row:1}
+
+  #tabs{
+    position:fixed;left:0;right:0;bottom:env(safe-area-inset-bottom,0px);z-index:4;
+    flex-direction:row;gap:6px;padding:6px 8px;
+    overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;
+    justify-content:center;
+    background:rgba(9,14,11,.92);
+    box-shadow:0 -3px 0 0 var(--kontur);
+  }
+  /* `flex:1 1 0` + `min-width:0` = sześć skrzynek DZIELI szerokość ekranu po równo.
+     Przy sztywnych 62 px pasek miał 397 px przy 375 px ekranu i trzeba go było
+     przewijać w bok, żeby dosięgnąć Ustawień. */
+  .tab{width:auto;min-width:0;flex:1 1 0;max-width:86px;padding:6px 3px 5px;
+    font-size:9px;letter-spacing:0}
+  #tabs .tab img{height:21px!important;margin-bottom:2px}
+
+  /* 270 px, nie 300: przy 375 px prawa krawędź logo dochodziła do przełącznika
+     PL|EN (zmierzone: logo do x=296, #langSw od x=293) */
+  #logo{max-height:14vh;width:min(46vw,250px)}
+  #heroScena{flex-direction:column;align-items:center;gap:6px}
+  #heroPortret{height:min(30vh,260px);max-width:70vw;margin-bottom:-10px}
+  #heroPortret.mini{height:min(22vh,190px)}
+  #heroLada{height:26px;margin:0 -12px}
+  #heroTab{flex:0 0 auto;width:min(92vw,420px);max-width:none;border-width:7px;padding:9px 10px}
+  #heroDs{margin:5px 0 7px}
+  #playCta .bigbtn{padding:15px 44px;font-size:24px;margin:8px 4px 8px}
+  #startOv.panel-open #panele{
+    border-width:7px;padding:11px 9px 14px;max-height:none;
+  }
+  .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  #statsList{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .snd label{width:auto}
+  #startFoot{margin:8px 0 0;font-size:9.5px}
+}
+
+/* NIŻSZY TELEFON W PIONIE (np. 360×640): scenka w domyślnych proporcjach
+   wystawała o 94 px poza ekran — portret i logo schodzą, GRAJ zostaje kciukowy. */
+@media (max-width:520px) and (max-height:700px){
+  #logo{max-height:11vh}
+  #heroPortret{height:min(22vh,200px)}
+  #heroPortret.mini{height:min(17vh,150px)}
+  #heroTab{border-width:6px;padding:7px 9px}
+  #heroDs{margin:4px 0 5px;font-size:10px}
+  #heroStat .hs{font-size:10px;line-height:1.3}
+  #heroMapa{padding:3px 12px;font-size:12px}
+  #playCta .bigbtn{padding:11px 34px;font-size:21px;margin:6px 4px 6px}
+  #ctaRow .btn2{padding:5px 12px;font-size:11.5px}
+  #startFoot{margin:5px 0 0;font-size:9px}
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   NISKI EKRAN (telefon w poziomie, ≤520 px wysokości) — wszystko ciaśniej.
+   Powtarzamy rozmiary, bo `@media` nie podnosi specyficzności i reguły bazowe
+   z tego pliku i tak by wygrały (są później niż blok w <style>).
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-height:520px){
+  #startOv{padding:6px 10px 8px;gap:2px}
+  #logo{max-height:15vh;width:min(34vw,230px);margin:0}
+  #menuUklad{gap:8px;--pasek:78px}
+  .tab{width:78px;padding:5px 3px 4px;font-size:9.5px}
+  #tabs{gap:5px}
+  #tabs .tab img{height:20px!important;margin-bottom:2px}
+  #heroScena{gap:10px}
+  #heroPortret{height:min(38vh,220px);margin-bottom:-8px}
+  #heroPortret.mini{height:min(28vh,170px)}
+  #heroLada{height:22px;margin:0 -12px;min-width:110px}
+  #heroTab{border-width:7px;padding:8px 9px;flex-basis:270px}
+  #heroDs{margin:4px 0 6px;font-size:10.5px}
+  #heroStat .hs{font-size:10.5px;line-height:1.35}
+  #heroMapa{padding:3px 12px;font-size:12px}
+  #playCta{margin:2px 0 0}
+  #playCta .bigbtn{padding:9px 30px;font-size:18px;margin:5px 5px 6px}
+  #ctaRow .btn2{padding:5px 12px;font-size:12px}
+  #startFoot{margin:6px 0 0;font-size:9px}
+  #startOv.panel-open #panele{border-width:7px;padding:10px 9px 12px}
+  .panel h2{margin:0 0 6px;font-size:16px}
+  .sekcja{margin:12px 0 6px;font-size:13px}
+  .grid{grid-template-columns:repeat(auto-fill,minmax(122px,1fr));gap:7px}
+  .snd{padding:7px 10px;gap:8px}
+  #statsList{grid-template-columns:repeat(auto-fill,minmax(104px,1fr))}
+}
+
+/* telefon w pionie ORAZ niski ekran naraz (np. 360×480) — pasek na dole wygrywa */
+@media (max-width:520px) and (max-height:520px){
+  #logo{max-height:12vh}
+  #heroPortret{height:min(26vh,190px)}
+  #startOv{padding-bottom:calc(72px + env(safe-area-inset-bottom,0px))}
+  /* przy tak niskim ekranie portret NAD tabliczką zjada całą wysokość —
+     wracamy do układu obok siebie, jak na desktopie */
+  #heroScena{flex-direction:row;align-items:flex-end;gap:8px}
+  #heroTab{flex:0 1 auto;width:auto;max-width:58vw}
+}
+
+/* BARDZO NISKI EKRAN (≤400 px, np. iPhone SE w poziomie 568×320): zmierzone
+   44 px nadmiaru. Opis postaci i stopka schodzą — na takim pasku liczy się
+   portret, cztery liczby i GRAJ; opis jest i tak w panelu Postacie. */
+@media (max-height:400px){
+  #startOv{padding:calc(4px + env(safe-area-inset-top,0px)) 8px 5px;gap:0}
+  #logo{max-height:10vh}
+  #heroDs{display:none}
+  #heroPortret{height:min(34vh,180px)}
+  #heroPortret.mini{height:min(26vh,140px)}
+  #heroMapa{padding:2px 10px;font-size:11px}
+  #playCta .bigbtn{padding:7px 24px;font-size:16px;margin:3px 4px 4px}
+  #ctaRow .btn2{padding:4px 10px;font-size:11px;margin:4px 3px}
+  #startFoot{display:none}
+}
+
+/* ═══════════ GDZIE PANEL MA SIĘ PRZEWIJAĆ W SOBIE, A GDZIE MOŻE ROZCIĄGNĄĆ STRONĘ
+   Poniżej 521 px pasek ikon jest `position:fixed` na dole — nigdzie nie ucieka,
+   więc długi panel może spokojnie rozciągnąć stronę (więcej miejsca na kafle).
+   Od 521 px pasek stoi W KOLUMNIE: gdyby strona rosła, zakładki zjechałyby poza
+   ekran i nie dałoby się przełączyć bez przewijania w górę. Stąd te trzy reguły
+   NA KOŃCU pliku — muszą pobić `max-height:none` z bloków wyżej.
+   Odejmowana wartość to WYSOKOŚĆ LOGO (podana w vh, więc różna w każdym progu)
+   plus marginesy, ramka i stopka — stąd `calc(78vh - 76px)` zamiast okrągłej liczby. */
+@media (min-width:521px) and (max-width:899px){
+  #startOv.panel-open #panele{max-height:calc(78vh - 76px);overflow-y:auto}    /* logo 22vh */
+}
+@media (min-width:521px) and (max-height:700px){
+  #startOv.panel-open #panele{max-height:calc(83vh - 76px);overflow-y:auto}    /* logo 17vh */
+}
+@media (min-width:521px) and (max-height:520px){
+  #startOv.panel-open #panele{max-height:calc(85vh - 70px);overflow-y:auto}    /* logo 15vh */
+}
+@media (min-width:521px) and (max-height:400px){
+  #startOv.panel-open #panele{max-height:calc(90vh - 58px);overflow-y:auto}    /* logo 10vh, bez stopki */
+}

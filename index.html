@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>VEGGIE FAMIGLIA — Brainrot Survivors</title>
+<!-- ================= PWA =================
+     WSZYSTKIE ŚCIEŻKI RELATYWNE. Gra stoi raz na GitHub Pages w PODKATALOGU
+     (/horda3d-demo/), raz na itch.io pod losowym adresem html.itch.zone — każde
+     `/coś` wskazałoby tam korzeń cudzego serwera i nic by się nie wczytało.
+     `apple-*` to jedyna droga do pełnego ekranu na iPhonie: Safari nie daje
+     Fullscreen API stronom, ale „Dodaj do ekranu początkowego" chowa pasek adresu. -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0e1420">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Veggie Famiglia">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="assets/pwa/icon-192.png">
+<link rel="icon" href="assets/pwa/icon-192.png" sizes="192x192" type="image/png">
+<style>
+  /* ================= CZCIONKA UI =================
+     JERSEY 10 (OFL, self-hosted). Pixelify Sans wyleciał, bo miał NIECZYTELNE
+     glify: S≈5, Z≈2, B≈8 — „PAUZA" czytało się jako „PAU2A", „1500" jako „1900".
+     To ten sam problem, dla którego liczby w 3D dostały własny font bitmapowy GLIF.
+     ZAKRES WAGI 100-900 NA JEDNYM PLIKU jest celowy: Jersey ma tylko wagę 400,
+     a UI woła font-weight 700/800 — bez tego przeglądarka SYNTEZUJE pogrubienie
+     i rozmazuje piksele. Tak każda waga trafia w ten sam, ostry plik. */
+  @font-face{font-family:'Pixel';font-style:normal;font-weight:100 900;font-display:block;
+    src:url(fonts/jersey10-latinext.woff2) format('woff2');
+    unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;}
+  @font-face{font-family:'Pixel';font-style:normal;font-weight:100 900;font-display:block;
+    src:url(fonts/jersey10-latin.woff2) format('woff2');
+    unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;}
+  html,body{margin:0;padding:0;overflow:hidden;background:#0e1420;height:100%;touch-action:none;
+    font-family:'Pixel','Courier New',monospace;-webkit-user-select:none;user-select:none;
+    color:#fff;letter-spacing:.5px;
+    /* twarda blokada syntezy: nawet gdyby waga nie trafiła, przeglądarka nie ma prawa
+       sama pogrubiać ani pochylać pixelowego fontu */
+    font-synthesis:none;-webkit-font-synthesis:none}
+  .pxi{image-rendering:pixelated;vertical-align:middle;display:inline-block}
+  #c{display:block;width:100vw;height:100vh}
+
+  /* ================= EKRAN ŁADOWANIA ================= */
+  #loadOv{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;
+      align-items:center;justify-content:center;gap:14px;padding:16px;text-align:center;
+      background:#121a12;
+      /* pixelowe „grządki" w tle */
+      background-image:repeating-linear-gradient(90deg,#162115 0 22px,#131d13 22px 44px),
+                       radial-gradient(ellipse at 50% 30%,rgba(120,200,90,.10),transparent 60%);
+      transition:opacity .45s}
+  #loadOv.znika{opacity:0;pointer-events:none}
+  #loadLogo{width:min(72vw,440px);max-height:32vh;object-fit:contain;
+      filter:drop-shadow(0 5px 0 rgba(0,0,0,.6));animation:logoDysz 2.4s ease-in-out infinite}
+  @keyframes logoDysz{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-6px) scale(1.015)}}
+  #loadBarWrap{width:min(78vw,420px);height:26px;background:#0c120c;position:relative;
+      box-shadow:-4px 0 0 0 #1b1b22,4px 0 0 0 #1b1b22,0 -4px 0 0 #1b1b22,0 4px 0 0 #1b1b22,
+                 inset 0 4px 0 0 #060906}
+  #loadBar{height:100%;width:0%;transition:width .25s;
+      background:repeating-linear-gradient(90deg,#f5a623 0 10px,#ffc451 10px 20px);
+      box-shadow:inset 0 5px 0 0 rgba(255,255,255,.28), inset 0 -5px 0 0 rgba(0,0,0,.3)}
+  #loadTxt{font-size:clamp(13px,3.6vw,17px);color:#ffd75e;letter-spacing:1px}
+  #loadTip{font-size:clamp(11px,3vw,13px);color:#9fd08a;max-width:460px;line-height:1.5;min-height:34px}
+
+  /* ================= HUD ================= */
+  #hud{position:fixed;inset:0;pointer-events:none;z-index:5}
+  #xpwrap{position:absolute;top:0;left:0;right:0;height:14px;background:rgba(0,0,0,.55)}
+  #xpbar{height:100%;width:0%;background:linear-gradient(90deg,#7ee787,#3fb950);transition:width .15s}
+  #lvl{position:absolute;top:18px;left:10px;font-weight:800;font-size:14px;text-shadow:0 2px 4px #000}
+  /* RANGA W BIEGU: zabijanie samo podnosi obrażenia — pasek pod poziomem */
+  #ranga{position:absolute;top:36px;left:10px;font-weight:800;font-size:12px;color:#ffd75e;text-shadow:0 2px 4px #000}
+  #rangawrap{position:absolute;top:52px;left:10px;width:92px;height:7px;background:rgba(0,0,0,.55)}
+  #rangabar{height:100%;width:0%;background:repeating-linear-gradient(90deg,#f5a623 0 5px,#ffc451 5px 10px)}
+  #timer{position:absolute;top:20px;left:50%;transform:translateX(-50%);font-weight:800;font-size:21px;text-shadow:0 2px 4px #000}
+  #kills{position:absolute;top:18px;right:12px;font-weight:800;font-size:14px;text-shadow:0 2px 4px #000}
+  #coins{position:absolute;top:38px;right:12px;font-weight:800;font-size:14px;color:#ffd75e;text-shadow:0 2px 4px #000}
+  #tier{position:absolute;top:58px;right:12px;font-weight:800;font-size:12px;color:#ff9d7a;text-shadow:0 2px 4px #000}
+  #hearts{position:absolute;top:42px;left:50%;transform:translateX(-50%);font-size:17px;letter-spacing:1px;text-shadow:0 2px 4px #000}
+  #buff{position:absolute;top:68px;left:50%;transform:translateX(-50%);font-weight:800;font-size:14px;color:#7ee7ff;
+      text-shadow:0 2px 6px #000;opacity:0;transition:opacity .3s;white-space:nowrap}
+  #wpns{position:absolute;left:10px;bottom:12px;display:flex;gap:5px;font-size:20px}
+  #wpns .wp{background:rgba(0,0,0,.5);border-radius:0;padding:4px 8px;
+      box-shadow:-3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  #wpns .wp b{font-size:11px;vertical-align:sub;color:#ffd75e}
+  #wpns .wp.evo{border-color:#ffd75e;box-shadow:0 0 10px rgba(255,215,94,.5)}
+  #wpns .wp.empty{opacity:.4;letter-spacing:3px}
+  /* strzałka do złotej skrzyni — obrót ustawia JS na .ar, więc animujemy TYLKO opacity
+     (animacja transform nadpisywałaby obrót!) */
+  #wArrow{position:absolute;left:50%;top:50%;display:none;
+      flex-direction:column;align-items:center;pointer-events:none;
+      transform:translate(-50%,-50%) translateY(-120px);
+      animation:pulseA 1.1s ease-in-out infinite}
+  #wArrow .ar{width:46px;height:46px;background-size:contain;background-repeat:no-repeat;
+      background-position:center;image-rendering:pixelated;
+      filter:drop-shadow(0 0 10px rgba(255,215,94,.95)) drop-shadow(0 2px 2px #000)}
+  #wArrow .dist{font-size:13px;font-weight:700;color:#ffd75e;text-shadow:0 2px 4px #000;margin-top:2px}
+  @keyframes pulseA{0%,100%{opacity:.8}50%{opacity:1}}
+  @media (max-height:520px){ #wArrow{transform:translate(-50%,-50%) translateY(-78px)} }
+  /* ================= OPRAWA BOSSA =================
+     Don Chipso ma wreszcie wlasny arkusz, wiec przestaje wchodzic po cichu:
+     przyciemnienie ekranu + imie na cala szerokosc + pasek HP u gory. */
+  #bossOv{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;
+      background:radial-gradient(ellipse at center,transparent 30%,rgba(0,0,0,.72) 100%);
+      transition:opacity .35s}
+  #bossOv.on{opacity:1}
+  #bossNm{position:fixed;left:0;right:0;top:38%;z-index:7;text-align:center;
+      font-weight:800;font-size:clamp(26px,9vw,64px);color:#ffd75e;letter-spacing:3px;
+      text-shadow:4px 4px 0 #1b1b22;opacity:0;transform:scale(.7);
+      transition:opacity .3s,transform .3s;pointer-events:none}
+  #bossNm.on{opacity:1;transform:scale(1)}
+  #bossNm small{display:block;font-size:.42em;color:#ff9d7a;letter-spacing:2px;margin-top:6px}
+  /* pasek HP bossa: twarde krawedzie, bez zaokraglen — jak reszta UI */
+  /* `fixed` liczy się od viewportu, nie od przesuniętego o notch `#hud` — stąd własny env() */
+  #bossHp{position:fixed;left:50%;top:calc(78px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:7;display:none;
+      width:min(72vw,520px);flex-direction:column;align-items:center;gap:3px;pointer-events:none}
+  #bossHp.on{display:flex}
+  #bossHp .bn{font-weight:800;font-size:13px;color:#ffd75e;text-shadow:2px 2px 0 #1b1b22;
+      letter-spacing:2px;white-space:nowrap}
+  #bossHp .bw{width:100%;height:16px;background:#1b1b22;
+      box-shadow:-3px 0 0 0 #1b1b22,3px 0 0 0 #1b1b22,0 -3px 0 0 #1b1b22,0 3px 0 0 #1b1b22}
+  #bossHp .bf{height:100%;width:100%;
+      background:repeating-linear-gradient(90deg,#e0453c 0 6px,#ff7a6e 6px 12px);
+      transition:width .12s}
+  #bossHp .bl{font-size:11px;color:#dfe6f2;text-shadow:2px 2px 0 #1b1b22}
+  @media (max-height:520px){ #bossHp{top:calc(52px + env(safe-area-inset-top,0px));width:min(56vw,380px)} }
+  #vign{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;
+      background:radial-gradient(ellipse at center,transparent 55%,rgba(255,0,0,.55) 100%);transition:opacity .1s}
+  /* ================= TRYB KARABINU (pierwsza osoba) =================
+     Widok broni jest NAKŁADKĄ 2D, nie modelem 3D: przy pixel-artowych billboardach
+     wygląda spójnie, a przy okazji nie wchodzi w kolizję z shadow mapą ani mgłą.
+     Sprite od właściciela wejdzie później — wystarczy podmienić background-image
+     na #gunPix (JS ustawia go raz w initKarabin). */
+  #fpsView{position:fixed;inset:0;pointer-events:none;z-index:6;display:none}
+  #fpsView.on{display:block}
+  #gunWrap{position:absolute;right:-4%;bottom:-3%;width:min(92vw,820px);height:min(92vw,820px);
+      transform-origin:78% 88%}
+  #gunPix{position:absolute;inset:0;background-size:contain;background-repeat:no-repeat;
+      background-position:bottom right;image-rendering:pixelated;
+      filter:drop-shadow(-3px -3px 0 rgba(0,0,0,.35))}
+  /* błysk siedzi NA WYLOCIE LUFY sprite'a (górny-lewy obszar obrazka), więc jest
+     dzieckiem #gunWrap — dzięki temu jeździ razem z odrzutem i kołysaniem broni */
+  #gunFlash{position:absolute;left:27%;top:29%;width:min(11vw,96px);height:min(11vw,96px);
+      transform:translate(-50%,-50%);background-size:contain;background-repeat:no-repeat;
+      background-position:center;image-rendering:pixelated;opacity:0}
+  /* celownik: dwie kreski + kropka, twarde krawędzie (bez zaokrągleń, jak resztaUI) */
+  #fpsCross{position:absolute;left:50%;top:50%;width:26px;height:26px;transform:translate(-50%,-50%);
+      background-size:contain;background-repeat:no-repeat;image-rendering:pixelated;opacity:.85}
+  /* POD celownikiem, nie nad: nad nim siedzi już strzałka do złotej skrzyni (#wArrow)
+     i licznik trybu nachodził na nią co do piksela */
+  #fpsHud{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) translateY(96px);
+      display:flex;flex-direction:column;align-items:center;gap:3px;white-space:nowrap}
+  #fpsHud .fpsT{font-weight:800;font-size:26px;color:#ffd75e;text-shadow:0 2px 6px #000}
+  #fpsHud .fpsL{display:flex;gap:4px}
+  #fpsHud .fpsL i{width:13px;height:13px;background:#ff4a4a;display:block;
+      box-shadow:-2px 0 0 0 #1b1b22, 2px 0 0 0 #1b1b22, 0 -2px 0 0 #1b1b22, 0 2px 0 0 #1b1b22}
+  #fpsHud .fpsL i.off{background:#3a3a44}
+  /* błysk na wejściu w tryb i przy utracie życia */
+  #fpsFlash{position:fixed;inset:0;pointer-events:none;z-index:7;opacity:0;background:#fff;transition:opacity .12s}
+  @media (max-height:520px){ #fpsHud{transform:translate(-50%,-50%) translateY(62px)}
+      #fpsHud .fpsT{font-size:19px} #gunWrap{width:min(62vw,420px);height:min(62vw,420px)} }
+  #pauseBtn{position:fixed;top:18px;left:50%;transform:translateX(-140px);z-index:7;width:34px;height:34px;
+      border-radius:0;background:#2b3550;color:#fff;
+      display:none;align-items:center;justify-content:center;pointer-events:auto;cursor:pointer;
+      box-shadow:-3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+
+  /* ===== GAMEPAD =====
+     KAPSLE PRZYCISKÓW. Emoji i znaki ✕○□△ odpadają z dwóch powodów: czcionka UI
+     (Jersey 10) ich nie ma, a nawet gdyby miała — fallback systemowy wstawiłby
+     obcy, gładki glif obok pixelowego UI. Stąd kapsel = kwadracik z konturem 3 px
+     (jak `.wp` w HUD), a symbole PlayStation rysujemy KSZTAŁTAMI (border, obrót). */
+  .gpk{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;
+      box-sizing:border-box;min-width:18px;height:18px;padding:0 3px;font-size:13px;font-weight:800;
+      line-height:1;letter-spacing:0;color:#101725;background:#dfe6f2;
+      box-shadow:-3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  .gpk+.gpk{margin-left:9px}
+  .gpk.a{background:#7ee787} .gpk.b{background:#ff8b7a}
+  .gpk.x{background:#8fd3ff} .gpk.y{background:#ffd75e}
+  /* bumpery/spusty/Start: napis dwuznakowy, więc niższy font i szerszy kapsel */
+  .gpk.sh{background:#c3ccdb;font-size:10px;min-width:24px;letter-spacing:.5px}
+  .gpk i{display:block;position:relative;width:10px;height:10px}
+  .gpk i.psK{border:2px solid #101725;border-radius:50%}
+  .gpk i.psS{border:2px solid #101725}
+  .gpk i.psT{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;
+      border-bottom:10px solid #101725}
+  .gpk i.psX::before,.gpk i.psX::after{content:'';position:absolute;left:-1px;top:4px;
+      width:12px;height:2px;background:#101725}
+  .gpk i.psX::before{transform:rotate(45deg)} .gpk i.psX::after{transform:rotate(-45deg)}
+  /* strzałki D-pada — ten sam trójkąt z bordera, obrócony na cztery strony */
+  .gpk i.dpL,.gpk i.dpP,.gpk i.dpG,.gpk i.dpD{width:0;height:0}
+  .gpk i.dpL{border-top:5px solid transparent;border-bottom:5px solid transparent;border-right:9px solid #101725}
+  .gpk i.dpP{border-top:5px solid transparent;border-bottom:5px solid transparent;border-left:9px solid #101725}
+  .gpk i.dpG{border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #101725}
+  .gpk i.dpD{border-left:5px solid transparent;border-right:5px solid transparent;border-top:9px solid #101725}
+
+  /* PODPOWIEDZI W BIEGU. Jeden rząd na dole, bo na desktopie #jbtn/#karabinBtn są
+     ukryte (to przyciski dotykowe) i nie ma ich czym podpisać. Widoczny WYŁĄCZNIE
+     przy żywym padzie — na klawiaturze byłby kłamstwem, a na telefonie śmieciem. */
+  #padHud{position:fixed;left:50%;transform:translateX(-50%);z-index:7;
+      bottom:calc(10px + env(safe-area-inset-bottom,0px));
+      display:none;gap:14px;align-items:center;padding:5px 11px;
+      background:rgba(8,12,20,.62);color:#dfe6f2;font-size:11.5px;letter-spacing:.5px;
+      text-shadow:0 2px 4px #000;pointer-events:none;white-space:nowrap}
+  #padHud.on{display:flex}
+  #padHud span{display:inline-flex;align-items:center;gap:5px}
+  /* STOPKA OVERLAYA: „A wybierz · B wstecz". z-index 11 = NAD .ov (10). */
+  #padFoot{position:fixed;left:0;right:0;bottom:0;z-index:11;display:none;
+      justify-content:center;flex-wrap:wrap;gap:18px;align-items:center;
+      padding:8px 10px calc(8px + env(safe-area-inset-bottom,0px));
+      background:rgba(8,12,20,.94);color:#dfe6f2;font-size:12.5px;letter-spacing:.5px;
+      pointer-events:none;box-shadow:0 -3px 0 0 #1b1b22}
+  #padFoot.on{display:flex}
+  #padFoot span{display:inline-flex;align-items:center;gap:6px}
+  /* stopka leży NA overlayu, więc overlay musi jej zrobić miejsce — inaczej ostatni
+     przycisk (np. „Menu" na ekranie końca) chowa się pod paskiem podpowiedzi */
+  body.pad-foot .ov{padding-bottom:calc(58px + env(safe-area-inset-bottom,0px))}   /* stopka pada sama ma env() — overlay musi zrobić tyle samo miejsca */
+  @media (max-height:520px){ #padFoot{font-size:11px;padding:5px 8px;gap:12px} }
+
+  /* zakładka STEROWANIE — rzędy dzielą wygląd z suwakami dźwięku (.snd) */
+  #ctrlBox{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:8px}
+  #ctrlBox b.gpv{width:auto;min-width:52px;display:inline-flex;align-items:center;
+      justify-content:flex-end;gap:9px;color:#dfe6f2;font-size:12px}
+  /* `.snd b` (licznik procentów przy suwakach głośności) ma sztywne width:46px
+     I ZŁOTY KOLOR, a jest bardziej szczegółowe niż `.gpk` — rozciągało kapsel na pół
+     rzędu i malowało literę na złoto, czyli prawie niewidocznie na jasnym tle.
+     Stąd te trzy nadpisania z `#ctrlBox` (wyższa waga niż `.snd b`). */
+  #ctrlBox .snd b.gpk{width:auto;text-align:center;color:#101725;font-size:13px}
+  #ctrlBox .snd b.gpk.sh{font-size:10px}
+  #ctrlBox .btn2{margin:0;padding:5px 13px;font-size:12px;
+      box-shadow:inset 0 3px 0 0 #46557a, inset 0 -3px 0 0 #1a2135,
+        -3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  #ctrlBox .btn2:active{transform:translateY(3px)}
+  /* rząd w trybie nasłuchu („naciśnij przycisk") — złoty, jak zaznaczenie padem */
+  #ctrlBox .snd.czeka{background:#4a3a14}
+  #ctrlBox .snd.czeka label{color:#ffd75e}
+  .btn2.sel{background:#4a3a14;color:#ffd75e}
+
+  /* ================= KOMIKS ================= */
+  /* Plansza ma STAŁE proporcje 16:9 (obrazki to 640×360), więc szerokość liczy się
+     tak, żeby wysokość nigdy nie przekroczyła 62vh: 62vh × 16/9 ≈ 110vh. Bez tego
+     na telefonie W POZIOMIE plansza zjadała cały ekran i podpis z przyciskami
+     lądowały pod krawędzią (overlay dałby się przewinąć, ale nikt by nie zgadł, że trzeba).
+     Warstwy: <canvas> = rysunek zastępczy (gdy pliku planszy jeszcze nie ma),
+     <img> nad nim — pojawia się dopiero, gdy plik NA PEWNO się wczytał. */
+  #komiksOv{display:none;gap:0}
+  /* flex:0 0 auto — inaczej flexbox ŚCISKA ramkę zanim pojawi się przewijanie i aspect-ratio
+     przestaje obowiązywać (telefon w poziomie, podpis na 3 linie) */
+  #komiksRama{flex:0 0 auto;position:relative;width:min(96vw,960px,110vh);aspect-ratio:16/9;margin:0 auto;
+      background:#121a12;cursor:pointer;transition:opacity .18s;
+      box-shadow:-3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  #komiksRama.ciemno{opacity:0}
+  #komiksCv,#komiksImg{position:absolute;inset:0;width:100%;height:100%;display:block;
+      image-rendering:pixelated}
+  #komiksImg{opacity:0;transition:opacity .18s}
+  #komiksImg.on{opacity:1}
+  /* pasek podpisu: czcionka gry, do trzech linii; szerokość taka jak plansza */
+  #komiksPodpis{width:min(96vw,960px,110vh);margin:10px auto 0;box-sizing:border-box;
+      padding:8px 12px;background:rgba(8,12,20,.66);color:#e9f0dc;text-align:center;
+      font-size:clamp(13px,3.2vw,19px);line-height:1.34;letter-spacing:.5px;
+      display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;
+      box-shadow:-3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22;
+      transition:opacity .18s, transform .18s}
+  #komiksPodpis.poza{opacity:0;transform:translateY(8px)}
+  #komiksKropki{display:flex;gap:7px;justify-content:center;margin:12px 0 2px}
+  #komiksKropki i{width:9px;height:9px;background:#2b3550;
+      box-shadow:-2px 0 0 0 #1b1b22, 2px 0 0 0 #1b1b22, 0 -2px 0 0 #1b1b22, 0 2px 0 0 #1b1b22}
+  #komiksKropki i.on{background:#f5c542}
+  #komiksBtns{display:flex;flex-wrap:wrap;align-items:center;justify-content:center}
+  /* akapit fabuły nad bestiariuszem — drobniejszy od zwykłego `.ov p`, żeby zmieścił
+     się w trzech liniach na 375 px (selektor z `.ov`, bo blok EKRANY jest NIŻEJ) */
+  .ov p.lore{font-size:clamp(11px,2.9vw,13px);max-width:560px;opacity:.85;
+      line-height:1.4;margin:0 auto 8px}
+  /* ikony z icons.js są ŻÓŁTE, a przycisk DALEJ jest złoty — bez przyciemnienia
+     strzałka znikała w tle. `brightness` zamiast osobnej ikony: paleta icons.js
+     jest wspólna dla całej gry i nie chcemy jej rozgałęziać pod jeden przycisk. */
+  #komiksBtns .bigbtn img{filter:brightness(.18);margin-left:2px}
+  #komiksBtns .bigbtn.koniec{background:#9adf58}
+  #komiksBtns .bigbtn.koniec:hover{background:#c2f074}
+  /* telefon w poziomie: wszystko ma się zmieścić BEZ przewijania (667×375) */
+  @media (max-height:520px){
+    #komiksRama,#komiksPodpis{width:min(96vw,960px,104vh)}
+    #komiksPodpis{margin-top:6px;padding:5px 10px;font-size:12px;line-height:1.28}
+    #komiksKropki{margin:6px 0 0}
+    #komiksKropki i{width:7px;height:7px}
+    #komiksBtns .bigbtn{margin:6px 6px 8px}
+    #komiksBtns .btn2{margin:6px 5px}
+  }
+
+  /* ================= EKRANY ================= */
+  /* justify-content:center + overflow-y:auto to PUŁAPKA: przy treści wyższej niż ekran
+     (Sklep, Bestiariusz na niskich telefonach) czyste "center" centruje NAD zakresem
+     przewijania — górna część (logo/GRAJ) staje się nieosiągalna, scrollTop:0 już jej
+     nie pokazuje. "safe center" centruje tylko gdy się mieści, inaczej ląduje na starcie
+     (jak flex-start) — treść zawsze da się przewinąć do końca. Fallback dla starszych
+     przeglądarek: flex-start (mniej efektowne, ale nic nie ucieka poza ekran). */
+  .ov{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
+      background:rgba(8,12,20,.88);backdrop-filter:blur(5px);z-index:10;text-align:center;
+      padding:12px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  @supports (justify-content:safe center){ .ov{justify-content:safe center} }
+  #logo{width:min(84vw,560px);max-height:34vh;object-fit:contain;margin:0 0 2px;
+      filter:drop-shadow(0 6px 0 rgba(0,0,0,.55))}
+  @media (max-height:520px){ #logo{max-height:26vh;width:min(56vw,420px)} }
+  .ov h1{font-size:clamp(28px,8vw,52px);margin:0 0 4px;letter-spacing:1px;line-height:1}
+  .ov h1 .g{background:linear-gradient(90deg,#ffd75e,#ff9d3f);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .ov h2{margin:0 0 10px;font-size:clamp(17px,4.5vw,25px);text-shadow:0 2px 6px #000}
+  .ov p{opacity:.85;max-width:540px;line-height:1.45;margin:5px 0;font-size:clamp(12px,3.2vw,15px)}
+  /* ---- PIXELOWE PRZYCISKI (twarde krawędzie, brak zaokrągleń i gradientów) ---- */
+  .bigbtn{pointer-events:auto;cursor:pointer;padding:14px 38px;font-size:clamp(17px,4.5vw,21px);font-weight:700;
+      font-family:inherit;color:#2a1c05;background:#f5c542;border:0;border-radius:0;letter-spacing:1px;
+      box-shadow:
+        inset 0 5px 0 0 #ffe89a, inset 0 -5px 0 0 #c08f14,
+        -5px 0 0 0 #1b1b22, 5px 0 0 0 #1b1b22, 0 -5px 0 0 #1b1b22, 0 5px 0 0 #1b1b22,
+        0 10px 0 0 #1b1b22, 0 10px 0 5px #1b1b22;
+      margin:10px 6px;image-rendering:pixelated}
+  .bigbtn:hover{background:#ffd75e}
+  .bigbtn:active{transform:translateY(5px);
+      box-shadow:
+        inset 0 5px 0 0 #ffe89a, inset 0 -5px 0 0 #c08f14,
+        -5px 0 0 0 #1b1b22, 5px 0 0 0 #1b1b22, 0 -5px 0 0 #1b1b22, 0 5px 0 0 #1b1b22}
+  .btn2{pointer-events:auto;cursor:pointer;padding:9px 20px;font-size:14px;font-weight:700;font-family:inherit;
+      color:#dfe6f2;background:#2b3550;border:0;border-radius:0;letter-spacing:.5px;margin:8px 5px;
+      box-shadow:
+        inset 0 4px 0 0 #46557a, inset 0 -4px 0 0 #1a2135,
+        -4px 0 0 0 #1b1b22, 4px 0 0 0 #1b1b22, 0 -4px 0 0 #1b1b22, 0 4px 0 0 #1b1b22,
+        0 8px 0 0 #1b1b22, 0 8px 0 4px #1b1b22}
+  .btn2:hover{background:#39456b;color:#ffd75e}
+  .btn2:active{transform:translateY(4px);
+      box-shadow:
+        inset 0 4px 0 0 #46557a, inset 0 -4px 0 0 #1a2135,
+        -4px 0 0 0 #1b1b22, 4px 0 0 0 #1b1b22, 0 -4px 0 0 #1b1b22, 0 4px 0 0 #1b1b22}
+
+  /* ---- PRZEŁĄCZNIK JĘZYKA PL | EN (prawy górny róg ekranu startowego) ----
+     Bez flag-emoji (na Windowsie i tak nie ma flag, a emoji rozbija pixelowy font):
+     dwa małe `.btn2`, aktywny świeci złotem jak `.tab.sel`. `position:absolute`
+     liczy się od `#startOv` (to `.ov`, czyli `position:fixed`), a `env(safe-area-inset-*)`
+     trzyma go poza notchem. `.btn2` wystarcza, żeby pad go widział w `navItems()`. */
+  #langSw{position:absolute;z-index:3;display:flex;
+      top:calc(6px + env(safe-area-inset-top));right:calc(8px + env(safe-area-inset-right))}
+  #langSw .btn2{margin:0 0 0 6px;padding:6px 11px;font-size:13px;min-width:32px}
+  #langSw .btn2.sel{background:#4a3a14;color:#ffd75e;
+      box-shadow:
+        inset 0 4px 0 0 #6b5520, inset 0 -4px 0 0 #2a2008,
+        -4px 0 0 0 #ffd75e, 4px 0 0 0 #ffd75e, 0 -4px 0 0 #ffd75e, 0 4px 0 0 #ffd75e,
+        0 8px 0 0 #ffd75e, 0 8px 0 4px #ffd75e}
+  /* wąski ekran: mniejsze kafelki + logo schodzi niżej, żeby nic nie zachodziło */
+  @media (max-width:520px){
+    #langSw .btn2{padding:4px 7px;font-size:11px;min-width:26px}
+  }
+  /* 44 px = wysokość przycisku (21) + jego dolny cień (8) + górny odstęp (6) + zapas.
+     Zmierzone przy 375 px: dół `#langSw` na y=39, góra `#logo` na y=44.
+     Do 700 px, nie 520: logo ma width:min(84vw,560px), więc przełącznik (right:8px, ~100 px)
+     siadał na logo jeszcze przy 521..674 px (tablety w pionie, wąskie okna) — recenzja 18.09. */
+  @media (max-width:700px){
+    #startOv{padding-top:calc(44px + env(safe-area-inset-top))}
+  }
+
+  /* ================= HIERARCHIA EKRANU TYTUŁOWEGO =================
+     logo → jeden duży GRAJ (#playCta, zawsze widoczny) → drugorzędny rząd zakładek
+     (#tabs, mniejsza waga wizualna) → drobne informacje na dole (#startFoot). */
+  #playCta{display:flex;flex-direction:column;align-items:center;margin:6px 0 2px}
+  #ctaRow{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:2px}
+  #ctaRow .btn2{margin-top:0}
+  #playCta .bigbtn{padding:18px 58px;font-size:clamp(20px,5.8vw,29px);margin:2px 6px 10px}
+  #wybor{margin:0 0 2px;opacity:.85;font-size:clamp(12px,3.2vw,14.5px)}
+  /* drobne informacje na dole — zawsze na końcu ekranu, niezależnie od otwartego panelu */
+  #startFoot{opacity:.65;max-width:560px;line-height:1.55;margin:16px 0 4px;
+      text-shadow:0 2px 4px #000;font-size:clamp(10px,2.6vw,12px)}
+
+  /* zakładki menu — DRUGORZĘDNE wejścia do paneli (mniejsze/cichsze od GRAJ) */
+  #tabs{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:4px 0 16px}
+  .tab{pointer-events:auto;cursor:pointer;padding:7px 13px;font-size:clamp(11px,3.1vw,14px);font-weight:700;
+      background:#1a2233;border:0;border-radius:0;white-space:nowrap;letter-spacing:.5px;opacity:.88;
+      box-shadow:inset 0 3px 0 0 #2c3a55, inset 0 -3px 0 0 #101725,
+        -3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  .tab:hover{opacity:1}
+  .tab.sel{background:#4a3a14;color:#ffd75e;opacity:1;
+      box-shadow:inset 0 3px 0 0 #6b5520, inset 0 -3px 0 0 #2a2008,
+        -3px 0 0 0 #ffd75e, 3px 0 0 0 #ffd75e, 0 -3px 0 0 #ffd75e, 0 3px 0 0 #ffd75e}
+  /* zakładka "Graj" ma już własny duży przycisk w #playCta — zostaje w DOM (ukryta),
+     bo main.js (klik programowy) i gpBack (pad, wraca do stanu domyślnego) jej używają;
+     navItems() filtruje wg offsetWidth, więc pad jej też nie zaznaczy */
+  .tab[data-tab="graj"]{display:none}
+  .panel{display:none;width:100%;max-width:760px}
+  .panel.on{display:block}
+
+  /* siatki kafelków (mapy, postacie, sklep) */
+  .grid{display:flex;gap:16px;flex-wrap:wrap;justify-content:center}
+  .tile{pointer-events:auto;cursor:pointer;box-sizing:border-box;width:min(44vw,164px);padding:12px 10px;border-radius:0;
+      border:0;background:#1d2536;transition:transform .1s;
+      box-shadow:inset 0 4px 0 0 #2c3a55, inset 0 -4px 0 0 #121828,
+        -4px 0 0 0 #1b1b22, 4px 0 0 0 #1b1b22, 0 -4px 0 0 #1b1b22, 0 4px 0 0 #1b1b22}
+  .tile:hover{transform:translateY(-4px);background:#26314a}
+  .tile.sel{background:#4a3a14;
+      box-shadow:inset 0 4px 0 0 #6b5520, inset 0 -4px 0 0 #2a2008,
+        -4px 0 0 0 #ffd75e, 4px 0 0 0 #ffd75e, 0 -4px 0 0 #ffd75e, 0 4px 0 0 #ffd75e}
+  .tile.lock{opacity:.6}
+  .tile .ico{font-size:clamp(28px,8vw,40px);line-height:1.1}
+  .tile .nm{font-weight:800;font-size:clamp(12px,3.4vw,15px);margin:7px 0 4px;color:#ffd75e}
+  .tile .ds{font-size:clamp(10px,2.9vw,12.5px);opacity:.82;line-height:1.35}
+  .tile .pr{margin-top:7px;font-weight:800;font-size:13px}
+  /* ceremonia końca biegu: ticker (liczby bez kursywy) + pieczątka + deszcz monet */
+  #overStats i{font-style:normal}
+  .pieczatka{display:inline-block;animation:pieczec .45s cubic-bezier(.2,1.6,.4,1) 1}
+  @keyframes pieczec{0%{transform:scale(2.6) rotate(-8deg);opacity:0}
+                     60%{transform:scale(.92) rotate(2deg);opacity:1}
+                     100%{transform:scale(1) rotate(0)}}
+  .moneta-spada{position:absolute;top:-40px;pointer-events:none;
+      animation:spadanie linear 1 forwards}
+  @keyframes spadanie{0%{transform:translateY(0) rotate(0);opacity:1}
+                      100%{transform:translateY(105vh) rotate(320deg);opacity:.15}}
+  /* pasek postępu na kafelku postaci odblokowywanej zabójstwami */
+  .tile .pbar{margin:5px auto 0;width:82%;height:9px;background:#0c1018;
+      box-shadow:-3px 0 0 0 #1b1b22,3px 0 0 0 #1b1b22,0 -3px 0 0 #1b1b22,0 3px 0 0 #1b1b22}
+  .tile .pbar i{display:block;height:100%;
+      background:repeating-linear-gradient(90deg,#f5a623 0 6px,#ffc451 6px 12px)}
+
+  /* bestiariusz — kafelki opisowe (nieklikalne), zablokowany wpis = czarna sylwetka */
+  .tile.bst{width:min(46vw,192px);cursor:default}
+  .tile.bst:hover{transform:none;background:#1d2536}
+  .tile.bst.dark .ico img{filter:brightness(0)}
+  .tile.bst.dark .nm{color:#6b7690}
+  .tile .bs{margin-top:7px;font-size:clamp(9px,2.6vw,11.5px);line-height:1.45;color:#8fd3ff;opacity:.9}
+  /* jedno zdanie o roli wroga w planie Dona — ciemniej i kursywą pod opisem */
+  .tile.bst .lore{margin-top:6px;font-size:clamp(9px,2.5vw,11px);line-height:1.4;
+      font-style:italic;color:#9aa7c0;opacity:.85}
+
+  /* pole na kod */
+  #kodBox{margin:6px 0 16px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap}
+  #kodInput{pointer-events:auto;font-family:inherit;font-size:14px;letter-spacing:1px;padding:9px 12px;
+      box-sizing:border-box;width:min(60vw,220px);color:#fff;background:#111827;border:0;border-radius:0;text-align:center;
+      box-shadow:inset 0 3px 0 0 #1f2b40, -3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22,
+        0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  #kodInput:focus{outline:0;box-shadow:inset 0 3px 0 0 #1f2b40, -3px 0 0 0 #ffd75e, 3px 0 0 0 #ffd75e,
+        0 -3px 0 0 #ffd75e, 0 3px 0 0 #ffd75e}
+  #kodInfo{width:100%;font-size:13px;min-height:18px;color:#7ee787}
+  #kodInfo.zle{color:#ff8b7a}
+
+  /* ustawienia dźwięku — suwaki w stylu pixel (twarde krawędzie, bez zaokrągleń) */
+  #sndBox{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:8px}
+  .snd{pointer-events:auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;
+      box-sizing:border-box;width:min(92vw,430px);padding:11px 14px;background:#171d2c;
+      box-shadow:inset 0 3px 0 0 #263049, inset 0 -3px 0 0 #0e1421,
+        -3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  .snd label{font-size:clamp(11px,3vw,14px);font-weight:700;width:120px;text-align:left}
+  .snd b{font-size:13px;color:#ffd75e;width:46px;text-align:right}
+  .snd input[type=range]{-webkit-appearance:none;appearance:none;flex:1;min-width:120px;height:14px;
+      background:#0e1421;border:0;outline:0;cursor:pointer;
+      box-shadow:-3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  .snd input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:22px;
+      background:#f5c542;border:0;border-radius:0;
+      box-shadow:inset 0 4px 0 0 #ffe89a, inset 0 -4px 0 0 #c08f14,
+        -3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22}
+  .snd input[type=range]::-moz-range-thumb{width:16px;height:22px;background:#f5c542;border:3px solid #1b1b22;
+      border-radius:0}
+  #btnMute.sel{background:#4a3a14;color:#ffd75e}
+
+  /* statystyki */
+  #statsList{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+  .stat{box-sizing:border-box;min-width:min(42vw,146px);padding:11px 8px;border-radius:0;background:#171d2c;border:0;margin:5px;
+      box-shadow:inset 0 3px 0 0 #263049, inset 0 -3px 0 0 #0e1421,
+        -3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  .stat .v{font-size:clamp(18px,5.5vw,26px);font-weight:900;color:#ffd75e}
+  .stat .k{font-size:clamp(10px,2.8vw,12px);opacity:.75;margin-top:2px}
+
+  /* karty ulepszeń */
+  #cardsOv,#swapOv,#overOv,#pauseOv{display:none}
+  #cards,#swapList{display:flex;gap:16px;flex-wrap:wrap;justify-content:center}
+  /* box-sizing: bez niego padding doliczal sie DO szerokosci — 164 px zamierzone
+     dawalo 186 px realnych i trzy karty nie mieszcza sie w 375 px */
+  .card{pointer-events:auto;cursor:pointer;box-sizing:border-box;width:min(43vw,164px);padding:15px 11px;border-radius:0;
+      border:0;background:#1d2536;transition:transform .1s;
+      box-shadow:inset 0 4px 0 0 #2c3a55, inset 0 -4px 0 0 #121828,
+        -4px 0 0 0 #1b1b22, 4px 0 0 0 #1b1b22, 0 -4px 0 0 #1b1b22, 0 4px 0 0 #1b1b22}
+  .card:hover{transform:translateY(-5px);background:#26314a}
+  .card.gold{background:#4a3a14;
+      box-shadow:inset 0 4px 0 0 #6b5520, inset 0 -4px 0 0 #2a2008,
+        -4px 0 0 0 #ffd75e, 4px 0 0 0 #ffd75e, 0 -4px 0 0 #ffd75e, 0 4px 0 0 #ffd75e,
+        0 0 22px rgba(255,215,94,.4)}
+  .card.gold .nm{color:#ffe9a0}
+  .card .ico{font-size:clamp(28px,8vw,42px);line-height:1}
+  .card .nm{font-weight:800;font-size:clamp(12px,3.4vw,15px);margin:8px 0 5px;color:#ffd75e}
+  .card .ds{font-size:clamp(10px,2.9vw,12.5px);opacity:.8;line-height:1.32}
+
+  /* zaznaczenie kafelka padem (D-pad / drążek) — złota pixelowa obwódka */
+  /* BŁĘKITNA, nie złota: złote karty broni (.card.gold) w wymienniku miały złoty obrys
+     zaznaczenia i nie dało się poznać, która jest wybrana (test Piotra 18.09) */
+  .gp-sel{box-shadow:
+      inset 0 4px 0 0 rgba(255,255,255,.16), inset 0 -4px 0 0 rgba(0,0,0,.3),
+      -4px 0 0 0 #7ee7ff, 4px 0 0 0 #7ee7ff, 0 -4px 0 0 #7ee7ff, 0 4px 0 0 #7ee7ff,
+      0 0 18px 2px rgba(126,231,255,.6) !important;
+      transform:translateY(-5px)}
+
+  /* ====== telefon: POZIOM (niski ekran) — wszystko ciaśniej ====== */
+  @media (max-height:520px){
+    .ov{padding:6px;justify-content:flex-start;padding-top:8px}
+    .ov h1{font-size:26px;margin-bottom:2px}
+    .ov h2{font-size:16px;margin-bottom:6px}
+    .ov p{margin:2px 0;font-size:11.5px}
+    #tabs{margin:2px 0 8px}
+    .tab{padding:6px 12px}
+    .bigbtn{padding:9px 28px;font-size:16px}
+    .btn2{padding:6px 16px;font-size:13px;margin-top:6px}
+    #playCta{margin:2px 0 0}
+    #playCta .bigbtn{padding:10px 32px;font-size:18px;margin:2px 6px 6px}
+    #wybor{font-size:11px}
+    #startFoot{font-size:9.5px;line-height:1.4;margin:8px 0 2px}
+    .tile,.card{width:min(30vw,150px);padding:8px 7px}
+    .tile.bst{width:min(31vw,158px)}
+    .tile .ico,.card .ico{font-size:24px}
+    .grid,#cards,#swapList{gap:7px}
+    .stat{min-width:min(29vw,130px);padding:7px 6px}
+  }
+  /* ====== telefon: PION — pasek broni wyżej, przyciski większe ====== */
+  @media (max-width:520px){
+    #wpns{bottom:calc(150px + env(safe-area-inset-bottom,0px))}   /* nad przyciskiem skoku */
+    /* pauza PRZY CZASZKACH (prawa strona): translateX(-140px) od środka dawało przy
+       375 px [47..81] px, czyli 7×15 px na „POZIOM" i 14×13 px na „RANGA"; wariant
+       „na prawo od zegara" (+44 px) wchodził w rząd serc (top 42, do 8 serc = x 111..263).
+       Tu: x 269..303, między sercami a licznikiem czaszek (~323). */
+    /* (18.09, decyzja właściciela) PAUZA PO LEWEJ OD SERC, PEŁNY EKRAN PO PRAWEJ — oba
+       w rzędzie serc (top 40). Przy 375 px: serca do 8 szt. = x 111..263; pauza 73..107,
+       pełny ekran 267..301. Żeby zmieścić pauzę, pasek rangi jest krótszy (56 px),
+       a licznik zagrożenia schodzi pod przyciski (top 76). Reguły pozycji niżej,
+       w bloku PELNY EKRAN / PWA (tam są też env() na notch). */
+    #rangawrap{width:56px}
+    #tier{top:76px}
+    #bossHp{top:calc(96px + env(safe-area-inset-top,0px))}
+  }
+
+  /* ===== PELNY EKRAN / PWA =====
+     NOTCH: `viewport-fit=cover` + `apple-mobile-web-app-status-bar-style:black-translucent`
+     wpuszczają grę POD wycięcie i pasek stanu, więc górny pasek XP i cały rząd
+     liczników trafiały pod notch (telefon w poziomie: pod bok wycięcia).
+     Zamiast dopisywać `env()` do kilkunastu elementów HUD-u przesuwamy JEDEN
+     kontener: `#hud` ma `inset:0`, a dzieci są `position:absolute`, czyli liczą
+     się od jego KRAWĘDZI — wystarczy ją wciągnąć o bezpieczne marginesy.
+     DÓŁ ZOSTAJE NA 0 CELOWO: `#wpns` ma już własne `env(safe-area-inset-bottom)`
+     i podwójne liczenie podniosłoby pasek broni o ~34 px ponad zmierzone miejsce. */
+  #hud{top:env(safe-area-inset-top,0px);left:env(safe-area-inset-left,0px);
+      right:env(safe-area-inset-right,0px);bottom:0}
+  /* #pauseBtn jest `position:fixed` (poza #hud), więc bezpieczny margines bierze sam */
+  #pauseBtn{top:calc(18px + env(safe-area-inset-top,0px))}
+  /* Przycisk pełnego ekranu: DRUGI W KOLUMNIE pod pauzą, nie obok.
+     Obok się nie mieści — rząd serc (`#hearts`, top 42) sięga przy 375 px do x≈263,
+     a pauza stoi 269..303, czyli na lewo od pauzy jest już zajęte. Pod pauzą
+     (y 58..92) wolne: `#tier` zaczyna się dopiero ~x 313. */
+  /* pełny ekran PO PRAWEJ od serc, symetrycznie do pauzy (-140 px) po lewej */
+  #fsBtn{position:fixed;top:calc(18px + env(safe-area-inset-top,0px));left:50%;transform:translateX(106px);
+      z-index:7;width:34px;height:34px;border-radius:0;background:#2b3550;
+      display:none;align-items:center;justify-content:center;pointer-events:auto;cursor:pointer;
+      -webkit-tap-highlight-color:transparent;
+      box-shadow:-3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  #fsBtn:active{background:#39456b}
+  @media (pointer:coarse){ #fsBtn{display:flex} }
+  @media (max-width:520px){
+    /* telefon pionowo: pauza z lewej strony serc, pełny ekran z prawej, rząd serc (top 40) */
+    #pauseBtn{left:50%;right:auto;transform:translateX(-114px);top:calc(40px + env(safe-area-inset-top,0px))}
+    #fsBtn{left:50%;right:auto;transform:translateX(80px);top:calc(40px + env(safe-area-inset-top,0px))}
+  }
+  /* Ikona „pełny ekran" = CZTERY NAROŻNIKI. W `icons.js` nie ma nic pasującego,
+     a emoji odpadają (wymóg właściciela), więc rysujemy ją CSS-em: ramka z
+     `inset box-shadow` + dwie listwy w kolorze TŁA PRZYCISKU wycinające środki
+     boków. `background:inherit` w łańcuchu przycisk → .fsIco → ::before/::after
+     sprawia, że listwy same nadążają za zmianą tła (hover, :active). */
+  .fsIco{position:relative;display:inline-block;width:18px;height:18px;box-sizing:border-box;
+      background:inherit;box-shadow:inset 0 0 0 3px #dfe6f2;vertical-align:middle}
+  .fsIco::before{content:'';position:absolute;left:5px;right:5px;top:-1px;bottom:-1px;background:inherit}
+  .fsIco::after{content:'';position:absolute;top:5px;bottom:5px;left:-1px;right:-1px;background:inherit}
+  #fsBtn.on .fsIco{box-shadow:inset 0 0 0 3px #ffd75e}     /* w pełnym ekranie = złota */
+  /* przyciski ekranu w zakładce „Dźwięk i ekran" */
+  #ekranBox{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:10px}
+  #ekranBox .btn2{display:inline-flex;align-items:center;gap:8px}
+  #ekranBox .info{font-size:clamp(10px,2.8vw,12px);color:#9fd08a;max-width:420px;line-height:1.5}
+  /* wiersz „Język / Language" w zakładce „Dźwięk i ekran" */
+  #langBox{display:flex;flex-direction:column;align-items:center;gap:4px;margin-top:14px}
+  #langBox .snd{gap:8px}
+  #langBox .btn2{margin:0;padding:7px 16px;min-width:46px}
+  #langBox .btn2.sel{background:#4a3a14;color:#ffd75e;
+      box-shadow:
+        inset 0 4px 0 0 #6b5520, inset 0 -4px 0 0 #2a2008,
+        -4px 0 0 0 #ffd75e, 4px 0 0 0 #ffd75e, 0 -4px 0 0 #ffd75e, 0 4px 0 0 #ffd75e,
+        0 8px 0 0 #ffd75e, 0 8px 0 4px #ffd75e}
+  #langBox .info{font-size:clamp(10px,2.8vw,12px);color:#9fd08a;max-width:420px;line-height:1.5;margin-top:6px}
+  /* PODPOWIEDŹ DLA iPHONE'A pod przyciskiem GRAJ. Safari nie daje stronom
+     Fullscreen API — jedyny pełny ekran na iOS to ikona na ekranie początkowym.
+     Pokazywana RAZ (META.ui.pwaHint) i nigdy nie blokuje gry. */
+  #pwaHint{pointer-events:auto;display:none;align-items:center;gap:8px;margin:2px auto 10px;
+      max-width:min(88vw,430px);padding:8px 12px;background:rgba(20,28,44,.92);
+      font-size:clamp(10px,2.9vw,12.5px);line-height:1.45;color:#dfe6f2;text-align:left;
+      box-shadow:-3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  #pwaHint.on{display:flex}
+  #pwaHint b{color:#ffd75e}
+  #pwaHint .x{flex:0 0 auto;cursor:pointer;padding:0 4px;color:#9aa0a8;font-weight:800}
+
+  /* sterowanie dotykowe */
+  #stick{position:fixed;z-index:7;width:110px;height:110px;border-radius:0;background:rgba(255,255,255,.07);
+      display:none;pointer-events:none;
+      box-shadow:-4px 0 0 0 rgba(255,255,255,.3), 4px 0 0 0 rgba(255,255,255,.3),
+        0 -4px 0 0 rgba(255,255,255,.3), 0 4px 0 0 rgba(255,255,255,.3)}
+  #knob{position:absolute;left:50%;top:50%;width:46px;height:46px;border-radius:0;
+      background:rgba(255,255,255,.4);transform:translate(-50%,-50%);
+      box-shadow:-3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
+  /* przycisk skoku: duże pole dotyku, odsunięty od krawędzi (+ safe-area telefonów) */
+  #jbtn{position:fixed;
+      right:calc(38px + env(safe-area-inset-right,0px));
+      bottom:calc(52px + env(safe-area-inset-bottom,0px));
+      z-index:7;width:96px;height:96px;border-radius:0;
+      background:#2b3550;color:#dfe6f2;font-family:inherit;
+      font-size:15px;font-weight:700;display:none;align-items:center;justify-content:center;pointer-events:auto;
+      -webkit-tap-highlight-color:transparent;letter-spacing:0;
+      box-shadow:inset 0 4px 0 0 #46557a, inset 0 -4px 0 0 #1a2135,
+        -4px 0 0 0 #1b1b22, 4px 0 0 0 #1b1b22, 0 -4px 0 0 #1b1b22, 0 4px 0 0 #1b1b22}
+  /* niewidzialna otoczka = jeszcze większe pole trafienia bez powiększania grafiki */
+  /* hojna na boki i w dół (tam zbacza kciuk), ale WĄSKA OD GÓRY — nad skokiem stoi
+     teraz przycisk stawiania i przy -22 pola trafienia nachodziły się o 12 px */
+  #jbtn::after{content:'';position:absolute;inset:-4px -22px -22px -22px}
+  #jbtn:active{background:#39456b}
+  @media (pointer:coarse){ #jbtn{display:flex} #pauseBtn{display:flex} }
+  @media (pointer:coarse) and (max-height:520px){
+    #jbtn{width:82px;height:82px;font-size:14px;
+      right:calc(30px + env(safe-area-inset-right,0px));
+      bottom:calc(30px + env(safe-area-inset-bottom,0px))}
+  }
+  /* ================= PRZYCISK KARABINU =================
+     Widoczny DOPIERO po znalezieniu karabinu w skrzyni — i na KAŻDEJ platformie,
+     bo to jednocześnie przycisk dotykowy i podpowiedź klawisza dla gracza na PC. */
+  /* STOS AKCJI, od kciuka w górę: skok 52 → stawianie 166 → karabin 262.
+     Karabin najwyżej, bo wypada raz na bieg; stawianie w środku, bo idzie co ~5 s. */
+  #karabinBtn{position:fixed;
+      right:calc(38px + env(safe-area-inset-right,0px));
+      bottom:calc(272px + env(safe-area-inset-bottom,0px));
+      z-index:7;width:86px;height:86px;background:#3a2b18;color:#ffd75e;
+      font-family:inherit;font-size:10px;font-weight:700;letter-spacing:1px;
+      display:none;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+      pointer-events:auto;cursor:pointer;-webkit-tap-highlight-color:transparent;
+      box-shadow:inset 0 4px 0 0 #6b4f24, inset 0 -4px 0 0 #241a0e,
+        -4px 0 0 0 #1b1b22, 4px 0 0 0 #1b1b22, 0 -4px 0 0 #1b1b22, 0 4px 0 0 #1b1b22;
+      animation:karPuls .9s ease-in-out infinite}
+  #karabinBtn.on{display:flex}
+  /* otoczka WEZSZA niz przy skoku (-22): przyciski akcji stoja jeden nad drugim,
+     a przy -18 ich pola trafienia zachodzily na siebie o 26 px i palec trafial w zly */
+  #karabinBtn::after{content:'';position:absolute;inset:-8px}
+  #karabinBtn:active{background:#4d3a20}
+  #karabinBtn .kimg{width:38px;height:38px;background-size:contain;background-repeat:no-repeat;
+      background-position:center;image-rendering:pixelated}
+  #karabinBtn .klaw{background:#ffd75e;color:#241a0e;padding:0 4px;font-size:12px}
+  @keyframes karPuls{0%,100%{box-shadow:inset 0 4px 0 0 #6b4f24, inset 0 -4px 0 0 #241a0e,
+        -4px 0 0 0 #1b1b22, 4px 0 0 0 #1b1b22, 0 -4px 0 0 #1b1b22, 0 4px 0 0 #1b1b22}
+      50%{box-shadow:inset 0 4px 0 0 #6b4f24, inset 0 -4px 0 0 #241a0e,
+        -4px 0 0 0 #ffd75e, 4px 0 0 0 #ffd75e, 0 -4px 0 0 #ffd75e, 0 4px 0 0 #ffd75e}}
+  @media (max-height:520px){ #karabinBtn{width:70px;height:70px;
+      bottom:calc(220px + env(safe-area-inset-bottom,0px));
+      right:calc(30px + env(safe-area-inset-right,0px))} #karabinBtn .kimg{width:30px;height:30px} }
+  /* ================= PRZYCISK STAWIANIA (Sokowirówka) =================
+     STOS PRZYCISKÓW AKCJI w prawym dolnym rogu: skok najniżej (najczęściej używany,
+     najbliżej kciuka), nad nim stawianie (co ~5 s), na górze karabin (raz na bieg).
+     Ten sam styl co #karabinBtn, ale zimna paleta — żeby nie pomylić ich w ferworze. */
+  #stawBtn{position:fixed;
+      right:calc(38px + env(safe-area-inset-right,0px));
+      bottom:calc(166px + env(safe-area-inset-bottom,0px));
+      z-index:7;width:86px;height:86px;background:#1c3040;color:#7ee7ff;
+      font-family:inherit;font-size:10px;font-weight:700;letter-spacing:1px;
+      display:none;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+      pointer-events:auto;cursor:pointer;-webkit-tap-highlight-color:transparent;
+      box-shadow:inset 0 4px 0 0 #2f5670, inset 0 -4px 0 0 #101c26,
+        -4px 0 0 0 #1b1b22, 4px 0 0 0 #1b1b22, 0 -4px 0 0 #1b1b22, 0 4px 0 0 #1b1b22}
+  #stawBtn.on{display:flex}
+  #stawBtn::after{content:'';position:absolute;inset:-8px}
+  #stawBtn:active{background:#28455c}
+  /* GOTOWY = pulsująca ramka. Gracz sam decyduje, kiedy stawia, więc przycisk musi
+     krzyczeć — inaczej po prostu nigdy go nie wciśnie i broń będzie dla niego martwa. */
+  #stawBtn.gotowy{animation:stawPuls .9s ease-in-out infinite}
+  @keyframes stawPuls{0%,100%{box-shadow:inset 0 4px 0 0 #2f5670, inset 0 -4px 0 0 #101c26,
+        -4px 0 0 0 #1b1b22, 4px 0 0 0 #1b1b22, 0 -4px 0 0 #1b1b22, 0 4px 0 0 #1b1b22}
+      50%{box-shadow:inset 0 4px 0 0 #2f5670, inset 0 -4px 0 0 #101c26,
+        -4px 0 0 0 #7ee7ff, 4px 0 0 0 #7ee7ff, 0 -4px 0 0 #7ee7ff, 0 4px 0 0 #7ee7ff}}
+  /* PEŁNO = nie ma gdzie postawić (limit stojących naraz): przygaszony, bez pulsu */
+  #stawBtn.pelno{opacity:.5}
+  #stawBtn .kimg{width:34px;height:34px;background-size:contain;background-repeat:no-repeat;
+      background-position:center;image-rendering:pixelated}
+  #stawBtn .klaw{background:#7ee7ff;color:#101c26;padding:0 4px;font-size:12px}
+  /* ŁADUNKI: kwadratowe kropki, nie licznik — od razu widać ile masz */
+  #stawBtn .lad{display:flex;gap:3px;height:8px}
+  #stawBtn .lad i{width:8px;height:8px;display:block;background:#7ee7ff;
+      box-shadow:-2px 0 0 0 #101c26, 2px 0 0 0 #101c26, 0 -2px 0 0 #101c26, 0 2px 0 0 #101c26}
+  #stawBtn .lad i.off{background:#33485a}
+  /* pasek ładowania: TWARDE bloki (repeating-gradient), nie gładki gradient */
+  #stawBtn .pas{position:absolute;left:5px;right:5px;bottom:5px;height:5px;background:#101c26}
+  #stawBtn .pas b{display:block;height:100%;width:0%;
+      background:repeating-linear-gradient(90deg,#7ee7ff 0 4px,transparent 4px 6px)}
+  @media (max-height:520px){ #stawBtn{width:70px;height:70px;
+      bottom:calc(130px + env(safe-area-inset-bottom,0px));
+      right:calc(30px + env(safe-area-inset-right,0px))} #stawBtn .kimg{width:28px;height:28px} }
+</style>
+<!-- ================= SKÓRA „WARZYWNIAK NONNY" (etap 3) =================
+     CELOWO PO </style>, NIE PRZED NIM: stare reguły menu/HUD zostają w <style>
+     (nie kasujemy ich, żeby dwie równoległe przebudowy sobie nie weszły w drogę),
+     a przy RÓWNEJ specyficzności wygrywa arkusz późniejszy w dokumencie. Gdyby
+     <link> stał w <head> nad <style>, każda stara reguła `.bigbtn` biłaby nową.
+     Kolejność między plikami: tokeny → menu → HUD (HUD dokłada drugi agent). -->
+<link rel="stylesheet" href="ui-base.css?v=1">
+<link rel="stylesheet" href="ui-menu.css?v=2">
+<link rel="stylesheet" href="ui-hud.css?v=4">
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<!-- ekran ładowania (widoczny do czasu wczytania arkuszy i zbudowania świata) -->
+<div id="loadOv">
+  <img id="loadLogo" class="pxi" src="assets/logo.png" alt="VEGGIE FAMIGLIA">
+  <div id="loadBarWrap"><div id="loadBar"></div></div>
+  <div id="loadTxt" data-pl="Krojenie warzyw…" data-en="Chopping the vegetables…">Krojenie warzyw…</div>
+  <div id="loadTip"></div>
+</div>
+
+<div id="hud">
+  <div id="xpwrap"><div id="xpbar"></div></div>
+  <div id="lvl" data-pl="POZIOM 1" data-en="LEVEL 1">POZIOM 1</div>
+  <div id="ranga" data-pl="RANGA 0" data-en="RANK 0">RANGA 0</div>
+  <div id="rangawrap"><div id="rangabar"></div></div>
+  <div id="timer">0:00</div>
+  <div id="kills"></div>
+  <div id="coins"></div>
+  <div id="tier"></div>
+  <div id="hearts"></div>
+  <div id="buff"></div>
+  <div id="wpns"></div>
+  <div id="wArrow"><div class="ar"></div><div class="dist">0 m</div></div>
+</div>
+<div id="vign"></div>
+<div id="bossOv"></div>
+<div id="bossNm"></div>
+<div id="bossHp"><div class="bn"></div><div class="bw"><div class="bf"></div></div><div class="bl"></div></div>
+<div id="fpsView">
+  <div id="gunWrap"><div id="gunPix"></div><div id="gunFlash"></div></div>
+  <div id="fpsCross"></div>
+  <div id="fpsHud"><div class="fpsT">20</div><div class="fpsL"></div></div>
+</div>
+<div id="fpsFlash"></div>
+<div id="stick"><div id="knob"></div></div>
+<div id="jbtn" data-pl="SKOK" data-en="JUMP">SKOK</div>
+<div id="karabinBtn"><div class="kimg"></div><div data-pl="KARABIN" data-en="RIFLE">KARABIN</div><div class="klaw">R</div></div>
+<div id="stawBtn"><div class="kimg"></div><div class="lad"></div><div class="klaw">F</div><div class="pas"><b></b></div></div>
+<div id="pauseBtn"></div>
+<!-- przełącznik pełnego ekranu w biegu — widoczny TYLKO na dotyku (CSS: pointer:coarse) -->
+<div id="fsBtn" title="Pełny ekran" data-pl="Pełny ekran" data-en="Fullscreen" data-attr="title"><i class="fsIco"></i></div>
+<!-- podpowiedzi pada: rząd w biegu (#padHud) i stopka w overlayach (#padFoot).
+     Treść wypełnia main.js (padHudOdswiez / padFootOdswiez) — pokazują się TYLKO
+     przy żywym padzie, gasną po 4 s bez wejścia albo po ruchu myszy/klawiatury. -->
+<div id="padHud"></div>
+<div id="padFoot"></div>
+
+<!-- ================= MENU GŁÓWNE =================
+     HIERARCHIA (życzenie właściciela): logo → jeden duży GRAJ → drugorzędny rząd
+     wejść do paneli → drobne informacje na dole. #btnStart i podsumowanie wyboru
+     mapy/postaci NIE są już w panelu "p-graj" — siedzą tu, nad zakładkami, więc są
+     widoczne zawsze, niezależnie od tego, który panel jest otwarty. Zakładka "Graj"
+     zostaje w DOM (ukryta CSS-em) — main.js/gamepad (gpBack) nadal jej używają, żeby
+     wrócić do stanu domyślnego; #p-graj też zostaje w DOM (pusty), bo main.js robi
+     document.getElementById('p-'+tab).classList.add('on') bez sprawdzania istnienia. -->
+<div id="startOv" class="ov">
+  <img id="logo" class="pxi" src="assets/logo.png" alt="VEGGIE FAMIGLIA — Brainrot Survivors">
+
+  <!-- ================= UKŁAD „JAK W MEGABONKU" (decyzja właściciela 18.09) =================
+       JEDEN EKRAN: pasek ikon po lewej, scenka z postacią na wprost, panel po prawej.
+       DLACZEGO OSOBNY #menuUklad, A NIE SIATKA NA #startOv: main.js ustawia
+       `menu.style.display='flex'` INLINE (powrót z ekranu KONIEC i po komiksie),
+       a styl inline bije każdy arkusz — `display:grid` na #startOv żyłoby do
+       pierwszego powrotu z biegu. Siatka siedzi więc w dziecku.
+       KOLEJNOŚĆ W DOM: scenka (z GRAJ) PRZED paskiem zakładek, bo pad bierze
+       `navItems()[0]` jako domyślne zaznaczenie i ma nim być GRAJ. Wizualnie
+       pasek i tak stoi po lewej — ustawia go `grid-column`, nie kolejność. -->
+  <div id="menuUklad">
+
+  <!-- SCENKA: portret na ladzie warzywniaka + kredowa tabliczka z opisem -->
+  <div id="heroStage">
+    <div id="heroScena">
+      <div id="heroBox">
+        <!-- src ustawia renderPick(): render 420 px, a gdy go nie ma — klatka ze sprite'a -->
+        <img id="heroPortret" class="pxi" alt="">
+        <div id="heroLada"></div>
+      </div>
+      <!-- kredowa tabliczka: imię, opis i cztery statystyki (dane z CHARS w main.js) -->
+      <div id="heroTab">
+        <div id="heroNm"></div>
+        <div id="heroDs"></div>
+        <div id="heroStat"></div>
+      </div>
+    </div>
+
+  <div id="playCta">
+    <!-- wiersz „Mapa: Łąki" jako tabliczka nad przyciskiem (treść z renderPick) -->
+    <div id="heroMapa"></div>
+    <button class="bigbtn" id="btnStart" data-pl="GRAJ" data-en="PLAY">GRAJ</button>
+    <!-- etykiety w osobnych <span>: `#wybor` NIE może dostać data-pl, bo zastosujJezyk()
+         nadpisuje innerHTML i skasowałoby <b id="selMapNm"> / <b id="selCharNm"> -->
+    <p id="wybor"><span data-pl="Mapa:" data-en="Map:">Mapa:</span> <b id="selMapNm">Łąki</b>
+       · <span data-pl="Postać:" data-en="Character:">Postać:</span> <b id="selCharNm">Kasia</b></p>
+    <!-- FABUŁA i KAWA w jednym rzędzie (kolumna dokładała ~45 px nad zakładkami na niskich telefonach) -->
+    <div id="ctaRow">
+      <!-- komiks wprowadzający na żądanie (przy pierwszym uruchomieniu leci sam) -->
+      <a id="fabulaBtn" class="btn2" href="#" data-pl="FABUŁA" data-en="STORY">FABUŁA</a>
+      <!-- link „postaw kawę" — adres ustawia main.js (KAWA_URL); bez adresu ukryty -->
+      <a id="kawaBtn" class="btn2" href="#" target="_blank" rel="noopener" style="display:none"
+         data-pl="POSTAW MI KAWĘ" data-en="BUY ME A COFFEE">POSTAW MI KAWĘ</a>
+    </div>
+    <!-- podpowiedź dla iPhone'a (pokazuje main.js raz — META.ui.pwaHint) -->
+    <div id="pwaHint">
+      <span data-pl="Pełny ekran na iPhone: <b>Udostępnij</b> → <b>Dodaj do ekranu początkowego</b>."
+            data-en="Fullscreen on iPhone: <b>Share</b> → <b>Add to Home Screen</b>.">Pełny ekran na iPhone: <b>Udostępnij</b> → <b>Dodaj do ekranu początkowego</b>.</span>
+      <span class="x" id="pwaHintX">X</span>
+    </div>
+  </div>
+  </div><!-- /#heroStage -->
+
+  <!-- PASEK IKON: pionowo po lewej (desktop, telefon w poziomie), poziomo na dole
+       na telefonie w pionie. Zakładki „Dźwięk" i „Sterowanie" scalone w JEDNE
+       USTAWIENIA (decyzja właściciela: dźwięk, ekran, język i sterowanie razem). -->
+  <div id="tabs">
+    <div class="tab sel" data-tab="graj" data-ico="play" data-pl="Graj" data-en="Play">Graj</div>
+
+    <div class="tab" data-tab="postacie" data-ico="postac" data-pl="Postacie" data-en="Heroes">Postacie</div>
+    <div class="tab" data-tab="mapy" data-ico="mapa" data-pl="Mapy" data-en="Maps">Mapy</div>
+    <div class="tab" data-tab="sklep" data-ico="sklep" data-pl="Sklep" data-en="Shop">Sklep</div>
+    <div class="tab" data-tab="bestia" data-ico="czaszka" data-pl="Bestiariusz" data-en="Bestiary">Bestiariusz</div>
+    <div class="tab" data-tab="staty" data-ico="wykres" data-pl="Statystyki" data-en="Stats">Statystyki</div>
+    <div class="tab" data-tab="ustawienia" data-ico="glosnik" data-pl="Ustawienia" data-en="Settings">Ustawienia</div>
+  </div>
+
+  <!-- PRAWA KOLUMNA: panele jako kredowe tablice obok scenki (desktop) albo
+       zasłaniające ją (telefon). Pokazuje ją klasa `panel-open` na #startOv,
+       którą dokłada handler zakładek w main.js — dzięki temu zamknięty panel
+       ma szerokość 0 i scenka stoi na środku ekranu. -->
+  <div id="panele">
+    <!-- WRÓĆ: jeden przycisk dla WSZYSTKICH paneli (zamiast dokładania go do
+         każdego z osobna); klika ukrytą zakładkę „graj", czyli robi dokładnie to
+         samo co B na padzie. Widoczny tylko na telefonie — na desktopie panel
+         stoi obok scenki i nie ma z czego wracać. -->
+    <button class="btn2" id="panelBack" data-pl="WRÓĆ" data-en="BACK">WRÓĆ</button>
+
+  <div class="panel on" id="p-graj"></div>
+
+  <div class="panel" id="p-mapy"><h2 data-pl="MAPY" data-en="MAPS">MAPY</h2><div class="grid" id="mapGrid"></div></div>
+  <div class="panel" id="p-postacie"><h2 data-pl="POSTACIE" data-en="HEROES">POSTACIE</h2><div class="grid" id="charGrid"></div></div>
+  <div class="panel" id="p-bestia">
+    <h2 data-pl="BESTIARIUSZ" data-en="BESTIARY">BESTIARIUSZ</h2>
+    <p class="lore" data-pl="Osiedle Grządkowo żyło spokojnie, aż przyjechała La Famiglia Snackoni — mafia przekąsek Dona Chipso. Plan: sól, cukier i automat w miejscu warzywniaka. Warzywa na to: „nie na moim osiedlu”. Broń: witaminy." data-en="the Blockyard was quiet until La Famiglia Snackoni rolled in — Don Chipso’s snack mafia. The plan: salt, sugar and a vending machine where the veggie stand stood. The vegetables said “not on my block.” Weapon: vitamins.">Osiedle Grządkowo żyło spokojnie, aż przyjechała La Famiglia Snackoni — mafia przekąsek Dona Chipso. Plan: sól, cukier i automat w miejscu warzywniaka. Warzywa na to: „nie na moim osiedlu”. Broń: witaminy.</p>
+    <p><span data-pl="Encyklopedia hordy. Wpis odblokowuje się po PIERWSZYM zabiciu danego typu. Odkryto:"
+             data-en="An encyclopedia of the horde. An entry unlocks the FIRST time you kill that type. Discovered:">Encyklopedia hordy. Wpis odblokowuje się po PIERWSZYM zabiciu danego typu.
+       Odkryto:</span> <b id="bestProg">0/0</b></p>
+    <div class="grid" id="bestGrid"></div>
+  </div>
+  <div class="panel" id="p-sklep">
+    <h2 data-pl="SKLEP" data-en="SHOP">SKLEP</h2>
+    <p><span data-pl="Monety zbierasz w biegach — zostają po śmierci. Masz:"
+             data-en="You earn coins in runs — they survive your death. You have:">Monety zbierasz w biegach — zostają po śmierci. Masz:</span> <b id="shopCoins">0</b></p>
+    <div id="kodBox">
+      <input id="kodInput" type="text" placeholder="wpisz kod" autocomplete="off" spellcheck="false" maxlength="24"
+             data-pl="wpisz kod" data-en="enter a code" data-attr="placeholder">
+      <button class="btn2" id="kodBtn" data-pl="UŻYJ KODU" data-en="USE CODE">UŻYJ KODU</button>
+      <div id="kodInfo"></div>
+    </div>
+    <div class="grid" id="shopItems"></div>
+  </div>
+  <!-- ================= USTAWIENIA (jeden panel na wszystko) =================
+       Właściciel 18.09: „dźwięk, ekran, sterowanie, język RAZEM". Dawne panele
+       `#p-dzwiek` i `#p-sterowanie` zostały scalone TUTAJ — markup przeniesiony
+       bez zmian, WSZYSTKIE id zostają (#sndBox, #volMuz…, #langBox, #ekranBox,
+       #ctrlBox), bo wiszą na nich audio.js, initEkranUI i renderSterowanie. -->
+  <div class="panel" id="p-ustawienia">
+    <h2 data-pl="USTAWIENIA" data-en="SETTINGS">USTAWIENIA</h2>
+
+    <h3 class="sekcja" data-pl="DŹWIĘK" data-en="SOUND">DŹWIĘK</h3>
+    <p data-pl="Muzyka rusza po pierwszym kliknięciu — tak wymagają przeglądarki. W menu gra motyw główny, w biegu utwór losowany, przy bossie osobny kawałek. Efekty są generowane na żywo (nie ważą nic), więc bez obaw o pakiet."
+       data-en="Music starts on your first click — browsers insist on it. The menu plays the main theme, a run gets a random track, the boss gets his own. Effects are generated live (they weigh nothing), so no worries about your data.">Muzyka rusza po pierwszym kliknięciu — tak wymagają przeglądarki.
+       W menu gra motyw główny, w biegu utwór losowany, przy bossie osobny kawałek.
+       Efekty są generowane na żywo (nie ważą nic), więc bez obaw o pakiet.</p>
+    <div id="sndBox">
+      <div class="snd"><label id="etyMuz" for="volMuz" data-pl="Muzyka" data-en="Music">Muzyka</label>
+        <input id="volMuz" type="range" min="0" max="100" step="1" value="15"><b id="volMuzV">15%</b></div>
+      <div class="snd"><label id="etyGlos" for="volGlos" data-pl="Głosy postaci" data-en="Character voices">Głosy postaci</label>
+        <input id="volGlos" type="range" min="0" max="100" step="1" value="90"><b id="volGlosV">90%</b></div>
+      <div class="snd"><label id="etyEfe" for="volEfe" data-pl="Efekty" data-en="Effects">Efekty</label>
+        <input id="volEfe" type="range" min="0" max="100" step="1" value="70"><b id="volEfeV">70%</b></div>
+      <button class="btn2" id="btnMute" data-pl="WYCISZ WSZYSTKO" data-en="MUTE EVERYTHING">WYCISZ WSZYSTKO</button>
+    </div>
+    <!-- JĘZYK — ten sam przełącznik co w prawym górnym rogu menu (main.js spina
+         oba zestawy przycisków w `initJezykUI`). Zmiana przeładowuje stronę. -->
+    <h3 class="sekcja" data-pl="JĘZYK" data-en="LANGUAGE">JĘZYK</h3>
+    <div id="langBox">
+      <div class="snd"><label data-pl="Język / Language" data-en="Language / Język">Język / Language</label>
+        <button class="btn2" id="langPl2">PL</button><button class="btn2" id="langEn2">EN</button></div>
+      <div class="info" data-pl="Głosy postaci zostają po polsku — to część klimatu."
+           data-en="Character voices stay in Polish — that is part of the flavour.">Głosy postaci zostają po polsku — to część klimatu.</div>
+    </div>
+    <!-- EKRAN. `#btnInstall` jest ukryty do czasu `beforeinstallprompt` (tylko
+         Chrome/Android; iOS i desktop go nie wysyłają), a `#btnFs` znika tam,
+         gdzie Fullscreen API nie istnieje — main.js decyduje, nie CSS. -->
+    <h3 class="sekcja" data-pl="EKRAN" data-en="SCREEN">EKRAN</h3>
+    <div id="ekranBox">
+      <button class="btn2" id="btnFs"><i class="fsIco"></i><span data-pl="PEŁNY EKRAN" data-en="FULLSCREEN">PEŁNY EKRAN</span></button>
+      <button class="btn2" id="btnInstall" style="display:none" data-pl="ZAINSTALUJ GRĘ" data-en="INSTALL THE GAME">ZAINSTALUJ GRĘ</button>
+      <div class="info" id="ekranInfo"
+           data-pl="Na telefonie pełny ekran włącza się też sam po dotknięciu GRAJ."
+           data-en="On a phone, fullscreen also kicks in by itself when you tap PLAY.">Na telefonie pełny ekran włącza się też sam po dotknięciu GRAJ.</div>
+    </div>
+
+    <!-- STEROWANIE: rzędy generuje main.js (renderSterowanie), bo glify muszą się
+         przerysować po podłączeniu pada innej rodziny i po każdej zmianie mapowania.
+         Cała reszta instrukcji sterowania (klawiatura, dotyk) też jest tutaj —
+         `#startFoot` skrócony do jednej linii właśnie dlatego. -->
+    <h3 class="sekcja" data-pl="STEROWANIE" data-en="CONTROLS">STEROWANIE</h3>
+    <p data-pl="Klawiatura: <b>WASD</b> ruch · <b>SPACJA</b> skok · <b>Q/E</b> obrót kamery · <b>ESC</b> pauza.<br>Telefon: lewa połowa ekranu = joystick, prawa = obrót kamery, skok przyciskiem po prawej.<br>Podpowiedzi pada same dopasują się do jego rodziny (Xbox, PlayStation, Switch, Steam Deck)."
+       data-en="Keyboard: <b>WASD</b> move · <b>SPACE</b> jump · <b>Q/E</b> turn the camera · <b>ESC</b> pause.<br>Phone: left half of the screen = joystick, right half = camera, jump with the button on the right.<br>Pad prompts match your pad family by themselves (Xbox, PlayStation, Switch, Steam Deck).">Klawiatura: <b>WASD</b> ruch · <b>SPACJA</b> skok · <b>Q/E</b> obrót kamery · <b>ESC</b> pauza.<br>
+       Telefon: lewa połowa ekranu = joystick, prawa = obrót kamery, skok przyciskiem po prawej.<br>
+       Podpowiedzi pada same dopasują się do jego rodziny (Xbox, PlayStation, Switch, Steam Deck).</p>
+    <div id="ctrlBox"></div>
+  </div>
+  <div class="panel" id="p-staty"><h2 data-pl="STATYSTYKI" data-en="STATS">STATYSTYKI</h2><div id="statsList"></div></div>
+  </div><!-- /#panele -->
+  </div><!-- /#menuUklad -->
+
+  <!-- PL | EN — obsługa w main.js (ustawJezyk); klasa `sel` na aktywnym języku.
+       CELOWO NA KOŃCU #startOv, mimo że wizualnie siedzi w prawym górnym rogu
+       (position:absolute): pad bierze `navItems()[0]` jako domyślne zaznaczenie,
+       a tym ma być GRAJ, nie przełącznik języka. Ruch padem jest geometryczny,
+       więc kolejność w DOM nie psuje nawigacji D-padem. -->
+  <div id="langSw"><button class="btn2" id="langPl">PL</button><button class="btn2" id="langEn">EN</button></div>
+
+  <!-- JEDNA LINIA: pełna instrukcja sterowania przeniosła się do zakładki
+       USTAWIENIA (sekcja STEROWANIE), a czterowierszowa stopka zjadała na
+       telefonie miejsce potrzebne scence i paskowi ikon. -->
+  <p id="startFoot"
+     data-pl="<b>WASD</b> ruch · <b>SPACJA</b> skok · <b>ESC</b> pauza · reszta w <b>Ustawieniach</b>"
+     data-en="<b>WASD</b> move · <b>SPACE</b> jump · <b>ESC</b> pause · the rest is in <b>Settings</b>"><b>WASD</b> ruch · <b>SPACJA</b> skok · <b>ESC</b> pauza · reszta w <b>Ustawieniach</b></p>
+</div>
+
+<!-- ================= EKRANY W GRZE ================= -->
+<div id="cardsOv" class="ov">
+  <h2 data-pl="AWANS! Wybierz ulepszenie" data-en="LEVEL UP! Pick an upgrade">AWANS! Wybierz ulepszenie</h2>
+  <div id="cards"></div>
+</div>
+
+<div id="swapOv" class="ov">
+  <!-- tekst nagłówka nadpisuje main.js (openSwap / openNewWeapon) przez T() -->
+  <h2 id="swapTitle" data-pl="WYMIENNIK!" data-en="SWAP TIME!">WYMIENNIK!</h2>
+  <div id="swapList"></div>
+</div>
+
+<div id="pauseOv" class="ov">
+  <h2 data-pl="PAUZA" data-en="PAUSED">PAUZA</h2>
+  <div id="pauseStats" style="margin-bottom:10px"></div>
+  <button class="bigbtn" id="btnResume" data-pl="WRACAM" data-en="BACK IN">WRACAM</button>
+  <button class="btn2" id="btnQuit" data-pl="Do menu (kończy bieg)" data-en="To menu (ends the run)">Do menu (kończy bieg)</button>
+</div>
+
+<div id="overOv" class="ov">
+  <h1 data-pl="KONIEC" data-en="GAME OVER">KONIEC</h1>
+  <p id="overStats"></p>
+  <button class="bigbtn" id="btnRetry" data-pl="JESZCZE RAZ" data-en="ONE MORE">JESZCZE RAZ</button>
+  <button class="btn2" id="btnMenu" data-pl="Menu" data-en="Menu">Menu</button>
+</div>
+
+<!-- KOMIKS WPROWADZAJĄCY — treść (plansze, podpisy, kropki) wypełnia komiks.js.
+     Stoi jako OSTATNI overlay w DOM, bo topOverlay() bierze ostatni widoczny `.ov`:
+     komiks odpalony z menu musi przebić #startOv, inaczej pad sterowałby menu pod spodem.
+     Podpisy są ustawiane z JS przez T() — świadomie BEZ data-pl/data-en, żeby
+     zastosujJezyk() nie nadpisało napisu „GRAJMY!" na ostatniej planszy. -->
+<div id="komiksOv" class="ov">
+  <div id="komiksRama">
+    <canvas id="komiksCv" width="640" height="360"></canvas>
+    <img id="komiksImg" alt="">
+  </div>
+  <div id="komiksPodpis"></div>
+  <div id="komiksKropki"></div>
+  <div id="komiksBtns">
+    <button class="bigbtn" id="komiksDalej">DALEJ</button>
+    <button class="btn2" id="komiksPomin">POMIŃ</button>
+  </div>
+</div>
+
+<script>
+  // Łapacz błędów TYLKO lokalnie (ta sama zasada co flaga DEV w main.js): tablica
+  // rosła bez granic, a scenariusze `tester-gry` chodzą po localhoście, więc nic nie tracą.
+  // Ten sam warunek co flaga DEV w main.js — PORT, nie sama nazwa hosta.
+  // Capacitor serwuje z localhost BEZ portu, a Electron z file:// (hostname ''),
+  // wiec poprzednia wersja wlaczala lapacz dokladnie w wydaniach.
+  if (location.search.indexOf('dev=1') >= 0
+      || ((location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+          && location.port === '8123')) {
+    window.__err = [];
+    addEventListener('error', e => window.__err.push(String(e.message) + ' @ ' + (e.filename || '') + ':' + e.lineno));
+    addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
+  }
+</script>
+<script type="module" src="main.js?v=192"></script>
+</body>
+</html>

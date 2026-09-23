@@ -1,0 +1,31 @@
+Stylized Nature MegaKit — Quaternius
+====================================
+
+Autor:    Quaternius  (https://quaternius.com/ , https://www.patreon.com/quaternius)
+Licencja: CC0 1.0 Universal (Public Domain Dedication)
+          https://creativecommons.org/publicdomain/zero/1.0/
+
+CC0 nie wymaga podawania autora ani licencji. Wpisujemy je tutaj z uprzejmości
+i żeby było wiadomo, skąd pliki pochodzą.
+
+Skąd pobrane (19.09.2026):
+  https://opengameart.org/content/stylized-nature-megakit
+  plik: https://opengameart.org/sites/default/files/stylized_nature_megakitstandard.zip
+        (99,3 MB — wersja „Standard": FBX + OBJ + glTF + Textures, 459 plików)
+
+Strony pakietu:
+  https://quaternius.com/packs/stylizednaturemegakit.html
+  https://quaternius.itch.io/stylized-nature-megakit
+  https://poly.pizza/bundle/Stylized-Nature-MegaKit-T34GZFA0fm
+  https://opengameart.org/content/stylized-nature-megakit
+
+Co zostało zmienione względem oryginału (szczegóły w README.txt):
+  * wybrano 31 z 68 modeli pakietu (tylko krzewy, rośliny, kamienie, kwiaty, grzyb),
+  * pliki .gltf + .bin przepakowano do .glb (geometria bez zmian, bit w bit),
+  * tekstury zmniejszono do 512x512, przezroczyste obszary wypełniono kolorem
+    najbliższego nieprzezroczystego piksela i usunięto kanał alfa,
+  * dodano jeden wariant „Bush_Common_Zielony": ta sama geometria co Bush_Common,
+    ale na białej (przeznaczonej do barwienia) wersji atlasu Leaves_TwistedTree.png
+    z zielonym baseColorFactor.
+
+Efekt tych zmian też jest CC0 — rób z nim, co chcesz.
