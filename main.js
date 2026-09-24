@@ -2,7 +2,7 @@
 import * as THREE from './lib/three.module.js';
 import { SPRITEDATA } from './spritedata.js?v=11';
 import { icon, ico } from './icons.js?v=6';
-import { AUDIO } from './audio.js?v=5';            // muzyka wg fazy gry + kwestie głosowe + efekty
+import { AUDIO } from './audio.js?v=6';            // muzyka wg fazy gry + kwestie głosowe + efekty
 import { initKomiks, pokazKomiks } from './komiks.js?v=1';   // komiks wprowadzający (Etap 2)
 import { generujSzkielet, siatkaGalezi, RNG } from './lib/drzewa-szkielet.js?v=2';
 import { wczytajModeleNatury } from './lib/modele-natura.js?v=2';
@@ -90,8 +90,8 @@ const CHARS = {
   // bieg 2 ≈ 150, bieg 3 ≈ 250 → łącznie ~460. Nagroda ma przyjść, GDY GRACZ
   // JESZCZE NIE WIE, czy zostaje — nie po ośmiu biegach.
   beetino:    { nm: 'Beetino Bouncerino',
-                ds: T('Buraczino Betonino — czołg z bramki. Poniżej połowy serc bije mocniej i wysysa życie.',
-                      'The beetroot bouncer — a tank on the door. Below half hearts he hits harder and drains life.'),
+                ds: T('Buraczino Betonino — czołg z bramki. Poniżej połowy serc wysysa życie.',
+                      'The beetroot bouncer — a tank on the door. Below half hearts he drains life.'),
                 char: 'beetino_bouncerino', price: 0, killGoal: 450, startWpn: 'wypad',
                 spd: 0.85, hp: 3, dmg: 1.1, mag: 0.9, scale: 1.32 },
   // Statystyki wprost z biblii postaci (HP 110 · Speed 0.9 · Might 1.0 · Pickup 1.1).
@@ -491,6 +491,7 @@ addEventListener('resize', () => {
   applyResolution();
   fitCamera();
   if (typeof przeliczWylot === 'function') przeliczWylot();   // wylot lufy zmienia miejsce z rozmiarem okna
+  if (G.running) drawHearts();                     // obrót telefonu zmienia pas serc (pasSerc)
 });
 addEventListener('orientationchange', () => setTimeout(fitCamera, 250));
 
@@ -3462,7 +3463,8 @@ function loadMeta() {
     chars: { carrotello: 1 }, lastChar: 'carrotello', lastMap: 'laki',
     // `chests` = złote skrzynie z bronią, `skrzynki` = zwykłe (od nich zależy
     // wyreżyserowana sekwencja pierwszych sześciu nagród)
-    st: { kills: 0, runs: 0, time: 0, best: 0, bestKills: 0, bosses: 0, coins: 0, chests: 0, skrzynki: 0, lvl: 0 },
+    st: { kills: 0, runs: 0, time: 0, best: 0, bestKills: 0, bosses: 0, coins: 0, chests: 0, skrzynki: 0, lvl: 0,
+          kaprale: 0, wins: 0, donReached: 0 },     // E1-bieg K7/K8 (spec §9.5)
     bestiary: {},                                  // typ wroga -> ile razy zabity (bestiariusz)
     audio: { muz: 0.15, glos: 0.9, efe: 0.7, mute: 0 },   // głośności i wyciszenie (zakładka Dźwięk)
     // KONTROLER (zakładka Sterowanie). `map` trzyma INDEKSY przycisków w układzie
@@ -3834,6 +3836,9 @@ const G = {
   dmgBron: {}, maxHit: { dmg: 0, zr: '', crit: false },   // E1-bieg: obrażenia per źródło (zadajDmg)
   obrazeniaOd: {}, ostatniCios: null,              // E1-bieg K3: obrażenia GRACZA per źródło (ranGracza)
   zdarzenia: [], probki: [],                       // E1-bieg: log zdarzeń Wieczoru, próbki DEV co 10 s
+  // E1-bieg K7/K8: telegrafy na ziemi, Skrzynie Kaprala, pociski i lawina Dona, cisza, walka, zwycięstwo
+  telegrafy: [], skrzynieKap: [], donPoc: [], lawina: [], kaprale: 0,
+  cisza: false, donStart: null, wygrana: null, kinoMn: 0.55,
   tlok: 0,                                        // 0-1: jak gesto jest wokol gracza (kamera odjezdza)
   kino: 0,                                         // s pozostalej oprawy filmowej (wejscie bossa)
   vacuum: 0, buff: { key: null, t: 0 },
@@ -3862,6 +3867,7 @@ function resetStats() {
     gliding: false, runGlide: false, karabinRun: false, karabinMa: false,
     sokoPierwszy: false,                             // komunikat o klawiszu F raz na bieg
     smrodT: 0, smrodCd: 0, smrodTik: 0,              // aktywna aura Garlicina (klawisz G)
+    zasolT: 0,                                       // E1-bieg K8: „zasolenie" po Salt Storm (×0,8 prędkości)
     vx: 0, vz: 0,
     kbx: 0, kbz: 0,                                  // odrzut gracza (tarcza Lolliniego), gaśnie sam
     coyoteT: 0, jumpBufT: 0,                         // coyote time i bufor skoku (patrz tryJump)
@@ -3913,11 +3919,12 @@ function sprawdzRange() {
 const xpDoNast = l => Math.round(5 + 2.5 * l + 0.70 * l * l + 0.025 * l * l * l);
 
 // BURACZANE CIŚNIENIE (pasyw Beetina z biblii, wdrożony 18.09 na zgłoszenie właściciela
-// „burak prawie nieużywalny"): poniżej połowy serc +20% obrażeń i wysysanie życia
-// (10% zadanych obrażeń → serca, patrz zadajDmg). Tank ma być groźniejszy, gdy krwawi.
+// „burak prawie nieużywalny"): poniżej połowy serc wysysanie życia (10% zadanych obrażeń →
+// serca, patrz zadajDmg). BALANS 24.09 (decyzja właściciela „Beetino nadal za mocny"): bez +20%
+// obrażeń poniżej połowy HP — zostaje samo leczenie, i to co 5 s zamiast co 3 s.
 const cisnienie = () => charKey === 'beetino' && P.hp > 0 && P.hp <= P.maxHp * 0.5;
-const BEET_LECZ_CD = 3.0;                         // s między sercami z wysysania (nerf 23.09)
-const dmgAll  = () => CHARS[charKey].dmg * (1 + 0.10 * META.up.dmg) * Math.pow(1.15, P.passives.moc || 0) * (1 + 0.03 * (P.repeat.sol || 0)) * (G.buff.key === 'dmg' ? 2 : 1) * rangaDmg() * (cisnienie() ? 1.20 : 1);   // 1.25 → 1.20 (nerf 18.09)
+const BEET_LECZ_CD = 5.0;                         // s między sercami z wysysania (nerf 23.09: 3 s, 24.09: 5 s)
+const dmgAll  = () => CHARS[charKey].dmg * (1 + 0.10 * META.up.dmg) * Math.pow(1.15, P.passives.moc || 0) * (1 + 0.03 * (P.repeat.sol || 0)) * (G.buff.key === 'dmg' ? 2 : 1) * rangaDmg();   // Ciśnienie Beetina bez bonusu obrażeń (24.09; było 1.25 → 1.20)
 const fireMul = () => Math.pow(1.12, P.passives.tempo || 0) * (1 + 0.03 * (P.repeat.oliwa || 0)) * rangaFire();
 // clamp 0.75: pasyw daje najwyżej 0.50, ale „Pieprz Nonny” jest bez limitu i bez
 // tego setny poziom oznaczałby krytyk na 100% (crit ×3 przestaje być zdarzeniem).
@@ -4722,9 +4729,10 @@ const pasy = on => { if (_pasyEl) _pasyEl.style.opacity = on ? 1 : 0; };
 const winieta = on => { if (_winietaEl) _winietaEl.style.opacity = on ? 1 : 0; };
 
 function wejscieBossa() {
-  const ov = document.getElementById('bossOv'), nm = document.getElementById('bossNm');
-  nm.innerHTML = 'DON CHIPSO<small>' + T('GLOWA FAMIGLII', 'HEAD OF THE FAMIGLIA') + '</small>';
-  ov.classList.add('on'); nm.classList.add('on');
+  const ov = document.getElementById('bossOv');
+  // E1-bieg K8: napis przez napis() (jeden zegar chowania — cisza i faza 2 używają tego samego elementu)
+  napis('DON CHIPSO<small>' + T('GŁOWA FAMIGLII', 'HEAD OF THE FAMIGLIA') + '</small><small>' + T('…Sama sól.', '…Just salt.') + '</small>', 1900);
+  ov.classList.add('on');
   pasy(true);
   G.shake = Math.max(G.shake, 0.5);
   G.hitstop = Math.max(G.hitstop, 0.18);           // swiat na moment przystaje
@@ -4734,24 +4742,34 @@ function wejscieBossa() {
   padWibruj(0.3, 800);                             // długo i słabo — pomruk, nie kopnięcie
   AUDIO.sfx('boss');
   AUDIO.event('boss');
-  setTimeout(() => { ov.classList.remove('on'); nm.classList.remove('on'); pasy(false); }, 1500);
+  setTimeout(() => { ov.classList.remove('on'); pasy(false); }, 1500);
 }
+// E1-bieg K8: HP z odstępami tysięcy (4 200 000), wąska spacja nierozdzielająca
+const fmtTys = n => String(Math.max(0, Math.ceil(n))).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 function updateBossHp() {
   const el = document.getElementById('bossHp');
-  let naj = null;
-  for (const e of G.enemies) if (e.T.boss && !e.dying)
-    if (!naj || e.hp / e.maxHp < naj.hp / naj.maxHp) naj = e;
-  if (!naj) {
+  // E1-bieg K7: pasek bierze Dona, a gdy go nie ma — kaprala (nazwa zamiast „DON CHIPSO", fiolet)
+  let naj = null, kap = null, ile = 0;
+  for (const e of G.enemies) {
+    if (e.dying) continue;
+    if (e.T.boss) { ile++; if (!naj || e.hp / e.maxHp < naj.hp / naj.maxHp) naj = e; }
+    else if (e.kapral && !e.odwrot && (!kap || e.hp / e.maxHp < kap.hp / kap.maxHp)) kap = e;
+  }
+  const cel = naj || kap;
+  if (!cel) {
     if (el.classList.contains('on')) { el.classList.remove('on'); document.getElementById('buff').style.top = ''; }
     return;
   }
   const bylo = el.classList.contains('on');
   el.classList.add('on');
-  const k = Math.max(0, naj.hp / naj.maxHp);
+  el.classList.toggle('kapral', !naj);
+  el.classList.toggle('don', !!(naj && naj.don));
+  const bw = el.querySelector('.bw');
+  if (!bw.querySelector('.bk')) bw.insertAdjacentHTML('beforeend', '<i class="bk"></i>');   // kreska 50% = faza 2
+  const k = Math.max(0, cel.hp / cel.maxHp);
   el.querySelector('.bf').style.width = (k * 100) + '%';
-  const ile = G.enemies.filter(e => e.T.boss && !e.dying).length;
-  el.querySelector('.bn').textContent = 'DON CHIPSO' + (ile > 1 ? '  x' + ile : '');
-  el.querySelector('.bl').textContent = Math.ceil(naj.hp) + ' / ' + Math.ceil(naj.maxHp);
+  el.querySelector('.bn').textContent = naj ? 'DON CHIPSO' + (ile > 1 ? '  x' + ile : '') : cel.kDef.nm.toUpperCase();
+  el.querySelector('.bl').textContent = fmtTys(cel.hp) + ' / ' + fmtTys(cel.maxHp);
   // TOAST SPOD PASKA BOSSA. `#buff` i nazwa bossa nachodziły na siebie — „SERIA x12 —
   // MONETY x2" drukowało się NA „DON CHIPSO". Pozycję liczymy z realnego prostokąta,
   // bo pasek ma własną regułę @media dla niskich ekranów. POMIAR PO WPISANIU TEKSTÓW:
@@ -4797,7 +4815,8 @@ function ketchupTexture(kropla) {
 }
 // glob leci łukiem, a POD CELEM od razu rośnie czerwony krąg — telegraf jest
 // tym, co zamienia atak dystansowy z „nagłej kary" w decyzję gracza.
-function plunKetchupem(e) {
+// E1-bieg K7: `cx/cz` = własny cel (salwa Salsy Tripli), `dmg`/`zr` = obrażenia i źródło (domyślnie jak Ketchupino)
+function plunKetchupem(e, celX = null, celZ = null, dmg = null, zr = 'ketchupino') {
   if (!ketchMat) {
     ketchMat = new THREE.MeshBasicMaterial({ map: ketchupTexture(true), transparent: true,
       alphaTest: 0.4, side: THREE.DoubleSide });
@@ -4809,7 +4828,8 @@ function plunKetchupem(e) {
       transparent: true, depthWrite: false });
   }
   // celuje z WYPRZEDZENIEM w miejsce, gdzie gracz BĘDZIE — inaczej wystarczy iść prosto
-  const cx = P.pos.x + P.vx * KETCH_LOT * 0.55, cz = P.pos.z + P.vz * KETCH_LOT * 0.55;
+  const cx = celX != null ? celX : P.pos.x + P.vx * KETCH_LOT * 0.55;
+  const cz = celZ != null ? celZ : P.pos.z + P.vz * KETCH_LOT * 0.55;
   const wylot = e.ty + 1.7;                        // glob wychodzi z góry butli, nie z jej stóp
   const glob = new THREE.Mesh(unitGeo, ketchMat);
   glob.scale.setScalar(0.55);
@@ -4821,7 +4841,7 @@ function plunKetchupem(e) {
   scene.add(krag);
   e.bb.play('punch', false);                       // wyciska się, żeby plunąć
   G.gluty.push({ mesh: glob, krag, t: 0, from: { x: e.pos.x, y: wylot, z: e.pos.z },
-                 to: { x: cx, z: cz } });
+                 to: { x: cx, z: cz }, dmg, zr });
   AUDIO.sfx('strzal');
 }
 function updateGluty(dt) {
@@ -4845,7 +4865,7 @@ function updateGluty(dt) {
     okruchy(gl.to.x, terrainH(gl.to.x, gl.to.z) + 0.4, gl.to.z, 0xba2a24, 7);
     AUDIO.sfx('wybuch');
     if (Math.hypot(P.pos.x - gl.to.x, P.pos.z - gl.to.z) < KETCH_R)
-      ranGracza(obrazeniaWroga(1), 'ketchupino', { shake: 0.3 });
+      ranGracza(gl.dmg != null ? gl.dmg : obrazeniaWroga(1), gl.zr || 'ketchupino', { shake: 0.3 });
     G.kaluze.push({ x: gl.to.x, z: gl.to.z, r: KETCH_R, t: KETCH_KALUZA,
                     mesh: (() => { const m = new THREE.Mesh(blobGeo, ketchKalMat.clone());
                       m.scale.set(KETCH_R * 2, 1, KETCH_R * 2);
@@ -4948,7 +4968,7 @@ const ENEMY_TYPES = {
 };
 
 let eliteRingMat = null;
-// (E1-bieg: „poziom zagrożenia" co minutę usunięty — pasek Wieczoru, patrz pasekWieczoru)
+// (E1-bieg: „poziom zagrożenia" co minutę usunięty; pasek Wieczoru też — decyzja właściciela 24.09)
 // KLĄTWA: kupione poziomy podnoszą HP wrogów i zagęszczają spawn, a w zamian
 // mnożą monety (patrz `monetyMul`). Świadomie kupowana trudność.
 const klatwa = () => META.up.klatwa || 0;
@@ -4958,7 +4978,7 @@ const monetyMul = () => (1 + 0.20 * klatwa()) * (G.buff.key === 'kasa' ? 2 : 1);
 // hpScale: 1:00 1,47 · 5:00 3,88 · 10:00 8,00 (dawniej 1,61 / 5,25 / 12,5) — niżej późno, bo nowa
 // krzywa XP daje mniej poziomów; resztę trudności niosą skład, ściany i obrażenia (dmgMul).
 const L_BIEG = { hp: 1, spd: 0.035, dmgA: 0.06, dmgB: 0.004, elita: 1, tempo: 1 };
-const hpScale = () => { const m = G.time / 60; return (1 + 0.45 * m + 0.025 * m * m) * (1 + 0.10 * klatwa()) * L_BIEG.hp * rozgrz('hp'); };
+const hpScale = (t = G.time) => { const m = t / 60; return (1 + 0.45 * m + 0.025 * m * m) * (1 + 0.10 * klatwa()) * L_BIEG.hp * rozgrz('hp', t); };
 const spdScale = () => Math.min(1.5, 1 + L_BIEG.spd * G.time / 60);
 // mnożnik obrażeń wrogów: 5:00 ×1,40 · 10:00 ×2,00 (ciągle, bez skoków)
 const dmgMul = () => { const m = G.time / 60; return (1 + L_BIEG.dmgA * m + L_BIEG.dmgB * m * m) * rozgrz('dmg'); };
@@ -5010,7 +5030,7 @@ function spawnEnemy(type, angle = null, przy = null, opcje = {}) {
     maxHp: T.hp * SKALA_WROGA * hpMul * (elite ? 6 : 1),
     dying: false, hitCd: 0, kb: new THREE.Vector3(), orbCd: 0, climbing: false,
     ty: 0, vy: 0, jumpCd: 1 + Math.random() * 3, faza: Math.random() * 6.28,
-    bb: new Billboard(T.char || type, T.scale * (elite ? 1.45 : 1), false, true),   // true = instancja (E1)
+    bb: new Billboard(T.char || type, T.scale * (elite ? 1.45 : 1) * (opcje.skala || 1), false, true),   // true = instancja (E1); skala: kapral ×1,9
   };
   e.ty = terrainH(e.pos.x, e.pos.z);
   if (elite) {                              // fioletowa obwódka pod elitą (instancja w `pulaKrag`, poza sceną)
@@ -5031,7 +5051,10 @@ function killEnemy(e, i) {
   G.kills++;                                       // samym wrogu powtarzało drop i podział
   // Friesetti zabity w przysiadzie (tell) albo Lollini w ścisku wirowania: przywróć
   // skalę sprite'a, bo animacja śmierci klonuje ją jako bazę (recenzja 03.09)
-  if (e.faz || e.T.wiruje) e.bb.mesh.scale.set(e.bb.h, e.bb.h, 1);
+  // E1-bieg K7: to samo dla kaprali (Frittone w przysiadzie, Botto spuchnięty na lontcie, Girandola w wirze)
+  // i Sodino z lontem; Gommone zabity w locie spada na ziemię, zamiast umierać w powietrzu
+  if (e.faz || e.T.wiruje || e.kapral || e.zapalony) e.bb.mesh.scale.set(e.bb.h, e.bb.h, 1);
+  if (e.kapral && e.lot) { e.lot = false; e.ty = terrainH(e.pos.x, e.pos.z); }
   document.getElementById('kills').innerHTML = ico('czaszka', 15) + ' ' + G.kills;
   // ---- BESTIARIUSZ: licznik zabitych per typ (zostaje na stałe w META) ----
   const pierwszyRaz = !META.bestiary[e.type];
@@ -5059,13 +5082,27 @@ function killEnemy(e, i) {
   AUDIO.sfx(e.T.boss ? 'bossdown' : 'kill', { seria: G.streak });   // ton rośnie z serią
   AUDIO.seria(G.streak);                           // przy dużej serii postać się odezwie (rzadko)
   if (e.T.boss) { dmgPop(e.pos.x, e.ty + 1.2, e.pos.z, 'BOSS DOWN!', '#ff5555', 2.6); META.st.bosses++; saveMeta();
-    // muzyka bossa wraca do utworu z biegu dopiero, gdy padnie OSTATNI boss
-    if (!G.enemies.some(o => o !== e && o.T.boss && !o.dying)) AUDIO.bossOff();
+    // muzyka bossa wraca do utworu z biegu dopiero, gdy padnie OSTATNI boss (Don: cisza zwycięstwa, patrz zwyciestwo)
+    if (!e.don && !G.enemies.some(o => o !== e && o.T.boss && !o.dying)) AUDIO.bossOff();
   }
+  else if (e.kapral) { /* napis „PINIATA!" robi nagrodaKaprala */ }
   else if (e.elite) { dmgPop(e.pos.x, e.ty + 0.8, e.pos.z, T('ELITA!', 'ELITE!'), '#c07bff', 1.9); padWibruj(0.55, 90); }
   // przy serii sam mnożnik wystarcza — słowo „KILL" tylko rozciągało napis na pół ekranu
   else dmgPop(e.pos.x, e.ty + 0.5, e.pos.z, G.streak > 1 ? 'x' + G.streak : 'KILL',
     '#ff6a5e', Math.min(1.0 + G.streak * 0.08, 1.6));
+  // E1-bieg K7/K8: kapral = PINIATA (własna nagroda), Don = ZWYCIĘSTWO — bez zwykłych dropów i podziału
+  if (e.kapral) nagrodaKaprala(e);
+  else if (e.don) zwyciestwo(e);
+  else killEnemyDropy(e);
+  if (e.ring) { scene.remove(e.ring); e.ring = null; }
+  e.ring2 = null;
+  if (e.T.death && LIB[e.T.char || e.type].anims[e.T.death]) {
+    e.dying = true; e.bb.play(e.T.death, false);
+  } else {
+    startRozpad(e);                                // brak arkusza `death` → śmierć z kodu
+  }
+}
+function killEnemyDropy(e) {
   // XP: nie każdy dropi — duzi zawsze, mali 65% (za to szybciej ich kosisz)
   const dropXp = e.T.boss || e.elite || e.T.bigXp || Math.random() < 0.65;
   if (dropXp) {
@@ -5118,14 +5155,9 @@ function killEnemy(e, i) {
     for (const bok of [-1, 1]) {
       // `false` = potomek NIGDY nie jest elitą (miał HP malucha, a płacił 12 monet + XP ×4)
       const m = spawnEnemy(e.type, null, { x: e.pos.x - uz * bok * 0.8 + ux * odsun, z: e.pos.z + ux * bok * 0.8 + uz * odsun }, false);
-      if (m) { m.mini = true; m.stun = 0.3; m.hp = m.maxHp = e.T.hp * 0.5 * SKALA_WROGA * hpScale(); m.bb.mesh.scale.multiplyScalar(0.62); }
+      if (m) { m.mini = true; m.stun = 0.3; m.hp = m.maxHp = e.T.hp * 0.5 * SKALA_WROGA * hpScale(); m.bb.mesh.scale.multiplyScalar(0.62);
+               if (e.odwrot) m.odwrot = true; }       // K8: potomek uciekającego w ciszy też ucieka (nie gryzie przy 9:56)
     }
-  }
-  if (e.ring) { scene.remove(e.ring); e.ring = null; }
-  if (e.T.death && LIB[e.T.char || e.type].anims[e.T.death]) {
-    e.dying = true; e.bb.play(e.T.death, false);
-  } else {
-    startRozpad(e);                                // brak arkusza `death` → śmierć z kodu
   }
 }
 
@@ -5184,6 +5216,40 @@ const CFG_BIEG = {
   // XP z pigułki ×2 (cały bieg): mniej wrogów w rozgrzewce = mniej XP; bot-średni ma teraz poziom 21–22
   // w 5:00 i 36–38 w 10:00 = cel spec §6 (19–24 / 35–40), przed zmianą 12 i 30.
   xpPigulki: 2,
+  // E1-bieg K7: KAPRALE (spec 07 §2). `hp` = BAZA (na ekranie × SKALA_WROGA, bez hpScale — stała godzina
+  // = stałe HP), `tempo` w j./s wprost (bez spdScale). Liczby sztuczek w polach wpisu. Kalibracja TTK: INFO-PROJEKT.
+  kaprale: {
+    skala: 1.9, kontakt: 1.5, maxZywych: 2, czekaj: 15, r: [18, 20], telegraf: 1.0, kb: 0.3,
+    lista: [null,
+      { typ: 'marshmallini', nm: 'Caporale Pianissimo', hp: 120, tempo: 1.6, dzieci: 4, dzieckoHp: 3, dzieckoSkala: 1.3 },
+      { typ: 'ketchupino', nm: 'Caporale Salsa Tripla', hp: 150, tempo: 2.2, okno: [10, 16], odskok: 6, co: 3.5, bok: 3.5, dmg: 1.2 },
+      { typ: 'friesetti', nm: 'Caporale Frittone', hp: 1300, tempo: 4.0, okno: [6, 16], tel: 0.8, czas: 0.8, mn: 3.5,
+        pauza: 0.45, szarz: 3, ogl: 2.5, cd: 5, dmg: 1.8, odrzut: 8, pas: [14, 1.2] },
+      { typ: 'gummini', nm: 'Caporale Gommone', hp: 3500, tempo: 3.0, co: 4.5, r: 3.0, lot: 1.1, wys: 6, wyprz: 0.3, dmg: 2.0, tlum: 0.5 },
+      { typ: 'lollini', nm: 'Caporale Girandola', hp: 4300, tempo: 1.25, tempoWir: 5.0, tel: 1.0, wir: 3.0, zaw: 3.0, r: 3.2,
+        dmg: 2.0, odrzut: 12, tlum: 0.3, start: 14 },
+      { typ: 'sodino', nm: 'Caporale Botto', hp: 7000, tempo: 2.8, zasieg: 4, lont: 1.6, r: 5.5, dmg: 250, sam: 0.12, zadyszka: 2, cd: 6 },
+    ],
+  },
+  // E1-bieg K8: DON CHIPSO (spec 07 §3). `hp` = BAZA (× SKALA_WROGA), jedno HP dla wszystkich postaci
+  // (decyzja właściciela). Kalibracja 24.09 (bot-średni, preset sredni-10, skok 585): DPS na Donie mediana
+  // 5 postaci = Beetino ~28 tys./s (Carrotello 118, Razoretta 105, Granny 22, Garlicino 11 tys./s);
+  // ×45 s (12 800) dawało walkę-medianę 41 s; przy 23 000 mediana 5 postaci 58 s (N=4/postać) → 24 000
+  // = 2,4 mln na ekranie (walka: Carrotello ~23 s, Razoretta ~29 s, Beetino ~60 s, Granny ~83 s, Garlicino ~105 s).
+  // Obrażenia Dona STAŁE (bez dmgMul).
+  don: {
+    hp: 24000, tempo: 3.8, f2Tempo: 1.25, kontakt: 200, laska: 2, odpoczynek: 0.8,
+    shur: { tel: 0.5, n: 3, kat: 18, v: 12, zasieg: 26, r: 0.7, omega: 0.6, dmg: 120, cd: 3.0, maxD: 24 },
+    shur2: { n: 5, kat: 30, v: 13, cd: 2.4 },
+    sol: { tel: 1.0, czas: 2.0, kat: 45, r: 11, min: 3, tik: 0.25, dmg: 25, slow: 0.8, slowT: 3, cd: 8.0, stozek: 60 },
+    sol2: { kat: 60, r: 12, cd: 6.5 },
+    chiam: { tel: 1.2, n: 8, r: 3.5, pierwsza: 12, cd: 20, limit: 30 },
+    chiam2: { n: 12, cd: 15 },
+    przejscie: 1.5,
+    lawina: { co: 2.0, n: 3, r: 2.2, tel: 1.2, spad: 0.25, wys: 8, wyprz: 0.6, los: [3, 7], dmg: 200, tlum: 0.3 },
+    wscieklosc: { po: 150, cd: 0.6, tempo: 1.2, lawinaN: 4 },
+    monety: { n: 10, val: 10, duza: 100 }, mnozWygranej: 1.5, pierwszaWygrana: 200,
+  },
 };
 const TYPY_PULI = ['chipsetti', 'marshmallini', 'gummini', 'friesetti', 'sodino', 'lollini'];
 const lerp = (a, b, k) => a + (b - a) * k;
@@ -5364,6 +5430,10 @@ const WIECZOR = [
   { t: 450, typ: 'kapral', nr: 5 }, { t: 480, typ: 'pierscien', n: 100 }, { t: 510, typ: 'sodowa' },
   { t: 540, typ: 'kapral', nr: 6 }, { t: 570, typ: 'szturm' }, { t: 577, typ: 'szturm-sciana' },
   { t: 584, typ: 'szturm-sciana' }, { t: 592, typ: 'cisza' }, { t: 600, typ: 'don' },
+  // K8: oś ciszy sekunda po sekundzie (spec §3.1)
+  { t: 593, typ: 'cisza-krok', k: 'odkurz' }, { t: 594, typ: 'cisza-krok', k: 'szelest', g: 0.45 },
+  { t: 595, typ: 'cisza-krok', k: 'napis1' }, { t: 597, typ: 'cisza-krok', k: 'szelest', g: 0.7 },
+  { t: 598, typ: 'cisza-krok', k: 'napis2' }, { t: 599, typ: 'cisza-krok', k: 'szelest', g: 1 },
 ];
 for (let s = 75; s <= 555; s += 30) WIECZOR.push({ t: s, typ: 'obrecz', maly: true });
 WIECZOR.sort((a, b) => a.t - b.t);
@@ -5438,10 +5508,10 @@ function odpalZdarzenie(z) {
       toastWieczoru('OSTATNI SZTURM!', 'FINAL ASSAULT!', 2600);
       break;
     case 'szturm-sciana': scianaHordy(60, wrecz, 3, null, katPrzod() + (z.t < 580 ? 2.1 : -2.1)); break;
-    case 'cisza': break;                           // K8: odwrót hordy, szelest; na razie tylko stop spawnu
-    case 'don':                                    // K8: wejście Dona. Do tego czasu bieg trwa dalej
-      toastWieczoru('DON CHIPSO… jeszcze się spóźnia', 'DON CHIPSO… is running late', 2600);
-      break;
+    case 'kapral': spawnKapral(z.nr); break;       // K7: 1 s fioletowego kręgu, potem kapral (spec §2.1)
+    case 'cisza': zacznijCisze(); break;           // K8: odwrót hordy, stop spawnu, muzyka gaśnie
+    case 'cisza-krok': ciszaKrok(z); break;
+    case 'don': wejscieDona(); break;              // K8: Don spada z nieba
   }
 }
 // przewinięcie kalendarza (HORDA.skok): zdarzenia przed t oznaczone jako odpalone
@@ -5479,7 +5549,7 @@ function spawnerWieczoru(dt) {
     const z = WIECZOR[G.wiecIdx++];
     G.falaNr = (G.falaNr || 0) + 1;                // numer fali dla wrogFali (zastępowanie przy limicie)
     odpalZdarzenie(z);
-    G.zdarzenia.push({ t: +t.toFixed(1), typ: z.typ + (z.typ === 'kapral' ? z.nr + ' (K7)' : '') });
+    G.zdarzenia.push({ t: +t.toFixed(1), typ: z.typ + (z.typ === 'kapral' ? z.nr : z.typ === 'cisza-krok' ? ':' + z.k : '') });
   }
   for (let i = G.kolejkaFal.length - 1; i >= 0; i--) {
     if (G.kolejkaFal[i].t > t) continue;
@@ -5488,8 +5558,8 @@ function spawnerWieczoru(dt) {
   kolejkaSpawnu();
   G.recyklT -= dt;
   if (G.recyklT <= 0) { G.recyklT = CFG_BIEG.recyklCo; recyklingDalekich(); }
-  if (t >= CISZA_OD && t < CZAS_WIECZORU) return;    // cisza przed Donem: nic nie dochodzi
-  // po 10:00 (do K8) spawner jedzie dalej na ostatnim oknie tabeli
+  // K8: od ciszy 9:52 do końca biegu zwykły spawner stoi (spec §3.7: jedyni wrogowie w walce = Chiamata)
+  if (G.cisza || t >= CISZA_OD) return;
   let zywi = liczZywych(true);
   const f = falaTeraz(t);
   G.spawnAkum += f.tempo * dt;
@@ -5520,23 +5590,776 @@ function spawnerWieczoru(dt) {
   }
 }
 
-// ---- PASEK WIECZORU (zamiast „ZAGROŻENIE N"): 0 → 10:00, 6 fioletowych kresek = kaprale, korona = Don ----
-let _pasekWiecOk = false, _pasekWiecW = -1;
-function pasekWieczoru() {
-  const el = document.getElementById('tier');
-  if (!el) return;
-  if (!_pasekWiecOk) {
-    _pasekWiecOk = true;
-    el.innerHTML = '<div class="wiec"><i class="wf"></i>' +
-      [90, 180, 270, 360, 450, 540].map(s => `<b style="left:${s / 6}%"></b>`).join('') +
-      '</div><span class="wkor">' + ico('korona', 14) + '</span>';
+// (24.09, decyzja właściciela: pasek Wieczoru z koroną usunięty — zostaje sam zegar 0:00–10:00;
+//  Don przychodzi bez zapowiedzi na HUD, zapowiedzią są cisza 9:52 i wejście bossa)
+
+// ============================== E1-bieg K7/K8: TELEGRAFY NA ZIEMI (spec 07 §3.9) ==============================
+// Kręgi, dyski i pasy to NOŚNIKI (Object3D poza sceną) rysowane pulami instancji w syncInstancje —
+// jeden draw call na rodzaj, zero `scene.add` na telegraf. Materiały z depthTest:false: telegraf widać
+// przez pagórek (Łąki/Wąwozy), regał (Market) i z oczu w trybie karabinu. `strefa` = bot wychodzi z niej.
+//   o.r promień · o.dur czas życia (s) · o.kolor · o.a krycie · o.puls (2 Hz) · o.rosnie (0→r) ·
+//   o.zacisk (1,35r→r) · o.sledz (wróg: telegraf jedzie z nim) · pas: o.dl, o.sz, o.kat · o.strefa (false = ozdoba)
+function telegraf(rodzaj, x, z, o = {}) {
+  const t = { rodzaj, o: new THREE.Object3D(), x, z, r: o.r || 1, t: 0, dur: o.dur != null ? o.dur : 1,
+              a0: o.a != null ? o.a : 0.9, a: 0, kc: kolInst(o.kolor != null ? o.kolor : 0xffffff),
+              puls: !!o.puls, rosnie: !!o.rosnie, zacisk: !!o.zacisk, sledz: o.sledz || null,
+              dl: o.dl || 0, sz: o.sz || 0, kat: o.kat || 0, strefa: o.strefa !== false, koniec: false };
+  ustawTelegraf(t);
+  G.telegrafy.push(t);
+  return t;
+}
+function ustawTelegraf(t) {
+  const k = t.dur > 0 ? Math.min(1, t.t / t.dur) : 0;
+  if (t.sledz) { t.x = t.sledz.pos.x; t.z = t.sledz.pos.z; }
+  const puls = t.puls ? Math.sin(t.t * 4 * Math.PI) : 0;           // 2 Hz
+  if (t.rodzaj === 'pas') { t.o.scale.set(t.sz, 1, t.dl); t.o.rotation.set(0, t.kat, 0); }
+  else {
+    let s = t.r * 2;
+    if (t.rosnie) s *= Math.max(0.05, k);
+    if (t.zacisk) s *= 1.35 - 0.35 * k;
+    s *= 1 + 0.07 * puls;
+    t.o.scale.set(s, 1, s);
   }
-  // DOM tylko przy zmianie o 0,1% (co 0,6 s gry), nie co klatkę
-  const w = Math.round(Math.min(100, G.time / CZAS_WIECZORU * 100) * 10) / 10;
-  if (w === _pasekWiecW) return;
-  _pasekWiecW = w;
-  const wf = el.querySelector('.wf');
-  if (wf) wf.style.width = w + '%';
+  t.o.position.set(t.x, terrainH(t.x, t.z) + 0.08, t.z);
+  t.a = t.a0 * (t.puls ? 0.78 + 0.22 * puls : 1);
+}
+function updateTelegrafy(dt) {
+  for (let i = G.telegrafy.length - 1; i >= 0; i--) {
+    const t = G.telegrafy[i];
+    t.t += dt;
+    if (t.koniec || (t.dur > 0 && t.t >= t.dur) || (t.sledz && (t.sledz.dying || t.sledz.odwrot))) { G.telegrafy.splice(i, 1); continue; }
+    ustawTelegraf(t);
+  }
+}
+// tekstury telegrafów: białe (kolor = instanceColor), pikselowe krawędzie jak reszta gry
+function telKragTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  g.strokeStyle = 'rgba(20,20,28,0.55)'; g.lineWidth = 9; g.beginPath(); g.arc(32, 32, 27, 0, 7); g.stroke();   // ciemny cień obwódki = kontrast na jasnej trawie
+  g.strokeStyle = '#fff'; g.lineWidth = 5; g.beginPath(); g.arc(32, 32, 27, 0, 7); g.stroke();
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+function telDyskTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  g.fillStyle = 'rgba(255,255,255,0.55)'; g.beginPath(); g.arc(32, 32, 30, 0, 7); g.fill();
+  g.strokeStyle = '#fff'; g.lineWidth = 3; g.beginPath(); g.arc(32, 32, 29, 0, 7); g.stroke();
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+function telPasTexture() {                           // pas szarży: wypełnienie + krawędzie + szewrony „w tę stronę"
+  const W = 16, H = 64, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.fillStyle = 'rgba(255,255,255,0.42)'; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#fff'; g.fillRect(0, 0, 2, H); g.fillRect(W - 2, 0, 2, H);
+  for (let y = 6; y < H; y += 12) for (let x = 2; x < W - 2; x++) {
+    const yy = y + Math.abs(x - W / 2) * 0.7;                   // szewron (v → kierunek szarży w dół tekstury)
+    g.fillRect(x, H - yy, 1, 2);
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; return t;
+}
+const telMat = map => new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, depthTest: false, fog: false });
+function chipsTexture() {                            // K8: chips-półksiężyc Dona (pocisk Shuriken i lawina), 16×16 jak glob ketchupu
+  const S = 16, c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d'), d = g.createImageData(S, S);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const r = Math.hypot(x - 7.5, y - 7.5), r2 = Math.hypot(x - 10.5, y - 5.0);
+    let kol = null;
+    if (r < 7.4 && r2 > 5.0) kol = (r > 6.2 || r2 < 6.2) ? [120, 74, 18] : (x + y) % 5 === 0 ? [255, 236, 150] : [242, 193, 74];
+    const i = (y * S + x) * 4;
+    if (kol) { d.data[i] = kol[0]; d.data[i + 1] = kol[1]; d.data[i + 2] = kol[2]; d.data[i + 3] = 255; }
+  }
+  g.putImageData(d, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+let _pasGeo = null;
+function pasGeo() {                                  // pas od punktu startu wzdłuż lokalnego +Z (obrót = kierunek)
+  if (!_pasGeo) { _pasGeo = new THREE.PlaneGeometry(1, 1); _pasGeo.rotateX(-Math.PI / 2); _pasGeo.translate(0, 0, 0.5); }
+  return _pasGeo;
+}
+
+// ============================== E1-bieg K7: KAPRALE (spec 07 §2) ==============================
+// Mini-bossy w stałych minutach (1:30 … 9:00): istniejący typ wroga ×1,9 z podwójnym fioletowym kręgiem,
+// stałe HP (bez hpScale), zachowanie typu + JEDNA sztuczka (aiKaprala). Śmierć = PINIATA (nagrodaKaprala).
+const liczKaprali = () => { let n = 0; for (const e of G.enemies) if (e.kapral && !e.dying && !e.odwrot) n++; return n; };
+function spawnKapral(nr, natychmiast = false) {
+  const KC = CFG_BIEG.kaprale, K = KC.lista[nr];
+  if (!K || G.cisza || G.dying || !G.running) return null;
+  if (liczKaprali() >= KC.maxZywych) {             // najwyżej 2 naraz — kolejny czeka co 15 s
+    G.kolejkaFal.push({ t: G.time + KC.czekaj, f: () => spawnKapral(nr) });
+    return null;
+  }
+  const a = katKamery() + (Math.random() - 0.5) * 0.5, r = KC.r[0] + Math.random() * (KC.r[1] - KC.r[0]);
+  const x = P.pos.x + Math.sin(a) * r, z = P.pos.z + Math.cos(a) * r;
+  if (natychmiast) return zrodzKaprala(nr, x, z);
+  // 1 s pulsującego fioletowego kręgu PRZED pojawieniem (telegraf miejsca) — ozdoba, nie strefa ciosu
+  telegraf('krag', x, z, { r: 1.8, kolor: 0xb070ff, dur: KC.telegraf, puls: true, strefa: false });
+  telegraf('dysk', x, z, { r: 1.8, kolor: 0x8a3cff, dur: KC.telegraf, rosnie: true, a: 0.4, strefa: false });
+  G.kolejkaFal.push({ t: G.time + KC.telegraf, f: () => zrodzKaprala(nr, x, z) });
+  return null;
+}
+function zrodzKaprala(nr, x, z) {
+  if (G.cisza || G.dying || !G.running) return null;
+  const KC = CFG_BIEG.kaprale, K = KC.lista[nr];
+  const e = spawnEnemy(K.typ, null, { x, z }, { elita: 'nie', skala: KC.skala });
+  e.kapral = nr; e.kDef = K; e.tempo = K.tempo; e.kbMn = KC.kb; e.kStart = G.time;
+  e.hp = e.maxHp = K.hp * SKALA_WROGA;
+  // PODWÓJNY FIOLETOWY KRĄG (zwykła elita: pojedynczy 1,8) — instancje w pulaKrag, puls 2 Hz w pętli wrogów
+  e.ring = new THREE.Object3D(); e.ring.scale.set(3.0, 1, 3.0);
+  e.ring2 = new THREE.Object3D(); e.ring2.scale.set(2.3, 1, 2.3);
+  e.ring.position.set(x, e.ty + 0.06, z); e.ring2.position.copy(e.ring.position);
+  puff(x, e.ty + 1.2, z, 0xc07bff, 2.2);
+  okruchy(x, e.ty + 1.0, z, 0xc07bff, 12);
+  G.hitstop = Math.max(G.hitstop, 0.1);
+  G.shake = Math.max(G.shake, 0.35);
+  AUDIO.sfx('boss');
+  toastWieczoru('KAPRAL: ' + K.nm + ' — rozbij piniatę!', K.nm + ' — smash the pinata!', 2600);
+  G.zdarzenia.push({ t: +G.time.toFixed(1), typ: 'kapral' + nr + '-start' });
+  return e;
+}
+// SZTUCZKI. Zwraca prędkość marszu `es` (ujemna = odwrót); `to` = kierunek (można nadpisać).
+// Stany własne (e.kS), NIE e.stun — ogłuszenie z broni działa na kaprala ×0,25 czasu (pętla wrogów).
+function aiKaprala(e, dt, d, to, es) {
+  // Mrożonki zatrzymują też kaprala (to on ma być nagrodą), ale NIE przerywają rozpoczętej sztuczki: jej
+  // telegraf ma własny zegar i gasłby w trakcie mrozu → cios bez ostrzeżenia. Nowa sztuczka nie ruszy (es = 0).
+  if (G.buff.key === 'mroz' && !(e.kS && e.kS.faz && e.kS.faz !== 'marsz')) return 0;
+  const K = e.kDef;
+  switch (e.kapral) {
+    case 2: {                                        // SALSA TRIPLA: okienko 10–16 j., salwa 3 globów w poprzek drogi
+      let v = es;
+      if (d < K.odskok) v = -es * 1.6;              // za blisko — odskok
+      else if (d < K.okno[0]) v = -es * 1.15;
+      else if (d <= K.okno[1]) v = 0;               // w okienku stoi i celuje
+      if (e.bb.anim === 'punch' && e.bb.done) e.bb.play(e.T.walk);
+      e.kCd = (e.kCd == null ? 2.0 : e.kCd) - dt;
+      if (e.kCd <= 0 && d <= K.okno[1] + 4) { e.kCd = K.co; salwaSalsy(e, K); }
+      return v;
+    }
+    case 3: {                                        // FRITTONE: potrójna szarża po pasach, potem długie ogłuszenie
+      const S = e.kS || (e.kS = { faz: null, t: 0, cd: 1.5, n: 0, dir: new THREE.Vector3() });
+      S.cd -= dt;
+      const h = e.bb.h;
+      if (!S.faz) {
+        if (S.cd <= 0 && es > 0 && d > K.okno[0] && d < K.okno[1] && P.y - e.ty < 1.2) {
+          S.faz = 'tel'; S.t = K.tel; S.n = 0;
+          pasFrittone(e, S, K, K.tel);
+          dmgPop(e.pos.x, e.ty + 1.2, e.pos.z, '!', '#f6cd51', 1.8);
+        }
+        return es;
+      }
+      S.t -= dt;
+      if (S.faz === 'tel' || S.faz === 'pauza') {    // przysiad przed wyskokiem (jak Friesetti), stoi
+        const k = 1 - S.t / (S.faz === 'tel' ? K.tel : K.pauza);
+        e.bb.mesh.scale.set(h * (1 + 0.22 * k), h * (1 - 0.18 * k), 1);
+        to.copy(S.dir);
+        if (S.t <= 0) { S.faz = 'szarza'; S.t = K.czas; S.traf = false; e.bb.mesh.scale.set(h, h, 1); AUDIO.sfx('piorun'); }
+        return 0;
+      }
+      if (S.faz === 'szarza') {
+        to.copy(S.dir);
+        if (!S.traf && d < 1.7 && P.y - e.ty < 1.2) {
+          S.traf = true;
+          if (ranGracza(obrazeniaWroga(K.dmg), 'kapral3', { shake: 0.45 })) { P.kbx = S.dir.x * K.odrzut; P.kbz = S.dir.z * K.odrzut; }
+        }
+        if (S.t <= 0) {
+          S.n++;
+          if (S.n < K.szarz) { S.faz = 'pauza'; S.t = K.pauza; pasFrittone(e, S, K, K.pauza); }
+          else { S.faz = 'ogl'; S.t = K.ogl; S.popT = 0; }
+        }
+        return K.tempo * K.mn;                         // ×3,5 po prostej (~11 j. w 0,8 s)
+      }
+      if (S.faz === 'ogl') {                           // OGŁUSZENIE 2,5 s — okno na obrażenia
+        S.popT -= dt;
+        if (S.popT <= 0) { S.popT = 0.8; dmgPop(e.pos.x, e.ty + 1.0, e.pos.z, '@', '#ffe066', 1.6); }
+        if (S.t <= 0) { S.faz = null; S.cd = K.cd; }
+        return 0;
+      }
+      return es;
+    }
+    case 4: {                                        // GOMMONE: skok na głowę z falą uderzeniową
+      const S = e.kS || (e.kS = { faz: null, t: 0, cd: 2.5 });
+      S.cd -= dt;
+      if (!S.faz) {
+        if (S.cd <= 0 && d < 22 && es > 0) {
+          S.faz = 'lot'; S.t = 0;
+          S.x0 = e.pos.x; S.z0 = e.pos.z; S.y0 = e.ty;
+          S.x1 = P.pos.x + P.vx * K.wyprz; S.z1 = P.pos.z + P.vz * K.wyprz;   // czerwony krąg z wyprzedzeniem 0,3 s
+          telegraf('krag', S.x1, S.z1, { r: K.r, kolor: 0xff3b30, dur: K.lot, a: 0.95 });
+          telegraf('dysk', S.x1, S.z1, { r: K.r, kolor: 0xff3b30, dur: K.lot, rosnie: true, a: 0.35, strefa: false });
+          e.lot = true;
+          AUDIO.sfx('skok');
+        }
+        return es;
+      }
+      S.t += dt;                                     // łuk 1,1 s, wys. 6 j.; pozycję i wysokość liczymy tu
+      const k = Math.min(1, S.t / K.lot), g1 = terrainH(S.x1, S.z1);
+      e.pos.x = S.x0 + (S.x1 - S.x0) * k; e.pos.z = S.z0 + (S.z1 - S.z0) * k;
+      e.ty = S.y0 + (g1 - S.y0) * k + Math.sin(k * Math.PI) * K.wys;
+      to.set(S.x1 - S.x0, 0, S.z1 - S.z0).normalize();
+      if (k >= 1) { e.lot = false; e.ty = g1; S.faz = null; S.cd = K.co; ladowanieGommone(e, K); }
+      return 0;
+    }
+    case 5: {                                        // GIRANDOLA: telegraf → wir 3 s z tarczą r 3,2 → zawroty 3 s
+      const S = e.kS || (e.kS = { faz: 'marsz', t: 0 });
+      const h = e.bb.h;
+      S.t -= dt;
+      if (S.faz === 'marsz') {
+        if (d < K.start && es > 0) {
+          S.faz = 'tel'; S.t = K.tel;
+          telegraf('krag', e.pos.x, e.pos.z, { r: K.r, kolor: 0xff5fb0, dur: K.tel, puls: true, sledz: e, a: 0.95 });
+          telegraf('dysk', e.pos.x, e.pos.z, { r: K.r, kolor: 0xff5fb0, dur: K.tel, rosnie: true, sledz: e, a: 0.35, strefa: false });
+        }
+        return es;
+      }
+      if (S.faz === 'tel') {
+        if (S.t <= 0) {
+          S.faz = 'wir'; S.t = K.wir; S.traf = new Set();
+          S.tarcza = telegraf('krag', e.pos.x, e.pos.z, { r: K.r, kolor: 0xff5fb0, dur: K.wir, sledz: e, a: 0.8 });
+          AUDIO.sfx('piorun');
+        }
+        return 0;
+      }
+      if (S.faz === 'wir') {
+        e.bb.mesh.scale.x = h * (0.32 + 0.68 * Math.abs(Math.cos(G.time * 14)));   // piła tarczowa (jak Lollini, szybciej)
+        if (d < K.r && P.y - e.ty < 1.2 && P.iframes <= 0) {
+          if (ranGracza(obrazeniaWroga(K.dmg), 'kapral5', { shake: 0.5 })) {
+            const kx = P.pos.x - e.pos.x, kz = P.pos.z - e.pos.z, kl = Math.hypot(kx, kz) || 1;
+            P.kbx = kx / kl * K.odrzut; P.kbz = kz / kl * K.odrzut;
+          }
+        }
+        tlumWKregu(e.pos.x, e.pos.z, K.r, K.tlum, 'kapral5', S.traf);   // każdy wróg na trasie raz na wir
+        if (S.t <= 0) { S.faz = 'zaw'; S.t = K.zaw; S.popT = 0; e.bb.mesh.scale.set(h, h, 1); }
+        return K.tempoWir;                             // 5,0 j./s — Carrotello 7,13 ucieknie, Beetino 5,27 ledwo
+      }
+      if (S.faz === 'zaw') {                           // ZAWROTY: stoi i się chwieje — okno na obrażenia
+        e.bb.mesh.scale.x = h * (1 + 0.08 * Math.sin(G.time * 9));
+        S.popT -= dt;
+        if (S.popT <= 0) { S.popT = 0.9; dmgPop(e.pos.x, e.ty + 1.4, e.pos.z, '@', '#ff9fd0', 1.6); }
+        if (S.t <= 0) { S.faz = 'marsz'; e.bb.mesh.scale.set(h, h, 1); }
+        return 0;
+      }
+      return es;
+    }
+    case 6: {                                        // BOTTO: lont 1,6 s (krąg r 5,5), wielka bomba rani też hordę
+      const S = e.kS || (e.kS = { faz: null, t: 0, cd: 0 });
+      const h = e.bb.h;
+      S.cd -= dt; S.t -= dt;
+      if (!S.faz) {
+        if (S.cd <= 0 && d < K.zasieg && es > 0) {
+          S.faz = 'lont'; S.t = K.lont; S.x = e.pos.x; S.z = e.pos.z;
+          telegraf('krag', S.x, S.z, { r: K.r, kolor: 0xff2a2a, dur: K.lont, puls: true, a: 0.95 });
+          telegraf('dysk', S.x, S.z, { r: K.r, kolor: 0xff2a2a, dur: K.lont, rosnie: true, a: 0.3, strefa: false });
+          dmgPop(e.pos.x, e.ty + 1.6, e.pos.z, T('SSS!', 'HSSS!'), '#ff9d3f', 1.4);
+        }
+        return es;
+      }
+      if (S.faz === 'lont') {                          // stoi i puchnie (jak Sodino przed wybuchem)
+        e.bb.mesh.scale.setScalar(h * (1 + Math.sin(G.time * 30) * 0.1 + 0.25 * (1 - S.t / K.lont)));
+        if (S.t <= 0) {
+          e.bb.mesh.scale.set(h, h, 1);
+          S.faz = 'zadyszka'; S.t = K.zadyszka;
+          wybuchBotta(e, K, S);
+        }
+        return 0;
+      }
+      if (S.faz === 'zadyszka') { if (S.t <= 0) { S.faz = null; S.cd = K.cd; } return 0; }
+      return es;
+    }
+    default: return es;                              // 1 Pianissimo: sztuczka dopiero przy śmierci (nagrodaKaprala)
+  }
+}
+// Wybuch Botta: gracz 250 HP (stałe, bez dmgMul), WSZYSCY zwykli wrogowie w kręgu giną (zabójstwa gracza → seria),
+// sam traci 12% maxHp. Uczy wciągania kaprala w hordę.
+function wybuchBotta(e, K, S) {
+  novaRing(S.x, S.z, K.r);
+  puff(S.x, e.ty + 1.2, S.z, 0xff9d3f, 3.2);
+  okruchy(S.x, e.ty + 0.8, S.z, 0x7a4426, 12);
+  okruchy(S.x, e.ty + 0.8, S.z, 0xff9d3f, 10);
+  AUDIO.sfx('wybuch');
+  G.shake = Math.max(G.shake, 0.6);
+  dmgPop(S.x, e.ty + 1.4, S.z, T('BUM!', 'BOOM!'), '#ff9d3f', 2.2);
+  if (Math.hypot(P.pos.x - S.x, P.pos.z - S.z) < K.r && P.y - e.ty < 2) ranGracza(K.dmg, 'kapral6', { shake: 0.6 });
+  const ofiary = [];
+  for (const o of G.enemies) {
+    if (o.dying || o.kapral || o.T.boss || o.odwrot) continue;
+    if ((o.pos.x - S.x) ** 2 + (o.pos.z - S.z) ** 2 < K.r * K.r) ofiary.push(o);
+  }
+  for (const o of ofiary) { G.dmgBron.kapral6 = (G.dmgBron.kapral6 || 0) + Math.max(0, o.hp); o.hp = 0; killEnemy(o); }
+  zadajDmg(e, e.maxHp * K.sam, { bezSkali: true, bezKryt: true, zr: 'kapral6', col: '#ff9d3f' });
+}
+// Lądowanie Gommone: fala r 3 — gracz 200 × dmgMul, zwykli wrogowie w kręgu tracą 50% maxHp (zwab go w tłum)
+function ladowanieGommone(e, K) {
+  novaRing(e.pos.x, e.pos.z, K.r);
+  okruchy(e.pos.x, e.ty + 0.3, e.pos.z, 0xe04a3c, 10);
+  AUDIO.sfx('wybuch');
+  G.shake = Math.max(G.shake, 0.45);
+  if (Math.hypot(P.pos.x - e.pos.x, P.pos.z - e.pos.z) < K.r && P.y - e.ty < 1.5)
+    ranGracza(obrazeniaWroga(K.dmg), 'kapral4', { shake: 0.5 });
+  tlumWKregu(e.pos.x, e.pos.z, K.r, K.tlum, 'kapral4');
+}
+// zwykli wrogowie w kręgu tracą `ulamek` maxHp (liczą się jako zabójstwa gracza); kaprale i Don nietknięci
+function tlumWKregu(x, z, r, ulamek, zr, trafieni = null) {
+  for (const o of G.enemies) {
+    if (o.dying || o.kapral || o.T.boss || o.odwrot) continue;
+    if ((o.pos.x - x) ** 2 + (o.pos.z - z) ** 2 > r * r) continue;
+    if (trafieni) { if (trafieni.has(o)) continue; trafieni.add(o); }
+    zadajDmg(o, o.maxHp * ulamek, { bezSkali: true, bezKryt: true, noPop: true, zr });
+  }
+}
+// Pas szarży Frittone: kierunek na gracza zamrożony w chwili telegrafu, pomarańczowy pas 14 × 1,2 j. od kaprala
+function pasFrittone(e, S, K, dur) {
+  S.dir.set(P.pos.x - e.pos.x, 0, P.pos.z - e.pos.z).normalize();
+  telegraf('pas', e.pos.x, e.pos.z, { dl: K.pas[0], sz: K.pas[1], kat: Math.atan2(S.dir.x, S.dir.z), kolor: 0xff8a1e, dur, a: 0.95 });
+}
+// Salwa: środkowy glob w przewidzianą pozycję gracza (wyprzedzenie jak Ketchupino), boczne ±3,5 j. prostopadle
+// do kierunku biegu (gdy stoi — do kierunku na kaprala) → linia w poprzek drogi, uciekać trzeba przód/tył
+function salwaSalsy(e, K) {
+  const lead = KETCH_LOT * 0.55, cx = P.pos.x + P.vx * lead, cz = P.pos.z + P.vz * lead;
+  const v = Math.hypot(P.vx, P.vz);
+  let px, pz;
+  if (v > 1) { px = -P.vz / v; pz = P.vx / v; }
+  else { const dx = P.pos.x - e.pos.x, dz = P.pos.z - e.pos.z, l = Math.hypot(dx, dz) || 1; px = -dz / l; pz = dx / l; }
+  const dmg = obrazeniaWroga(K.dmg);
+  for (const k of [-1, 0, 1]) plunKetchupem(e, cx + px * k * K.bok, cz + pz * k * K.bok, dmg, 'kapral2');
+}
+// PINIATA (spec §2.4), w tej kolejności: oprawa → fontanna XP (1 pełny poziom) → Skrzynia Kaprala →
+// moneta 15 → serce → statystyki. Pianissimo dodatkowo dzieli się na 4 średnie Marshmallini.
+function nagrodaKaprala(e) {
+  const K = e.kDef, x = e.pos.x, z = e.pos.z;
+  G.hitstop = Math.max(G.hitstop, 0.12);
+  G.kino = Math.max(G.kino, 0.6);
+  dmgPop(x, e.ty + 1.6, z, T('PINIATA!', 'PINATA!'), '#c07bff', 2.4);
+  for (const kol of [0xc07bff, 0xffd75e, 0xff6fa5, 0x7ee7ff, 0x9be15d]) okruchy(x, e.ty + 1.2, z, kol, 6);
+  AUDIO.sfx('zlota');
+  padWibruj(0.6, 160);
+  // fontanna XP: 12 pigułek o łącznej wartości xpDoNast(P.lvl) = P.xpNeed (pickup mnoży przez xpPigulki)
+  const val = P.xpNeed / (CFG_BIEG.xpPigulki || 1) / 12;
+  for (let k = 0; k < 12; k++) {
+    const a = k / 12 * Math.PI * 2 + Math.random() * 0.4, r = 2 + Math.random() * 2;
+    G.gems.push(makeGem(x + Math.sin(a) * r, z + Math.cos(a) * r, val));
+  }
+  postawSkrzynieKaprala(x, z);
+  const mnoznikSerii = G.streak >= 30 ? 3 : (G.streak >= 12 ? 2 : 1);
+  G.coins.push(makeCoin(x + 0.9, z + 0.4, 15 * mnoznikSerii));
+  G.hps.push(makeHeart(x - 0.9, z + 0.4));        // 1 gwarantowane (łagodny bieg: 2 — K10)
+  G.kaprale = (G.kaprale || 0) + 1;
+  META.st.kaprale = (META.st.kaprale || 0) + 1; saveMetaSoon();
+  const tt = 90 * e.kapral;
+  STATY.zdarzenie('kapral/' + Math.floor(tt / 60) + '-' + String(tt % 60).padStart(2, '0'), 'Kapral ' + e.kapral + ' pokonany');
+  G.zdarzenia.push({ t: +G.time.toFixed(1), typ: 'kapral' + e.kapral + '-smierc', ttk: +(G.time - e.kStart).toFixed(1) });
+  if (K.dzieci) {                                  // 1 Pianissimo: 4 średnie (każde dzieli się normalnie na 2)
+    const T0 = ENEMY_TYPES[K.typ];
+    const dx = x - P.pos.x, dz = z - P.pos.z, dl = Math.hypot(dx, dz) || 1, odsun = Math.max(0, 3.6 - dl);
+    const sx = x + dx / dl * odsun, sz = z + dz / dl * odsun;   // środek kółka dzieci ≥ 3,6 j. od gracza
+    const ile = Math.min(K.dzieci, MAX_WROGOW + 1 - liczZywych());   // kapral jeszcze liczy się jako żywy
+    for (let k = 0; k < ile; k++) {
+      const a = k / ile * Math.PI * 2 + Math.random() * 0.5;
+      const m = spawnEnemy(K.typ, null, { x: sx + Math.sin(a) * 1.8, z: sz + Math.cos(a) * 1.8 }, { elita: 'nie', skala: K.dzieckoSkala });
+      m.hp = m.maxHp = K.dzieckoHp * T0.hp * SKALA_WROGA * hpScale();
+      m.stun = 0.3;
+      if (e.odwrot || G.cisza) m.odwrot = true;    // zabity w ciszy: dzieci też uciekają (nie gryzą przed Donem)
+    }
+  }
+}
+// JEDNA FUNKCJA NAGRODY ZE SKRZYNI KAPRALA. E2 (spec 08 §1.7): podmień ciało na
+// `pchnijOverlay(() => otworzZlotaSkrzynie('kapral'))` — reszta piniaty zostaje bez zmian.
+function nagrodaSkrzyniKaprala() {
+  pchnijOverlay(() => showCards({ zrodlo: 'kapral' }));   // 3 karty z cardPool (ewolucja pierwsza), pusta pula → Przyprawy
+}
+let kapSkrzMat = null, kapRingMat = null;
+function postawSkrzynieKaprala(x, z) {
+  if (!kapSkrzMat) {
+    kapSkrzMat = chestMats[0].clone(); kapSkrzMat.color.setHex(0xd2a0ff);   // skrzynia z bronią przefarbowana na fiolet
+    kapRingMat = new THREE.MeshBasicMaterial({ map: ringTexture('rgba(192,123,255,0.95)'), transparent: true, depthWrite: false });
+  }
+  const mesh = new THREE.Mesh(unitGeo, kapSkrzMat), ring = new THREE.Mesh(blobGeo, kapRingMat);
+  mesh.scale.set(1.5, 1.5, 1); ring.scale.setScalar(3.4);
+  scene.add(mesh); scene.add(ring);                // najwyżej kilka na bieg — nie efekt masowy
+  G.skrzynieKap.push({ mesh, ring, pos: new THREE.Vector3(x, 0, z), t: 0 });
+}
+function updateSkrzynieKaprala(dt) {
+  for (let i = G.skrzynieKap.length - 1; i >= 0; i--) {
+    const c = G.skrzynieKap[i];
+    c.t += dt;
+    const d = c.pos.distanceTo(P.pos);
+    // „Nonna sprząta stół" (cisza 9:53, G.vacuum): niepodniesiona skrzynia leci do gracza — nagroda nie przepada
+    if (G.vacuum > 0 && d > 0.5) c.pos.addScaledVector(_doGracza.copy(P.pos).sub(c.pos).setY(0).normalize(), Math.min(d, 16 * dt));
+    const g = terrainH(c.pos.x, c.pos.z);
+    c.mesh.rotation.y = camYaw;
+    c.mesh.position.set(c.pos.x, g + 0.1 + Math.sin(c.t * 2.2) * 0.12, c.pos.z);
+    c.ring.position.set(c.pos.x, g + 0.07, c.pos.z);
+    c.ring.scale.setScalar(3.4 + Math.sin(c.t * 3) * 0.5);
+    if (c.t > 0.3 && d < 1.6) {
+      scene.remove(c.mesh); scene.remove(c.ring);
+      G.skrzynieKap.splice(i, 1);
+      G.shake = Math.max(G.shake, 0.2);
+      AUDIO.sfx('zlota');
+      novaRing(c.pos.x, c.pos.z, 3);
+      nagrodaSkrzyniKaprala();
+    }
+  }
+}
+function najblizszaSkrzyniaKaprala() {
+  let naj = null, nd = 1e9;
+  for (const c of G.skrzynieKap) { const d = c.pos.distanceTo(P.pos); if (d < nd) { nd = d; naj = c; } }
+  return naj;
+}
+
+// ============================== E1-bieg K8: DON CHIPSO (spec 07 §3) ==============================
+// NAPIS NA ŚRODKU (cisza, wejście, faza 2, wściekłość, wygrana) — ten sam element co imię bossa (#bossNm)
+let _napisT = 0;
+function napis(html, ms = 1800, kolor = null) {
+  const nm = document.getElementById('bossNm');
+  nm.innerHTML = html; nm.style.color = kolor || '';
+  nm.classList.add('on');
+  clearTimeout(_napisT);
+  _napisT = setTimeout(() => nm.classList.remove('on'), ms);
+}
+// CISZA 9:52 (§3.1): spawner, podłoga, obręcze, zegar Ketchupino i zdarzenia stoją (spawnerWieczoru),
+// wszyscy zwykli wrogowie, elity i żywi kaprale idą w ODWRÓT (pętla wrogów), muzyka gaśnie
+function zacznijCisze() {
+  if (G.cisza) return;
+  G.cisza = true;
+  G.kolejkaSpawnu = []; G.kolejkaFal = [];
+  for (const e of G.enemies) {
+    if (e.dying || e.T.boss) continue;
+    if (e.T.szarzuje || e.T.wiruje || e.kapral || e.zapalony) e.bb.mesh.scale.set(e.bb.h, e.bb.h, 1);
+    e.odwrot = true; e.faz = null; e.zapalony = false; e.sciana = null; e.kS = null; e.lot = false; e.stun = 0; e.wirujeTeraz = false;
+  }
+  for (const t of G.telegrafy) t.koniec = true;
+  AUDIO.cisza();
+  G.zdarzenia.push({ t: +G.time.toFixed(1), typ: 'cisza-odwrot', zywi: liczZywych() });
+}
+function ciszaKrok(z) {
+  if (G.donStart != null) return;                  // Don już jest (HORDA.don() przed 9:58) — kroki ciszy nieaktualne
+  switch (z.k) {
+    case 'odkurz': G.vacuum = Math.max(G.vacuum, 3); break;                 // 9:53 „Nonna sprząta stół"
+    case 'szelest': AUDIO.sfx('szelest', { g: z.g }); break;                // 9:54 / 9:57 / 9:59, coraz głośniej
+    case 'napis1': napis(T('Szelest torby…', 'A bag rustles…'), 2400, '#e8dcc0'); break;
+    case 'napis2': pasy(true); winieta(true); napis(T('Nic osobistego.', 'Nothing personal.'), 1900); break;
+  }
+}
+// WEJŚCIE (§3.2): Don spada z +12 j. przed kamerą (0,6 s, `jump`), lądowanie = fala r 5 bez obrażeń
+// i odrzut gracza ~3 j., potem wejscieBossa() (napis, pasy, kino) i 2 s łaski przed pierwszym atakiem.
+// `dev` (HORDA.don()): najpierw cisza, żeby horda odeszła jak w prawdziwym biegu.
+function wejscieDona(dev = false) {
+  if (G.donStart != null || G.dying || !G.running) return null;
+  if (dev) zacznijCisze();
+  const D = CFG_BIEG.don;
+  const e = spawnEnemy('boss', katKamery(), null, { r: [15, 17], elita: 'nie' });
+  e.don = true; e.bezKb = true; e.tempo = D.tempo;
+  e.hp = e.maxHp = D.hp * SKALA_WROGA;             // stała godzina = stałe HP (bez hpScale), jedno dla wszystkich postaci
+  e.donS = { stan: 'spada', t: 0, dl: 0.6, faza: 1, walkaT: 0, cdShur: 0, cdSalt: 0, cdChiam: D.chiam.pierwsza, lawinaT: 0, wsc: false };
+  e.ty += 12; e.lot = true;
+  e.bb.play('jump', false);
+  G.donStart = G.time;
+  META.st.donReached = (META.st.donReached || 0) + 1; saveMetaSoon();
+  STATY.zdarzenie('don/start', 'Don Chipso wchodzi');
+  G.zdarzenia.push({ t: +G.time.toFixed(1), typ: 'don-start' });
+  return e;
+}
+function ladowanieDona(e) {
+  novaRing(e.pos.x, e.pos.z, 5);
+  novaRing(e.pos.x, e.pos.z, 2.5);
+  puff(e.pos.x, e.ty + 1, e.pos.z, 0xffd75e, 3.5);
+  okruchy(e.pos.x, e.ty + 0.5, e.pos.z, 0xf2c14a, 16);
+  AUDIO.sfx('wybuch');
+  G.shake = Math.max(G.shake, 0.6);
+  const dx = P.pos.x - e.pos.x, dz = P.pos.z - e.pos.z, d = Math.hypot(dx, dz) || 1;
+  if (d < 5) { P.kbx = dx / d * 21; P.kbz = dz / d * 21; }   // 21 j./s gasnące 7/s ≈ 3 j. odrzutu
+  wejscieBossa();
+  AUDIO.bossOn();
+}
+const liczChiamate = () => { let n = 0; for (const o of G.enemies) if (o.chiamata && !o.dying) n++; return n; };
+// ATAKI (§3.4–3.6). Naraz najwyżej jeden z trzech, po każdym 0,8 s odpoczynku (stoi — okno na obrażenia).
+// Priorytet: Chiamata (gotowa) → Salt Storm (gracz 3–11 j. w stożku ±60°) → Shuriken (≤ 24 j.).
+// Faza 2: lawina chipsów równolegle; wściekłość po 150 s: cooldowny ×0,6, tempo ×1,2, lawina 4 kręgi.
+// Don ignoruje Mrożonki i spowolnienie (sam liczy tempo), zwraca prędkość marszu.
+function aiDona(e, dt, d, to) {
+  const D = CFG_BIEG.don, S = e.donS;
+  const f2 = S.faza === 2, mnCd = S.wsc ? D.wscieklosc.cd : 1;
+  S.t += dt;
+  if (S.stan !== 'spada') {
+    S.walkaT += dt;
+    S.cdShur -= dt; S.cdSalt -= dt; S.cdChiam -= dt;
+    if (!S.wsc && S.walkaT >= D.wscieklosc.po) {
+      S.wsc = true;
+      napis(T('DON SIĘ WŚCIEKA!', 'THE DON IS FURIOUS!'), 2000, '#ff4a4a');
+      G.shake = Math.max(G.shake, 0.5);
+      AUDIO.sfx('boss');
+      G.zdarzenia.push({ t: +G.time.toFixed(1), typ: 'don-wscieklosc' });
+    }
+    if (f2 && S.stan !== 'przejscie') {
+      S.lawinaT -= dt;
+      if (S.lawinaT <= 0) { S.lawinaT = D.lawina.co * mnCd; lawinaDona(S.wsc ? D.wscieklosc.lawinaN : D.lawina.n); }
+    }
+  }
+  const tempo = D.tempo * (f2 ? D.f2Tempo : 1) * (S.wsc ? D.wscieklosc.tempo : 1) * (d > 26 ? 1.35 : 1);
+  const zmien = (stan, dl) => { S.stan = stan; S.t = 0; S.dl = dl; };
+  switch (S.stan) {
+    case 'spada': {
+      const k = Math.min(1, S.t / S.dl), g = terrainH(e.pos.x, e.pos.z);
+      e.ty = g + 12 * (1 - k * k);
+      if (k >= 1) { e.lot = false; e.ty = g; ladowanieDona(e); zmien('laska', D.laska); }
+      return 0;
+    }
+    case 'laska':                                    // 2 s łaski: idzie, nie atakuje
+      e.bb.play('run');
+      if (S.t >= S.dl) zmien('chodzi', 0);
+      return tempo;
+    case 'chodzi': {
+      e.bb.play('run');
+      if (S.cdChiam <= 0 && liczChiamate() < D.chiam.limit) {
+        zmien('chiam', D.chiam.tel); e.bb.play('jump');
+        AUDIO.sfx('szelest', { g: 1 });
+        napis('LA CHIAMATA!', 1300);
+        return 0;
+      }
+      const sol = f2 ? D.sol2 : D.sol;
+      if (S.cdSalt <= 0 && d >= D.sol.min && d <= sol.r && wStozkuDona(e, D.sol.stozek)) {
+        zmien('solTel', D.sol.tel); e.bb.play('idle');
+        const pol = sol.kat / 2 * Math.PI / 180;
+        G.solAkt = { x: e.pos.x, z: e.pos.z, a: Math.atan2(P.pos.x - e.pos.x, P.pos.z - e.pos.z), r: sol.r, pol, kat: sol.kat, k: 0, dmuch: false };
+        return 0;
+      }
+      if (S.cdShur <= 0 && d <= D.shur.maxD) {
+        zmien('shur', D.shur.tel); e.bb.play('idle');
+        telegraf('krag', e.pos.x, e.pos.z, { r: 1.5, kolor: 0xffffff, dur: D.shur.tel, sledz: e, strefa: false });
+        AUDIO.sfx('strzal');
+        return 0;
+      }
+      return tempo;
+    }
+    case 'shur':
+      if (S.t >= S.dl) { rzutShuriken(e, f2); S.cdShur = (f2 ? D.shur2.cd : D.shur.cd) * mnCd; zmien('odp', D.odpoczynek); }
+      return 0;
+    case 'solTel': case 'sol': {
+      const A = G.solAkt;
+      if (!A) { zmien('odp', D.odpoczynek); return 0; }
+      to.set(Math.sin(A.a), 0, Math.cos(A.a));
+      if (S.stan === 'solTel') {
+        A.k = Math.min(1, S.t / S.dl);                // wycinek wypełnia się od Dona na zewnątrz
+        if (S.t >= S.dl) { zmien('sol', D.sol.czas); A.dmuch = true; S.solTik = 0; AUDIO.sfx('piorun'); }
+      } else {
+        S.solTik -= dt;
+        if (S.solTik <= 0) {                          // tik 25 co 0,25 s = 100 HP/s, BEZ nietykalności
+          S.solTik += D.sol.tik;
+          if (wSoli(P.pos.x, P.pos.z)) { ranGracza(D.sol.dmg, 'don-sol', { dot: true, shake: 0.12 }); P.zasolT = D.sol.slowT; }
+        }
+        for (let k = 0; k < 2; k++) {                 // białe okruchy soli w wycinku
+          const a = A.a + (Math.random() - 0.5) * 2 * A.pol, r = 1 + Math.random() * (A.r - 1);
+          const x = A.x + Math.sin(a) * r, z = A.z + Math.cos(a) * r;
+          okruchy(x, terrainH(x, z) + 0.5, z, 0xffffff, 1);
+        }
+        if (S.t >= S.dl) { ukryjSol(); S.cdSalt = (f2 ? D.sol2.cd : D.sol.cd) * mnCd; zmien('odp', D.odpoczynek); }
+      }
+      return 0;
+    }
+    case 'chiam':
+      if (S.t >= S.dl) { chiamata(e, f2 ? D.chiam2.n : D.chiam.n); S.cdChiam = (f2 ? D.chiam2.cd : D.chiam.cd) * mnCd; zmien('odp', D.odpoczynek); }
+      return 0;
+    case 'odp':
+      e.bb.play('idle');
+      if (S.t >= S.dl) zmien('chodzi', 0);
+      return 0;
+    case 'przejscie':
+      e.bb.play('jump');
+      if (S.t >= S.dl) { e.nietyk = false; S.faza = 2; S.lawinaT = 0.6; zmien('chodzi', 0); }
+      return 0;
+  }
+  return tempo;
+}
+function wStozkuDona(e, stopnie) {
+  const a = Math.atan2(P.pos.x - e.pos.x, P.pos.z - e.pos.z);
+  const r = Math.abs(((a - e.bb.facing) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
+  return r <= stopnie * Math.PI / 180;
+}
+function wSoli(px, pz) {
+  const A = G.solAkt;
+  if (!A || !A.dmuch) return false;
+  const dx = px - A.x, dz = pz - A.z, d = Math.hypot(dx, dz);
+  if (d > A.r) return false;
+  const r = Math.abs(((Math.atan2(dx, dz) - A.a) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
+  return r <= A.pol || d < 1.2;
+}
+const solStrefa = () => G.solAkt;                   // bot: wycinek soli jako strefa do opuszczenia
+// SALT STORM: dwa stałe meshe (obrys + wypełnienie) tworzone raz; geometria 45° albo 60° (faza 2)
+let _sol = null;
+function solMeshe() {
+  if (_sol) return _sol;
+  const geo = kat => { const g = new THREE.CircleGeometry(1, 28, -Math.PI / 2 - kat / 2, kat); g.rotateX(-Math.PI / 2); return g; };
+  const mat = a => new THREE.MeshBasicMaterial({ color: 0xf6fbff, transparent: true, opacity: a, depthWrite: false, depthTest: false, fog: false });
+  _sol = { g45: geo(Math.PI / 4), g60: geo(Math.PI / 3), obrys: null, wyp: null };
+  _sol.obrys = new THREE.Mesh(_sol.g45, mat(0.22)); _sol.obrys.renderOrder = 948;
+  _sol.wyp = new THREE.Mesh(_sol.g45, mat(0.5)); _sol.wyp.renderOrder = 949;
+  _sol.obrys.visible = _sol.wyp.visible = false;
+  scene.add(_sol.obrys); scene.add(_sol.wyp);
+  return _sol;
+}
+function rysujSol() {
+  const A = G.solAkt;
+  if (!A) { if (_sol) _sol.obrys.visible = _sol.wyp.visible = false; return; }
+  const M = solMeshe(), g = A.kat > 50 ? M.g60 : M.g45, y = terrainH(A.x, A.z) + 0.1;
+  for (const m of [M.obrys, M.wyp]) { m.geometry = g; m.position.set(A.x, y, A.z); m.rotation.set(0, A.a, 0); m.visible = true; }
+  M.obrys.scale.set(A.r, 1, A.r);
+  const k = A.dmuch ? 1 : Math.max(0.04, A.k);
+  M.wyp.scale.set(A.r * k, 1, A.r * k);
+  M.wyp.material.opacity = A.dmuch ? 0.42 + 0.14 * Math.sin(G.time * 18) : 0.38 + 0.2 * A.k;
+}
+function ukryjSol() { G.solAkt = null; if (_sol) _sol.obrys.visible = _sol.wyp.visible = false; }
+// CHIP SHURIKEN: wachlarz chipsów (3 × ±18°, faza 2: 5 × ±30°), skrajne skręcają do środka ω 0,6 rad/s
+function rzutShuriken(e, f2) {
+  const D = CFG_BIEG.don, s = f2 ? Object.assign({}, D.shur, D.shur2) : D.shur;
+  const a0 = Math.atan2(P.pos.x - e.pos.x, P.pos.z - e.pos.z);
+  for (let i = 0; i < s.n; i++) {
+    const off = (i / (s.n - 1) - 0.5) * 2 * s.kat * Math.PI / 180;
+    const o = new THREE.Object3D(); o.scale.set(0.9, 0.9, 1);
+    G.donPoc.push({ o, x: e.pos.x, z: e.pos.z, y: e.ty + 1.4, a: a0 + off, v: s.v,
+                    w: Math.abs(off) < 1e-3 ? 0 : -Math.sign(off) * s.omega, zyc: s.zasieg / s.v, spin: Math.random() * 6 });
+  }
+  AUDIO.sfx('strzal');
+}
+function updateDonPoc(dt) {
+  const D = CFG_BIEG.don.shur;
+  for (let i = G.donPoc.length - 1; i >= 0; i--) {
+    const c = G.donPoc[i];
+    c.zyc -= dt; c.a += c.w * dt;
+    c.x += Math.sin(c.a) * c.v * dt; c.z += Math.cos(c.a) * c.v * dt;
+    const g = terrainH(c.x, c.z);
+    c.y += (g + 1.0 - c.y) * Math.min(1, 3 * dt);
+    c.spin += dt * 12;
+    c.o.position.set(c.x, c.y, c.z);
+    c.o.rotation.set(0, camYaw, c.spin);
+    if (Math.hypot(P.pos.x - c.x, P.pos.z - c.z) < D.r && P.y - terrainH(P.pos.x, P.pos.z) < 1.2) {
+      ranGracza(D.dmg, 'don-shuriken', { shake: 0.3 });
+      okruchy(c.x, c.y, c.z, 0xf2c14a, 5);
+      G.donPoc.splice(i, 1); continue;
+    }
+    if (c.zyc <= 0) G.donPoc.splice(i, 1);
+  }
+}
+// LA CHIAMATA: 8 (faza 2: 12) Chipsettich w okręgu r 3,5 wokół Dona, z rezerwy, HP jak w 10:00, limit 30
+function chiamata(e, n) {
+  const L = CFG_BIEG.don.chiam;
+  n = Math.min(n, L.limit - liczChiamate(), MAX_WROGOW - liczZywych());
+  const hp = ENEMY_TYPES.chipsetti.hp * SKALA_WROGA * hpScale(CZAS_WIECZORU);
+  for (let k = 0; k < n; k++) {
+    const a = k / n * Math.PI * 2;
+    const m = spawnEnemy('chipsetti', null, { x: e.pos.x + Math.sin(a) * L.r, z: e.pos.z + Math.cos(a) * L.r }, { elita: 'nie' });
+    m.chiamata = true; m.stun = 0.3; m.hp = m.maxHp = hp;
+    if (k % 2 === 0) puff(m.pos.x, m.ty + 0.6, m.pos.z, 0xf2c14a, 1.2);
+  }
+  G.shake = Math.max(G.shake, 0.2);
+}
+// LAWINA CHIPSÓW (faza 2): co 2 s 3 kręgi r 2,2 — jeden w przewidzianą pozycję gracza (0,6 s), dwa 3–7 j. od
+// niego; złota obwódka zaciska się, na koniec chips spada z +8 j. w 0,25 s. Gracz w kręgu 200 HP (nietykalność
+// działa), zwykli wrogowie −30% maxHp (Chiamata sama się przerzedza).
+function lawinaDona(n) {
+  const L = CFG_BIEG.don.lawina;
+  for (let k = 0; k < n; k++) {
+    let x, z;
+    if (k === 0) { x = P.pos.x + P.vx * L.wyprz; z = P.pos.z + P.vz * L.wyprz; }
+    else { const a = Math.random() * Math.PI * 2, r = L.los[0] + Math.random() * (L.los[1] - L.los[0]); x = P.pos.x + Math.sin(a) * r; z = P.pos.z + Math.cos(a) * r; }
+    telegraf('krag', x, z, { r: L.r, kolor: 0xffd23c, dur: L.tel + L.spad, zacisk: true, a: 0.95 });
+    telegraf('dysk', x, z, { r: L.r, kolor: 0xffd23c, dur: L.tel + L.spad, rosnie: true, a: 0.28, strefa: false });
+    G.lawina.push({ x, z, t: 0, o: null, spin: Math.random() * 6 });
+  }
+}
+function updateLawina(dt) {
+  const L = CFG_BIEG.don.lawina;
+  for (let i = G.lawina.length - 1; i >= 0; i--) {
+    const l = G.lawina[i];
+    l.t += dt;
+    const g = terrainH(l.x, l.z);
+    if (l.t >= L.tel) {
+      if (!l.o) { l.o = new THREE.Object3D(); l.o.scale.set(1.7, 1.7, 1); }
+      const k = Math.min(1, (l.t - L.tel) / L.spad);
+      l.spin += dt * 8;
+      l.o.position.set(l.x, g + 0.7 + L.wys * (1 - k), l.z);
+      l.o.rotation.set(0, camYaw, l.spin);
+    }
+    if (l.t < L.tel + L.spad) continue;
+    G.lawina.splice(i, 1);                             // UDERZENIE
+    novaRing(l.x, l.z, L.r);
+    okruchy(l.x, g + 0.4, l.z, 0xf2c14a, 8);
+    AUDIO.sfx('wybuch');
+    G.shake = Math.max(G.shake, 0.2);
+    if (Math.hypot(P.pos.x - l.x, P.pos.z - l.z) < L.r && P.y - g < 1.5) ranGracza(L.dmg, 'don-lawina', { shake: 0.4 });
+    tlumWKregu(l.x, l.z, L.r, L.tlum, 'don');
+  }
+}
+// PRZEJŚCIE W FAZĘ 2 (§3.5): 1,5 s nietykalności, hitstop, 40 złotych okruchów, napis, sprite ×1,1
+function donFaza2(e) {
+  const S = e.donS;
+  if (!S || S.faza !== 1) return;
+  S.faza = 1.5; S.stan = 'przejscie'; S.t = 0; S.dl = CFG_BIEG.don.przejscie;
+  e.nietyk = true;
+  ukryjSol();
+  G.hitstop = Math.max(G.hitstop, 0.15);
+  G.shake = Math.max(G.shake, 0.6);
+  for (let k = 0; k < 4; k++) okruchy(e.pos.x, e.ty + 1.5, e.pos.z, 0xffd23c, 10);
+  napis(T('Nic osobistego. Sama sól.', 'Nothing personal. Just salt.'), 2200);
+  e.bb.mesh.scale.multiplyScalar(1.1);
+  G.donFaza2 = G.time;
+  STATY.zdarzenie('don/faza2', 'Don Chipso: faza 2');
+  G.zdarzenia.push({ t: +G.time.toFixed(1), typ: 'don-faza2', po: +(G.time - G.donStart).toFixed(1) });
+}
+// ZWYCIĘSTWO (§3.8): czas liczony REALNIE od śmierci Dona (kino zwalnia świat do ×0,4)
+function zwyciestwo(e) {
+  if (G.wygrana) return;
+  G.wygrana = { t: 0, x: e.pos.x, z: e.pos.z, krok: 0, lancuch: null };
+  G.donKoniec = G.time;
+  G.hitstop = Math.max(G.hitstop, 0.35);
+  G.kino = 2.0; G.kinoMn = 0.4;
+  G.shake = Math.max(G.shake, 0.8);
+  ukryjSol();
+  G.telegrafy.length = 0; G.donPoc.length = 0; G.lawina.length = 0;
+  AUDIO.cisza();
+  G.zdarzenia.push({ t: +G.time.toFixed(1), typ: 'don-smierc', walka: +(G.time - G.donStart).toFixed(1) });
+}
+function updateZwyciestwa(dtR) {
+  const W = G.wygrana, D = CFG_BIEG.don;
+  W.t += dtR;
+  if (W.krok < 1 && W.t >= 0.2) {                  // pozostali z Chiamaty giną łańcuchem w 1 s
+    W.krok = 1;
+    W.lancuch = G.enemies.filter(o => !o.dying).map(o => ({ o, t: 0.2 + Math.random() }));
+  }
+  if (W.lancuch) for (let i = W.lancuch.length - 1; i >= 0; i--) {
+    const l = W.lancuch[i];
+    if (W.t < l.t) continue;
+    if (!l.o.dying) { l.o.hp = 0; killEnemy(l.o); }
+    W.lancuch.splice(i, 1);
+  }
+  if (W.krok < 2 && W.t >= 0.3) {                  // fontanna monet 10 × 10 + jedna 100 z Dona
+    W.krok = 2;
+    for (let k = 0; k < D.monety.n; k++) {
+      const a = k / D.monety.n * Math.PI * 2, r = 1.2 + Math.random() * 1.8;
+      G.coins.push(makeCoin(W.x + Math.sin(a) * r, W.z + Math.cos(a) * r, D.monety.val));
+    }
+    G.coins.push(makeCoin(W.x, W.z, D.monety.duza));
+    G.vacuum = Math.max(G.vacuum, 6);
+  }
+  if (W.krok < 3 && W.t >= 1.0) {                  // „WIECZÓR WYGRANY!" + konfetti
+    W.krok = 3;
+    napis(T('WIECZÓR WYGRANY!', 'EVENING WON!'), 2300, '#ffd75e');
+    for (const kol of [0xffd75e, 0xff6fa5, 0x7ee7ff, 0x9be15d, 0xc07bff, 0xff9d3f]) okruchy(P.pos.x, P.y + 2.2, P.pos.z, kol, 10);
+    blysk('#ffd75e', 0.35);
+    AUDIO.sfx('zlota');
+  }
+  if (W.krok < 4 && W.t >= 3.0) {                  // ekran końca (K9 zrobi porządny ekran wygranej)
+    W.krok = 4;
+    for (const c of G.coins) G.runCoins += Math.round((c.val || 1) * monetyMul());   // niezebrane monety z fontanny
+    G.coins = [];
+    gameOver('wygrana');
+  }
+}
+function updateDon(dt, dtR) {
+  if (G.donPoc.length) updateDonPoc(dt);
+  if (G.lawina.length) updateLawina(dt);
+  rysujSol();
+  if (G.wygrana) updateZwyciestwa(dtR);
 }
 
 // ============================== POCISKI / DROPY ==============================
@@ -5835,7 +6658,7 @@ function startRozpad(e) {
     e.bb.mesh.material = k;
   }
   const kol = e.T.okrKol || 0xffffff;
-  const duzy = e.T.boss || e.elite;
+  const duzy = e.T.boss || e.elite || e.kapral;
   // WYBUCH SKALOWANY DO WROGA: szeregowy pyka, gruby robi hukiem. Przy 500 wrogach
   // pierścień na każdą śmierć byłby kaszą, więc dostają go tylko duzi i wirujący.
   const gruby = duzy || e.T.scale >= 1.2;
@@ -5920,6 +6743,7 @@ const GLIF = {
   '+': ['00000','00100','00100','11111','00100','00100','00000'],
   '-': ['00000','00000','00000','11111','00000','00000','00000'],
   '.': ['00000','00000','00000','00000','00000','00110','00110'],
+  '@': ['01110','10001','10111','10101','10111','10000','01110'],   // E1-bieg K7: „@" = ogłuszony kapral
   ' ': ['00000','00000','00000','00000','00000','00000','00000'],
 };
 const POP_CACHE_MAX = 200;
@@ -6003,6 +6827,8 @@ const dmgNum = d => d < 100 ? String(Math.round(d))
 //   o.sfx          — dźwięk zwykłego trafienia (przy krytyku zamieniany na 'kryt'),
 //   o.noPop        — bez liczby (np. wróg już dostaje osobny napis),
 //   o.noKill       — nie wołaj killEnemy (pętla wołająca robi to sama).
+//   o.bezKryt      — cios zadaje WRÓG albo otoczenie (wybuch Botta, fala Gommone, wir Girandoli): bez krytyka,
+//                    bez wysysania Beetina, bez dźwięku kryt i wibracji (statystyki gracza tu nie działają).
 // Zwraca { dmg, crit, dead } — `dmg` już po krytyku (np. do wybuchu meteoru).
 // Dodając nową broń: NIGDY `e.hp -= x` na piechotę, zawsze `zadajDmg(e, x, {...})`.
 const _kbV = new THREE.Vector3();          // wektor roboczy dla `o.kb` — zero alokacji na cios
@@ -6010,16 +6836,24 @@ function zadajDmg(e, dmg, o = {}) {
   // E1-bieg K4: bronie liczą w jednostkach bazowych, wróg ma HP ×SKALA_WROGA. `o.bezSkali` = obrażenia
   // już w skali ekranu albo WZGLĘDNE (% maxHp: głazy Wąwozów, regał) — bez tego głaz dałby bossowi 1500%.
   if (!o.bezSkali) dmg *= SKALA_WROGA;
-  const crit = dmg > 0 && Math.random() < critC();   // nova Sodino ma dmg 0 — nie ma czego krytykować
+  // E1-bieg K8: przejście Dona w fazę 2 (1,5 s) = nietykalny, pop „-" (dławiony, żeby nie zasypać kadru)
+  if (e.nietyk && dmg > 0) {
+    if (!o.noPop && G.time - (e.nietykPopT || -9) > 0.25) { e.nietykPopT = G.time; dmgPop(e.pos.x, e.ty + 0.6, e.pos.z, '-', '#cfd6e2', 1.2); }
+    return { dmg: 0, crit: false, dead: false };
+  }
+  const crit = dmg > 0 && !o.bezKryt && Math.random() < critC();   // nova Sodino ma dmg 0 — nie ma czego krytykować
   if (crit) dmg *= 3;
   const hpPrzed = e.hp;
   e.hp -= dmg;
+  // Don w fazie 1 nie spada poniżej 50%: próg zawsze odpala przejście (faza 2 gwarantowana — kryterium K8)
+  if (e.don && e.donS && e.donS.faza === 1 && e.hp <= e.maxHp * 0.5) { e.hp = e.maxHp * 0.5; donFaza2(e); }
   // E1-bieg: ŹRÓDŁO CIOSU (`o.zr` = klucz broni). Liczymy obrażenia SKUTECZNE (bez nadwyżki
   // ponad resztę HP), więc suma `G.dmgBron` = suma HP utraconego przez wrogów, a DPS broni
   // na ekranie końca nie puchnie od przebitych trupów.
   if (dmg > 0) {
     const zr = o.zr || 'inne';
-    G.dmgBron[zr] = (G.dmgBron[zr] || 0) + Math.min(dmg, Math.max(0, hpPrzed));
+    // HP UTRACONE naprawdę: przy zacięciu Dona na 50% (faza 1) to mniej niż `dmg`
+    G.dmgBron[zr] = (G.dmgBron[zr] || 0) + Math.max(0, hpPrzed - Math.max(0, e.hp));
     if (dmg > G.maxHit.dmg && !o.bezSkali) G.maxHit = { dmg, zr, crit };   // bez głazów i regału (% maxHp)
   }
   // wysysanie życia Beetina (Buraczane Ciśnienie): 10% obrażeń zbiera się w „soku",
@@ -6027,9 +6861,9 @@ function zadajDmg(e, dmg, o = {}) {
   // NERF 23.09 (pomiar: bot z samą bronią startową, Łąki): Beetino przeżywał 293 s i odzyskał
   // 49 serc, reszta postaci 48-81 s i zero. Przyczyna: pchnięcie trafia CAŁY tłum naraz, więc
   // jedno pchnięcie w hordę dawało kilka serc — im gęstsza horda, tym mocniej się leczył, czyli
-  // najtrudniejszy moment gry był dla niego najłatwiejszy. Teraz NAJWYŻEJ 1 serce na 3 s, a sok
+  // najtrudniejszy moment gry był dla niego najłatwiejszy. Teraz NAJWYŻEJ 1 serce na BEET_LECZ_CD (5 s), a sok
   // nie odkłada się na zapas (limit 4) — wysysanie zostaje tożsamością postaci, znika nieśmiertelność.
-  if (dmg > 0 && cisnienie()) {
+  if (dmg > 0 && !o.bezKryt && cisnienie()) {
     P.sok = Math.min(4, (P.sok || 0) + dmg / SKALA_WROGA * 0.10);   // sok w jednostkach bazowych (próg 4 bez zmian)
     if (P.sok >= 4 && P.hp < P.maxHp && G.time >= (P.leczT || 0)) {
       P.sok = 0; P.leczT = G.time + BEET_LECZ_CD; P.hp = Math.min(P.maxHp, P.hp + HP_SERCA); drawHearts();
@@ -6037,7 +6871,7 @@ function zadajDmg(e, dmg, o = {}) {
       AUDIO.sfx('serce');
     }
   }
-  if (o.kb && !e.T.bezKb) e.kb.copy(o.kb).setY(0).normalize().multiplyScalar((o.kbSila == null ? 1 : o.kbSila) * (crit ? 1.5 : 1));
+  if (o.kb && !e.T.bezKb && !e.bezKb) e.kb.copy(o.kb).setY(0).normalize().multiplyScalar((o.kbSila == null ? 1 : o.kbSila) * (crit ? 1.5 : 1));
   if (crit) spark(e.pos.x, e.ty + 1.5, e.pos.z);
   if (!o.noPop || crit) dmgPop(e.pos.x, e.ty, e.pos.z, dmgNum(dmg), crit ? '#ff9d3f' : (o.col || '#ffe066'),
                                 crit ? Math.max(1.5, o.sc || 1) : (o.sc || 1));
@@ -6359,7 +7193,7 @@ const WEAPONS = {
   wypad: {
     ico: 'fala', nm: T('Wypad!', 'Velvet Push'),
     ds: T('Pcha tam, gdzie tłok; w ścisku pcha dookoła', 'Shoves the thickest crowd; when surrounded, shoves all around'), max: 5, postac: 'beetino',
-    lvlDs: l => `${T('zasięg', 'range')} ${(3.4 + 0.4 * l).toFixed(1)} ${T('j.', 'u')}, ${T('odrzut', 'knockback')} ${(5 + l).toFixed(0)}, ${T('co', 'every')} ${(1.5 - 0.06 * l).toFixed(2)} s`
+    lvlDs: l => `${T('zasięg', 'range')} ${(3.4 + 0.4 * l).toFixed(1)} ${T('j.', 'u')}, ${T('odrzut', 'knockback')} ${(3 + 0.5 * l).toFixed(1)}, ${T('co', 'every')} ${(1.5 - 0.06 * l).toFixed(2)} s`
       + T(l === 5 ? ' (→ ewolucja!)' : '', l === 5 ? ' (→ evolution!)' : ''),
     evoKey: 'selekcja', evoIco: 'tarcza', evoNm: T('DZIŚ NIE WEJDZIESZ', 'NOT ON THE LIST'),
     evoDs: T('EWOLUCJA: pchnięcie ogłusza i zadaje podwójne obrażenia', 'EVOLUTION: the shove stuns and deals double damage'),
@@ -6367,7 +7201,7 @@ const WEAPONS = {
     // w KIERUNKU BIEGU postaci — a w survivorsie biegnie się OD hordy, więc pchnięcie leciało
     // w pustą łąkę i wrogowie za plecami nigdy nie obrywali („prawie nieużywalna").
     // Teraz: 12 sektorów po 30°, celujemy w ten z największą liczbą wrogów (z sąsiadami =
-    // stożek 60°); gdy w zasięgu stoi 6+ wrogów, pchnięcie idzie na 360° (bramkarz w ścisku
+    // stożek 60°); gdy w zasięgu stoi 12+ wrogów (24.09; dawniej 6, potem 8), pchnięcie idzie na 360° (bramkarz w ścisku
     // rozrzuca wszystkich dookoła). Bez wrogów w zasięgu — kierunek biegu jak dawniej.
     tick(w, dt) {
       w.t -= dt;
@@ -6376,7 +7210,8 @@ const WEAPONS = {
       // 1.4 → 1.5 s, pchnięcie dookoła od 8 wrogów (było 6). Celowanie w tłok zostaje — to ono
       // naprawiło broń, obrażenia były dołożone na zapas.
       w.t = (1.5 - 0.06 * w.lvl) / fireMul();
-      const zasieg = (3.4 + 0.4 * w.lvl) * rangeM(), odrzut = 5 + w.lvl;
+      // BALANS 24.09 (właściciel): odrzut 5+l → 3+0,5l (~40% mniej), pchnięcie dookoła od 12 wrogów (było 8)
+      const zasieg = (3.4 + 0.4 * w.lvl) * rangeM(), odrzut = 3 + 0.5 * w.lvl;
       const dmg = (3.2 + 1.0 * w.lvl) * (P.evo.selekcja ? 2 : 1) * dmgAll();   // ×1.28 względem 2.5+0.8l
       const sektor = new Array(12).fill(0);
       let wZasiegu = 0;
@@ -6387,7 +7222,7 @@ const WEAPONS = {
         wZasiegu++;
         sektor[(Math.floor(faceAngle(dx, dz) / (Math.PI / 6)) + 12) % 12]++;
       }
-      const dookola = wZasiegu >= 8;
+      const dookola = wZasiegu >= 12;
       let fx = Math.sin(playerBB.facing), fz = Math.cos(playerBB.facing);
       if (wZasiegu && !dookola) {
         let best = 0, bestN = -1;
@@ -7126,6 +7961,9 @@ function pchnijOverlay(fn) {
   // BEZ `return`, wiec ta sama klatka leciala dalej do petli pigulek i mogla otworzyc
   // karty POD ekranem smierci (dwa `.ov` naraz = prawie czarny ekran).
   if (G.dying || G.over || !G.running) return;
+  // E1-bieg K8: po śmierci Dona (3 s do ekranu końca) żadnych kart — Skrzynia Kaprala albo awans z fontanny
+  // otwierały karty, a potem na nie wchodził ekran WYGRANEJ (dwa `.ov` naraz)
+  if (G.wygrana) return;
   if (ovWidoczny()) { OV_Q.push(fn); return; }
   G.paused = true;
   odswiezStawBtn(); odswiezSmrodBtn();             // karty: przyciski akcji nie wiszą nad overlayem
@@ -7142,8 +7980,12 @@ function zamknijOverlay(id) {
   if (nast) { G.paused = true; nast(); return; }   // pauza trwa dalej dla następnego
   G.paused = false;
 }
-function showCards() {
+function showCards(o = {}) {
   const wrap = document.getElementById('cards'); wrap.innerHTML = '';
+  // E1-bieg K7: Skrzynia Kaprala otwiera te same 3 karty, tylko pod własnym tytułem
+  const h2 = document.querySelector('#cardsOv h2');
+  if (h2) h2.textContent = o.zrodlo === 'kapral' ? T('SKRZYNIA KAPRALA! Wybierz ulepszenie', "CORPORAL'S CRATE! Pick an upgrade")
+                                                 : T('AWANS! Wybierz ulepszenie', 'LEVEL UP! Pick an upgrade');
   const pool = cardPool();
   const picks = [];
   const goldIdx = pool.findIndex(u => u.gold);      // ewolucja ma pierwszeństwo, max 1
@@ -7264,6 +8106,10 @@ function closeSwap() { zamknijOverlay('swapOv'); }
 
 // ============================== HUD ==============================
 let _drgT = 0;
+// Pas serc (px) między pauzą i pełnym ekranem (index.html): telefon < 520 px — przyciski ±80..114 px od środka,
+// czyli wolne ±80 minus 2 px luzu; szerszy ekran — ±106..140, wolne ±106 minus luz.
+const pasSerc = () => innerWidth < 520 ? 156 : 206;
+const krokSerca = R => Math.ceil(R * 9 / 8) + 1;    // ikona 9×8 + 1 px odstępu (margin w ui-hud.css)
 function drawHearts(drgnij = false) {
   // HP przycinamy do maksimum: `repeat()` z liczba ujemna rzuca RangeError i zabija
   // cala klatke, a wystarczy jedno leczenie ponad max (albo hak debugowy), zeby to
@@ -7271,22 +8117,32 @@ function drawHearts(drgnij = false) {
   // w licznik ZAGROZENIA.
   // E1-bieg K3: HP w skali ×100 — reszta serca rysuje się ĆWIARTKAMI (pełne serce przycięte
   // clip-path na pustym, bez nowej grafiki), obok mała liczba prawdziwego HP.
+  // 24.09 (decyzja właściciela): ŻYCIE TYLKO JAKO SERDUSZKA — bez liczby HP obok i bez licznika
+  // „1200 / 1500" przy wielu sercach; przy wielu sercach rząd rysuje się mniejszymi ikonami.
+  // 25.09 (przegląd K7–K8): przy 11+ sercach (Beetino 8 + 3 Serducha) rząd na telefonie wchodził pod pauzę
+  // i pełny ekran. Teraz serca mają STAŁĄ SZEROKOŚĆ PASA między przyciskami (`pasSerc`) i się ZAWIJAJĄ:
+  // największa ikona, przy której wszystko mieści się w 1 rzędzie, potem w 2, potem w 3 (ikona ≥ 11 px).
   const hp = Math.max(0, Math.min(P.hp, P.maxHp));
-  const serc = Math.round(P.maxHp / HP_SERCA);
-  const prog = innerWidth < 520 ? 8 : 12;
-  const el = document.getElementById('hearts');
-  if (serc > prog) el.innerHTML = ico('serce', 18) + ` ${Math.ceil(hp)} / ${Math.round(P.maxHp)}`;   // dużo serc = licznik
-  else {
-    const pelne = Math.floor(hp / HP_SERCA), r = hp - pelne * HP_SERCA;
-    const q = r > 0 ? Math.max(1, Math.round(r / (HP_SERCA / 4))) : 0;
-    let h = ico('serce', 18).repeat(pelne), puste = serc - pelne;
-    if (q >= 4) { h += ico('serce', 18); puste--; }
-    else if (q > 0) {
-      h += `<span class="sc">${ico('sercePuste', 18)}<span class="scq" style="clip-path:inset(0 ${100 - 25 * q}% 0 0)">${ico('serce', 18)}</span></span>`;
-      puste--;
-    }
-    el.innerHTML = h + ico('sercePuste', 18).repeat(Math.max(0, puste)) + `<small class="hpn">${Math.ceil(hp)}</small>`;
+  const serc = Math.min(30, Math.round(P.maxHp / HP_SERCA));   // bezpiecznik: hak DEV z maxHp 1e6 = 10 000 ikon
+  // Rozmiar nie rośnie z liczbą serc (1 rząd 18/16/14 → 2 rzędy 14/12 → 3 rzędy 11), a rzędy są RÓWNE
+  // (11 serc = 6 + 5, nie 9 + 2): szerokość pudełka = serca w rzędzie × krok.
+  const W = pasSerc();
+  let R = 11, wRzedzie = Math.ceil(serc / 3);
+  wybor: for (const [rzedy, rozmiary] of [[1, [18, 16, 14]], [2, [14, 12]], [3, [11]]]) {
+    const n = Math.ceil(serc / rzedy);
+    for (const r of rozmiary) if (n * krokSerca(r) <= W) { R = r; wRzedzie = n; break wybor; }
   }
+  const el = document.getElementById('hearts');
+  el.style.maxWidth = Math.min(W, wRzedzie * krokSerca(R)) + 'px';
+  const pelne = Math.min(serc, Math.floor(hp / HP_SERCA)), r = pelne < serc ? hp - pelne * HP_SERCA : 0;
+  const q = r > 0 ? Math.max(1, Math.round(r / (HP_SERCA / 4))) : 0;
+  let h = ico('serce', R).repeat(pelne), puste = serc - pelne;
+  if (q >= 4) { h += ico('serce', R); puste--; }
+  else if (q > 0) {
+    h += `<span class="sc">${ico('sercePuste', R)}<span class="scq" style="clip-path:inset(0 ${100 - 25 * q}% 0 0)">${ico('serce', R)}</span></span>`;
+    puste--;
+  }
+  el.innerHTML = h + ico('sercePuste', R).repeat(Math.max(0, puste));
   if (drgnij) {                                    // trafienie: serca drgają 200 ms
     el.classList.remove('drgnij'); void el.offsetWidth; el.classList.add('drgnij');
     clearTimeout(_drgT); _drgT = setTimeout(() => el.classList.remove('drgnij'), 200);
@@ -7300,7 +8156,7 @@ function drawHearts(drgnij = false) {
 // Zwraca true, gdy cios wszedł.
 const obrazeniaWroga = baza => baza * HP_SERCA * dmgMul();   // baza = dawne T.dmg w sercach
 function ranGracza(ile, zr = 'inne', o = {}) {
-  if (G.dying || !G.running) return false;
+  if (G.dying || !G.running || G.wygrana) return false;   // K8: po śmierci Dona gracz nietykalny do końca
   if (!o.dot && P.iframes > 0) return false;
   // DoT (tiki co klatkę) przy garnku albo w trybie karabinu: pochłonięte BEZ kosztu — inaczej każdy
   // tik zabierałby życie trybu karabinu (karabinZjadlCios) i 3 tiki kończyłyby tryb (pułapka na K8)
@@ -7918,7 +8774,7 @@ function updateGlazyRantu(dt) {
           if (ed > b.r + 0.7 || Math.abs(e.ty - b.y) > 2.6) continue;
           b.trafieni.add(e);
           const mx = e.maxHp || e.hp;
-          zadajDmg(e, e.T.boss ? mx * 0.15 : mx * 1.3, { zr: 'glaz', bezSkali: true });
+          zadajDmg(e, (e.T.boss || e.kapral) ? mx * 0.15 : mx * 1.3, { zr: 'glaz', bezSkali: true });
           if (!e.T.bezKb) e.kb.set(ex / (ed || 1) * 16, 0, ez / (ed || 1) * 16);
           if (b.trafieni.size === 1) AUDIO.sfx('wybuch');
           if (b.trafieni.size % 5 === 0) dmgPop(b.x, b.y + 2, b.z, 'x' + b.trafieni.size, '#ffd24a', 1.3);
@@ -8164,30 +9020,34 @@ function spawnWeaponChest() {
 function updateWeaponChest(dt) {
   const arrow = document.getElementById('wArrow');
   if (!wchest.active) {
-    arrow.style.display = 'none';
-    wchest.wait -= dt;
+    if (!G.cisza) wchest.wait -= dt;               // K8: od ciszy 9:52 nowa złota skrzynia już nie wypada (finał)
     if (wchest.wait <= 0) spawnWeaponChest();
-    return;
+  } else {
+    wchest.t += dt;
+    wchest.mesh.rotation.y = camYaw;
+    wchest.mesh.position.y = terrainH(wchest.pos.x, wchest.pos.z) + 0.1 + Math.sin(wchest.t * 2.2) * 0.12;
+    wchest.ring.scale.setScalar(3.4 + Math.sin(wchest.t * 3) * 0.5);
+    if (wchest.pos.distanceTo(P.pos) < 1.6) {        // ZEBRANA
+      wchest.active = false;
+      wchest.mesh.visible = wchest.ring.visible = false;
+      wchest.wait = 25 + Math.random() * 20;
+      G.shake = Math.max(G.shake, 0.2);
+      AUDIO.sfx('zlota');
+      novaRing(wchest.pos.x, wchest.pos.z, 3);
+      META.st.chests++; saveMeta();
+      pchnijOverlay(P.weapons.length < 3 ? openNewWeapon : openSwap);
+    }
   }
-  wchest.t += dt;
-  wchest.mesh.rotation.y = camYaw;
-  wchest.mesh.position.y = terrainH(wchest.pos.x, wchest.pos.z) + 0.1 + Math.sin(wchest.t * 2.2) * 0.12;
-  wchest.ring.scale.setScalar(3.4 + Math.sin(wchest.t * 3) * 0.5);
-  const d = wchest.pos.distanceTo(P.pos);
-  if (d < 1.6) {                                   // ZEBRANA
-    wchest.active = false;
-    wchest.mesh.visible = wchest.ring.visible = false;
-    wchest.wait = 25 + Math.random() * 20;
-    G.shake = Math.max(G.shake, 0.2);
-    AUDIO.sfx('zlota');
-    novaRing(wchest.pos.x, wchest.pos.z, 3);
-    META.st.chests++; saveMeta();
-    pchnijOverlay(P.weapons.length < 3 ? openNewWeapon : openSwap);
-    arrow.style.display = 'none';
-    return;
-  }
+  // E1-bieg K7: strzałka prowadzi do BLIŻSZEJ z dwóch: Skrzyni Kaprala (fiolet) albo złotej. Dawniej fiolet
+  // miał bezwzględne pierwszeństwo, więc niepodniesiona Skrzynia Kaprala zasłaniała złotą do końca biegu.
+  let kap = najblizszaSkrzyniaKaprala();
+  if (kap && wchest.active && wchest.pos.distanceTo(P.pos) < kap.pos.distanceTo(P.pos)) kap = null;
+  const cel = kap ? kap.pos : (wchest.active ? wchest.pos : null);
+  if (!cel) { arrow.style.display = 'none'; return; }
+  if (arrow.classList.contains('kapral') !== !!kap) arrow.classList.toggle('kapral');
+  const d = cel.distanceTo(P.pos);
   // strzałka: rzut kierunku do skrzyni na osie EKRANU (kamera ma yaw = camYaw)
-  const dx = wchest.pos.x - P.pos.x, dz = wchest.pos.z - P.pos.z;
+  const dx = cel.x - P.pos.x, dz = cel.z - P.pos.z;
   const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);       // przód kamery
   const rx = -fz, rz = fx;                                     // prawo kamery
   const sx = dx * rx + dz * rz;                                // ekran: w prawo
@@ -8575,7 +9435,7 @@ function updateKarabinPoc(dt) {
     if (!dead) for (let j = G.enemies.length - 1; j >= 0; j--) {
       const e = G.enemies[j];
       if (e.dying || s.hit.has(e)) continue;
-      const rr = KARABIN_R + (e.T.boss ? 0.9 : 0);
+      const rr = KARABIN_R + ((e.T.boss || e.kapral) ? 0.9 : 0);
       const dx = px - e.pos.x, dz = pz - e.pos.z, dy = py - (e.ty + 0.8);
       if (dx * dx + dz * dz + dy * dy > rr * rr) continue;
       s.hit.add(e);
@@ -8795,14 +9655,17 @@ function update(dt) {
   if (G.hitstop > 0) { G.hitstop -= dtReal; dt *= 0.14; }
   // KINO (wejscie bossa): czas na ~1.2 s zwalnia do 55%. Odliczamy REALNYM dt,
   // inaczej hitstop w tej samej klatce rozciagnalby oprawe kilkukrotnie.
-  if (G.kino > 0) { G.kino -= dtReal; dt *= 0.55; }
+  if (G.kino > 0) { G.kino -= dtReal; dt *= G.kinoMn || 0.55; }   // K8: zwycięstwo zwalnia do ×0,4
+  else G.kinoMn = 0.55;
   refreshSpriteTilt();                             // pochylenie billboardów liczymy raz na klatkę
   G.time += dt;
-  document.getElementById('timer').textContent = fmtTime(G.time);
+  // E1-bieg K8: od ciszy 9:52 czerwone „DON" (puls), od wejścia Dona czas walki „+0:23"
+  const tmEl = document.getElementById('timer');
+  tmEl.textContent = G.donStart != null ? '+' + fmtTime(G.time - G.donStart) : G.cisza ? 'DON' : fmtTime(G.time);
+  if (tmEl.classList.contains('don') !== (G.cisza && G.donStart == null)) tmEl.classList.toggle('don');
   if (DEV) devProbka();                            // HORDA.pomiar(): próbka co 10 s czasu gry
-  // E1-bieg: pasek Wieczoru zamiast „ZAGROŻENIE N" (toast „POZIOM ZAGROŻENIA" co minutę usunięty —
-  // rytm niosą teraz nazwane zdarzenia z kalendarza WIECZOR)
-  pasekWieczoru();
+  // E1-bieg: bez „ZAGROŻENIE N" i bez paska Wieczoru (decyzja właściciela 24.09) — rytm niosą nazwane
+  // zdarzenia z kalendarza WIECZOR, a HUD pokazuje sam zegar
 
   // ---- obrót kamery klawiszami ----
   // 2.6 rad/s = tyle, co pełne wychylenie prawego drążka pada (spójność); 90° w 0.6 s.
@@ -8834,6 +9697,7 @@ function update(dt) {
   if (!P.airborne && G.kaluze.length && wKetchupie(P.pos.x, P.pos.z)) spd *= KETCH_SLOW;
   if (G.buff.key === 'szyb') spd *= 1.45;
   if (P.gliding) spd *= 1.45;                    // szybując lecisz szybciej = ucieczka od hordy
+  if (P.zasolT > 0) { P.zasolT -= dt; spd *= CFG_BIEG.don.sol.slow; }   // K8: zasolenie po Salt Storm (3 s od tiku)
   // strome zbocze (mesa): pieszo wolno POD GÓRĘ, ale skokiem normalnie
   if (ml > 0.05 && !P.airborne) {
     const inv = 1 / Math.max(ml, 0.001);
@@ -8923,6 +9787,10 @@ function update(dt) {
   updateBossHp();
   if (G.gluty.length) updateGluty(dt);
   if (G.kaluze.length) updateKaluze(dt);
+  if (G.telegrafy.length) updateTelegrafy(dt);     // E1-bieg K7/K8: telegrafy na ziemi
+  if (G.skrzynieKap.length) updateSkrzynieKaprala(dt);
+  updateDon(dt, dtReal);                           // K8: pociski, lawina, sól, zwycięstwo
+  if (!G.running) return;                          // zwycięstwo mogło właśnie zamknąć bieg
 
   // ---- E1-bieg: SPAWNER WIECZORU (tabela fal, paczki, podłoga, recykling, zdarzenia) ----
   // Zastępuje interwał + `batch`, fale okrążające co 30 s i bossów co 2 min (`bossAt` usunięte).
@@ -8976,7 +9844,7 @@ function update(dt) {
     // jest wyraznie blizej (dystans do niej x 1.7 musi byc mniejszy niz do gracza).
     // Dzieki temu przynęta odciaga hordę w alejce, ale nie robi z gracza widza.
     let celPos = P.pos;
-    if (G.turrets.length) {
+    if (G.turrets.length && !e.kapral && !e.T.boss && !e.odwrot) {   // kaprale i Don ignorują wabienie (spec §2.1, §3.3)
       const dGracz = e.pos.distanceTo(P.pos);
       let najl = SOKO_WABI;
       for (const t of G.turrets) {
@@ -8987,12 +9855,15 @@ function update(dt) {
     const to = _toWroga.copy(celPos).sub(e.pos).setY(0);   // wektor roboczy (E1: bez alokacji na wroga)
     const dCel = to.length(); to.normalize();
     const d = e.pos.distanceTo(P.pos);              // do gracza — od tego zależą jego obrażenia
-    let es = e.T.speed * (e.elite ? 0.85 : 1) * spdScale();
+    // E1-bieg K7/K8: kapral i Don mają tempo wprost w j./s (`e.tempo`, bez spdScale — stała godzina)
+    let es = e.tempo || e.T.speed * (e.elite ? 0.85 : 1) * spdScale();
     // BOSSA NIE DA SIE ZGUBIC (decyzja wlasciciela: „przeciwnik, ktorego trzeba pokonac").
     // Prowadzi horde (4.4 > Friesetti 4.0), a z bardzo daleka jeszcze docisnie —
     // wiec odejscie na drugi koniec mapy nie jest odpowiedzia na walke z Donem.
-    if (e.T.boss && d > 26) es *= 1.35;
-    if (e.stun > 0) { e.stun -= dt; es = 0; }        // ogluszenie z ewolucji "DZIS NIE WEJDZIESZ"
+    const duzy = e.T.boss || e.kapral;
+    if (duzy && d > 26) es *= 1.35;
+    // ogluszenie z ewolucji "DZIS NIE WEJDZIESZ"; kapral i Don: ×0,25 czasu (spec §2.1, §3.3)
+    if (e.stun > 0) { e.stun -= dt * (duzy ? 4 : 1); es = 0; }
     if (e.ty < wodaY(e.pos.x, e.pos.z) - 0.04) es *= 0.7;   // woda spowalnia też ich
     if (MAPS[mapKey].rzeki) {                           // Wąwozy: błoto i nurt działają też na hordę
       es *= 1 - TW.wspolczynnikBlota(e.pos.x, e.pos.z) * BLOTO_WROG;
@@ -9009,11 +9880,26 @@ function update(dt) {
       to.copy(e.sciana.dir);
       if (e.stun > 0 || G.buff.key === 'mroz') es = 0; else es = e.sciana.spd * (G.buff.key === 'slow' ? 0.6 : 1);
     }
+    // E1-bieg K8: ODWRÓT w ciszy 9:52 (spec §3.1) — idą OD gracza, bez ciosów i strzałów, ale da się ich
+    // kosić; > 40 j. = znikają bez łupu i bez licznika. Woda, błoto i ogłuszenie ich nie trzymają.
+    if (e.odwrot) {
+      if (d > 40) { e.bb.dispose(); G.enemies.splice(i, 1); continue; }
+      to.set(e.pos.x - P.pos.x, 0, e.pos.z - P.pos.z).normalize();
+      es = Math.max(e.T.speed, 3) * 1.3;
+    }
+    if (e.kapral && !e.odwrot) {                     // K7: sztuczka kaprala
+      es = aiKaprala(e, dt, d, to, es);
+      if (e.dying) continue;
+    }
+    if (e.don) {                                     // K8: ataki Dona (sam liczy swoje tempo)
+      es = aiDona(e, dt, d, to, es);
+      if (e.dying) continue;
+    }
     // ---- SZARŻA FRIESETTIEGO: tell 0.6 s (przysiad + okrąg + „!"), potem ×3 po PROSTEJ, potem ogłuszenie ----
     // Do 03.09 „szarża" to było samo `speed: 4.0` — zero windupu, zero tellu, nic do uniknięcia.
     // Kierunek zamrażamy w chwili startu: krok w bok i frytka przelatuje obok, po czym leży
     // ogłuszona 1.2 s — to jest okno na cios, którego dotąd nie było.
-    if (e.T.szarzuje && !wSciane) {
+    if (e.T.szarzuje && !wSciane && !e.kapral && !e.odwrot) {
       e.szarzaCd = (e.szarzaCd == null ? 1.5 : e.szarzaCd) - dt;
       if (!e.faz && e.szarzaCd <= 0 && es > 0 && d > FRIES_MIN && d < FRIES_MAX && P.y - e.ty < 1.2) {
         e.faz = 'tell'; e.fazT = FRIES_TELEGRAF;
@@ -9045,7 +9931,7 @@ function update(dt) {
     // w okienku [KETCH_BLISKO, KETCH_DALEKO]: za blisko cofa się, za daleko podchodzi,
     // w okienku STOI i pluje. Dzięki temu nie da się go „przeczekać" bieganiem
     // w kółko, ale też nie wchodzi w młynek broni przy graczu.
-    if (e.T.artyleria) {
+    if (e.T.artyleria && !e.kapral && !e.odwrot) {
       if (d < KETCH_BLISKO) { e.pos.addScaledVector(to, -es * dt * 1.15); }   // odwrót
       else if (d <= KETCH_DALEKO) { /* stoi i celuje */ }
       else e.pos.addScaledVector(to, es * dt);
@@ -9058,11 +9944,11 @@ function update(dt) {
         plunKetchupem(e);
       }
     } else e.pos.addScaledVector(to, es * dt);
-    if (!e.T.bezKb) {                                  // Gummini są odporne na odrzut
-      e.pos.addScaledVector(e.kb, dt * 8);
+    if (!e.T.bezKb && !e.bezKb) {                      // Gummini (i Don) są odporni na odrzut
+      e.pos.addScaledVector(e.kb, dt * 8 * (e.kbMn || 1));   // kapral: ×0,3 (ciężki mini-boss)
       e.kb.multiplyScalar(Math.max(0, 1 - dt * 10));
     } else e.kb.set(0, 0, 0);
-    if (e.T.wiruje) {
+    if (e.T.wiruje && !e.kapral) {
       // Lollini kręci się jak piła TARCZOWA — ale że to billboard, symulujemy to
       // ściskaniem w poziomie (jak obracający się dysk oglądany z boku) + chwile spoczynku
       const cykl = (G.time * 0.55 + e.faza) % 3.0;
@@ -9074,7 +9960,7 @@ function update(dt) {
         e.bb.mesh.scale.x = e.bb.h;                      // chwila przerwy — po prostu idzie
       }
     }
-    if (e.T.kamikaze && d < 2.2 && !e.zapalony) {                 // Sodino: syczy i wybucha
+    if (e.T.kamikaze && !e.kapral && !e.odwrot && d < 2.2 && !e.zapalony) {   // Sodino: syczy i wybucha
       e.zapalony = true; e.lont = 1.0;
     }
     if (e.zapalony) {
@@ -9094,7 +9980,8 @@ function update(dt) {
     const blockTop = solveSolids(e.pos, 0.35, e.ty);
     const eGround = supportY(e.pos.x, e.pos.z, e.ty);
     e.jumpCd -= dt;
-    if (e.vy !== 0) {                                    // w locie (po skoku)
+    if (e.lot) {                                         // K7/K8: skok Gommone / spadający Don — wysokość liczy AI
+    } else if (e.vy !== 0) {                             // w locie (po skoku)
       e.vy -= 22 * dt;
       e.ty += e.vy * dt;
       if (e.vy < 0 && e.ty <= eGround) { e.ty = eGround; e.vy = 0; }
@@ -9119,14 +10006,24 @@ function update(dt) {
     }
     e.bb.facing = faceAngle(to.x, to.z);
     e.orbCd -= dt;
-    e.bb.update(dt, e.pos, e.ty);
-    if (e.ring) e.ring.position.set(e.pos.x, e.ty + 0.06, e.pos.z);
+    const eG = e.lot ? terrainH(e.pos.x, e.pos.z) : e.ty;   // w locie cień zostaje na ziemi
+    e.bb.update(dt, e.pos, e.ty, eG);
+    if (e.ring) e.ring.position.set(e.pos.x, eG + 0.06, e.pos.z);
+    if (e.ring2) {                                     // K7: podwójny krąg kaprala pulsuje 2 Hz
+      const p = 1 + 0.09 * Math.sin(G.time * 4 * Math.PI);
+      e.ring.scale.set(3.0 * p, 1, 3.0 * p);
+      e.ring2.position.copy(e.ring.position);
+      e.ring2.scale.set(2.3 / p, 1, 2.3 / p);
+    }
     // Lollini w fazie wirowania sięga o LOLLINI_TARCZA dalej — „wolny, ale nie właź pod tarczę"
     // było dotąd tylko podpowiedzią na ekranie ładowania, w kodzie kręcił się wyłącznie sprite.
     const tarcza = e.wirujeTeraz ? LOLLINI_TARCZA : 0;
-    if (d < 0.9 + (e.T.boss ? 0.8 : 0) + tarcza && P.iframes <= 0 && P.y - e.ty < 1.0) {
-      // E1-bieg K3: kontakt = T.dmg × HP_SERCA × dmgMul (Chipsetti 0:00 = 100, 10:00 = 200)
-      if (ranGracza(obrazeniaWroga(e.T.dmg), e.type) && tarcza) {   // TARCZA PILARSKA wyrzuca gracza z zasięgu
+    // K7/K8: kapral (×1,9) i Don sięgają dalej; w odwrocie (cisza) nikt nie bije
+    if (!e.odwrot && d < 0.9 + (e.T.boss ? 0.8 : e.kapral ? 0.5 : 0) + tarcza && P.iframes <= 0 && P.y - e.ty < 1.0) {
+      // E1-bieg K3: kontakt = T.dmg × HP_SERCA × dmgMul (Chipsetti 0:00 = 100, 10:00 = 200);
+      // kapral 150 × dmgMul, Don 200 stałe (spec §2.1, §3.3)
+      const ile = e.don ? CFG_BIEG.don.kontakt : obrazeniaWroga(e.kapral ? CFG_BIEG.kaprale.kontakt : e.T.dmg);
+      if (ranGracza(ile, e.don ? 'don' : e.kapral ? 'kapral' + e.kapral : e.type) && tarcza) {   // TARCZA PILARSKA wyrzuca gracza z zasięgu
         const kx = P.pos.x - e.pos.x, kz = P.pos.z - e.pos.z, kl = Math.hypot(kx, kz) || 1;
         P.kbx = kx / kl * LOLLINI_ODRZUT; P.kbz = kz / kl * LOLLINI_ODRZUT;
         G.shake = 0.5;
@@ -9161,7 +10058,7 @@ function update(dt) {
     if (!dead) for (let j = G.enemies.length - 1; j >= 0; j--) {
       const e = G.enemies[j];
       if (e.dying || s.hit.has(e)) continue;
-      const rr = e.T.boss ? 1.4 : 0.75;
+      const rr = (e.T.boss || e.kapral) ? 1.4 : 0.75;
       const dx = s.mesh.position.x - e.pos.x, dz = s.mesh.position.z - e.pos.z;
       if (dx * dx + dz * dz < rr * rr) {
         s.hit.add(e);
@@ -9620,14 +10517,24 @@ function deszczMonet(ile) {
     setTimeout(() => d.remove(), 3200);
   }
 }
-function gameOver() {
+// E1-bieg K8: `powod` = 'smierc' | 'wygrana'. Wygrana: monety biegu ×1,5 (+200 za pierwszy Wieczór w historii
+// zapisu), tytuł „WIECZÓR WYGRANY!", czas walki z Donem. Porządny ekran końca i koniecBiegu() — K9.
+function gameOver(powod = 'smierc') {
+  const wygrana = powod === 'wygrana', D = CFG_BIEG.don;
   winieta(false); pasy(false);
   G.over = true; G.running = false;
   AUDIO.endRun();                                  // koniec biegu = powrót do motywu głównego
   document.getElementById('vign').style.opacity = 0;
   playerBB.mesh.rotation.z = 0;
-  rozliczBieg();
   const s = META.st;
+  const monetyPrzed = G.runCoins;
+  let bonusWin = 0;
+  if (wygrana) {
+    G.runCoins = Math.round(G.runCoins * D.mnozWygranej);
+    if (!s.wins) { bonusWin = D.pierwszaWygrana; G.runCoins += bonusWin; }   // „Nagroda Nonny za pierwszy Wieczór"
+    s.wins = (s.wins || 0) + 1;
+  }
+  rozliczBieg();
   // PIERWSZA PRZEGRANA MA COŚ DAWAĆ. Brotato odblokowuje za nią postać („Chunky"),
   // u nas nie ma jeszcze wolnego arkusza, więc idzie broń: pierwsza śmierć =
   // Piorun za darmo. Puste „KONIEC" po pierwszym biegu to najgorszy moment,
@@ -9635,20 +10542,32 @@ function gameOver() {
   let prezent = '';
   if (!s.runs && !META.unlocked.piorun) {
     META.unlocked.piorun = 1;
-    prezent = `<br><b style="color:#7ee7ff">${ico('pioruny', 18)} ${T('PIERWSZA PORAŻKA — PIORUN ODBLOKOWANY NA STAŁE!', 'FIRST DEFEAT — THUNDERBOLT UNLOCKED FOR GOOD!')}</b>`;
+    prezent = `<br><b style="color:#7ee7ff">${ico('pioruny', 18)} ${wygrana
+      ? T('PIERWSZY WIECZÓR — PIORUN ODBLOKOWANY NA STAŁE!', 'FIRST EVENING — THUNDERBOLT UNLOCKED FOR GOOD!')
+      : T('PIERWSZA PORAŻKA — PIORUN ODBLOKOWANY NA STAŁE!', 'FIRST DEFEAT — THUNDERBOLT UNLOCKED FOR GOOD!')}</b>`;
   }
   s.runs++; s.time += G.time; s.lvl += P.lvl - 1;
-  STATY.zdarzenie('run-end/smierc/min-' + kubelekMinut(G.time),
+  if (wygrana) STATY.zdarzenie('run-end/wygrana/' + mapKey, 'Wieczór wygrany: Don w ' + fmtTime(G.donKoniec - G.donStart) + ', poziom ' + P.lvl);
+  else if (G.donStart != null) STATY.zdarzenie('run-end/smierc-don/' + mapKey, 'Śmierć przy Donie: ' + fmtTime(G.time - G.donStart));
+  else STATY.zdarzenie('run-end/smierc/min-' + kubelekMinut(G.time),
     'Koniec biegu (śmierć): ' + fmtTime(G.time) + ', poziom ' + P.lvl + ', ' + G.kills + ' zabójstw');
   const rekordCzasu = G.time > s.best;          // PRZED aktualizacja! inaczej zawsze true
   if (rekordCzasu) s.best = G.time;
   if (G.kills > s.bestKills) s.bestKills = G.kills;
   saveMeta(); renderShop(); renderStats(); renderBestiary();
   const rekord = rekordCzasu;                   // było `G.time >= s.best` PO aktualizacji = zawsze true
+  const h1 = document.querySelector('#overOv h1');
+  if (h1) { h1.textContent = wygrana ? T('WIECZÓR WYGRANY!', 'EVENING WON!') : T('KONIEC', 'GAME OVER'); h1.style.color = wygrana ? '#ffd75e' : ''; }
+  const zebrano = wygrana
+    ? `<i data-licz="${monetyPrzed}">0</i> × 1,5${bonusWin ? ' + ' + bonusWin : ''} = <i data-licz="${G.zebrane}">0</i>`
+    : `<i data-licz="${G.zebrane}">0</i>`;
   document.getElementById('overStats').innerHTML =
+    (wygrana ? `<b style="color:#ffd75e">${T('Don pokonany w', 'Don defeated in')} ${fmtTime(G.donKoniec - G.donStart)}</b><br>` : '') +
     `${T('Przetrwano', 'Survived')}: <b><i data-licz="0" data-czas="${G.time.toFixed(1)}">0:00</i></b> · ` +
-    `${T('Pokonano', 'Defeated')}: <b><i data-licz="${G.kills}">0</i></b> · ${T('Poziom', 'Level')}: <b><i data-licz="${P.lvl}">0</i></b><br>` +
-    `${T('Zebrano', 'Collected')}: <b>${ico('moneta',15)} <i data-licz="${G.zebrane}">0</i></b> (${T('łącznie', 'total')} ${ico('moneta',15)} ${META.coins})` +
+    `${T('Pokonano', 'Defeated')}: <b><i data-licz="${G.kills}">0</i></b> · ${T('Poziom', 'Level')}: <b><i data-licz="${P.lvl}">0</i></b>` +
+    ` · ${T('Kaprale', 'Corporals')}: <b>${G.kaprale || 0}/6</b><br>` +
+    `${T('Zebrano', 'Collected')}: <b>${ico('moneta',15)} ${zebrano}</b> (${T('łącznie', 'total')} ${ico('moneta',15)} ${META.coins})` +
+    (bonusWin ? `<br><b style="color:#ffd75e">${T('Nagroda Nonny za pierwszy Wieczór', "Nonna's reward for the first Evening")}: +${bonusWin}</b>` : '') +
     prezent +
     (rekord ? '<br><b class="pieczatka" style="color:#ffd75e">' + ico('puchar',18) + T(' NOWY REKORD CZASU!', ' NEW TIME RECORD!') + '</b>' : '');
   document.getElementById('overOv').style.display = 'flex';
@@ -9730,6 +10649,9 @@ function clearWorld() {
   for (const gl of G.gluty) { scene.remove(gl.mesh); scene.remove(gl.krag); }
   for (const k of G.kaluze) { scene.remove(k.mesh); k.mesh.material.dispose(); }
   for (const pl of plamy) if (pl) pl.mesh.visible = false;
+  for (const c of G.skrzynieKap) { scene.remove(c.mesh); scene.remove(c.ring); }   // E1-bieg K7
+  G.skrzynieKap = []; G.telegrafy = []; G.donPoc = []; G.lawina = [];
+  if (typeof ukryjSol === 'function') ukryjSol();
   G.enemies = []; G.gems = []; G.coins = []; G.shots = []; G.orbs = []; G.sparks = []; G.rings = [];
   G.lobs = []; G.boomers = []; G.bolts = []; G.pops = []; G.hps = []; G.kury = []; G.okruchy = [];
   G.krzaki = [];
@@ -9737,6 +10659,7 @@ function clearWorld() {
   G.karabinPoc = []; G.gluty = []; G.kaluze = [];
   G.streak = 0; G.streakT = -9;
   G.vacuum = 0; G.buff = { key: null, t: 0 };
+  pasy(false);                                     // E1-bieg K8: pasy kinowe z 9:58 (wyjście do menu przed 10:02)
   document.getElementById('bossHp').classList.remove('on');
   document.getElementById('bossOv').classList.remove('on');
   document.getElementById('bossNm').classList.remove('on');
@@ -9768,7 +10691,10 @@ function newGame() {
   Object.assign(G, { running: true, over: false, paused: false, dying: false, deathT: 0, time: 0, kills: 0, runCoins: 0, zebrane: 0, ranga: 0, rangaKille: 0, shake: 0, tlok: 0, kino: 0,
     spawnAkum: 0, podlogaT: 0, recyklT: 0, ketchT: 0, wiecIdx: 0, kolejkaFal: [], kolejkaSpawnu: [], falaNr: 0,
     dmgBron: {}, maxHit: { dmg: 0, zr: '', crit: false }, zdarzenia: [], probki: [],
-    obrazeniaOd: {}, ostatniCios: null });
+    obrazeniaOd: {}, ostatniCios: null,
+    kaprale: 0, cisza: false, donStart: null, wygrana: null, kinoMn: 0.55, donFaza2: null, donKoniec: null, solAkt: null });
+  document.getElementById('timer').classList.remove('don');
+  document.getElementById('bossNm').style.color = '';
   winieta(true);
   STATY.zdarzenie('run-start/' + charKey + '/' + mapKey, 'Bieg: ' + CHARS[charKey].nm + ' / ' + MAPS[mapKey].nm);
   P.sok = 0; P.leczT = 0;                           // licznik wysysania życia Beetina + blokada leczenia
@@ -9788,7 +10714,6 @@ function newGame() {
   if (wchest.mesh) wchest.mesh.visible = wchest.ring.visible = false;
   document.getElementById('lvl').textContent = T('POZIOM 1', 'LEVEL 1');
   document.getElementById('kills').innerHTML = ico('czaszka', 15) + ' 0';
-  pasekWieczoru();
   document.getElementById('xpbar').style.width = '0%';
   drawHearts(); drawCoins(); renderWpns();
   AUDIO.startRun(charKey);                         // losowy utwór na bieg + kwestia na start
@@ -9860,6 +10785,7 @@ function devHudTick(t0, t1, t2) {
 // na desktopie) zamiast ~1000 obiektów w projectObject/sortowaniu three.js.
 let pulaCien = null, pulaKrag = null, pulaIskry = null, pulaOkruchy = null, pulaPuff = null;
 let pulaFala = null, pulaPlamy = null, pulaGemy = null, pulaMonety = null;
+let pulaTelKrag = null, pulaTelDysk = null, pulaTelPas = null, pulaChipsy = null;   // E1-bieg K7/K8
 const _kotwica = new THREE.Vector3();
 function syncInstancje() {
   if (!coinMat || !glowMat || !ringMat || !eliteRingMat || !pigulkaMat) return;   // przed bootem
@@ -9876,6 +10802,12 @@ function syncInstancje() {
     pulaFala = new InstPula(blobGeo, ringMat.clone(), { alfa: true, cap: 32, nazwa: 'fale' });
     pulaGemy = new InstPula(unitGeo, pigulkaMat.clone(), { cap: 128, nazwa: 'pigułki' });
     pulaMonety = new InstPula(unitGeo, coinMat.clone(), { kolor: true, cap: 32, nazwa: 'monety' });
+    // E1-bieg K7/K8: telegrafy (depthTest:false, renderOrder nad wszystkim w świecie) i pociski Dona
+    pulaTelDysk = new InstPula(blobGeo, telMat(telDyskTexture()), { kolor: true, alfa: true, renderOrder: 950, cap: 16, nazwa: 'telegrafy: dyski' });
+    pulaTelPas = new InstPula(pasGeo(), telMat(telPasTexture()), { kolor: true, alfa: true, renderOrder: 950, cap: 8, nazwa: 'telegrafy: pasy' });
+    pulaTelKrag = new InstPula(blobGeo, telMat(telKragTexture()), { kolor: true, alfa: true, renderOrder: 951, cap: 16, nazwa: 'telegrafy: kręgi' });
+    pulaChipsy = new InstPula(unitGeo, new THREE.MeshBasicMaterial({ map: chipsTexture(), alphaTest: 0.4, side: THREE.DoubleSide }),
+                              { cap: 16, nazwa: 'chipsy Dona' });
   }
   if (!pulaPlamy && plamaMat) {                    // plamaMat powstaje przy pierwszej plamie
     const pm = plamaMat.clone(); pm.opacity = 1;
@@ -9894,7 +10826,11 @@ function syncInstancje() {
     if (hk && m.visible) hk.g.add(m, hk, bb.fxProg, bb.fxFlash);
     pulaCien.add(bb.shadow);
     if (e.ring) pulaKrag.add(e.ring);
+    if (e.ring2) pulaKrag.add(e.ring2);            // K7: drugi krąg kaprala
   }
+  for (const t of G.telegrafy) (t.rodzaj === 'pas' ? pulaTelPas : t.rodzaj === 'dysk' ? pulaTelDysk : pulaTelKrag).add(t.o, t.a, t.kc);
+  for (const c of G.donPoc) pulaChipsy.add(c.o);
+  for (const l of G.lawina) if (l.o) pulaChipsy.add(l.o);
   for (const s of G.sparks) pulaIskry.add(s.mesh, s.a);
   for (const o of G.okruchy) pulaOkruchy.add(o.mesh, 1, o.kc);
   for (const p of G.puffs) pulaPuff.add(p.mesh, p.a, p.kc);
@@ -9978,7 +10914,7 @@ function botRuch() {                              // zwraca kierunek w ŚWIECIE 
   const now = BOT.tryb === 'nowicjusz', R = now ? 12 : 10;
   let ux = 0, uz = 0, cx = 0, cz = 0, n = 0, blisko8 = 0, blisko3 = 0, najD = 1e9, nx = 0, nz = 0;
   for (const e of G.enemies) {
-    if (e.dying) continue;
+    if (e.dying || e.odwrot) continue;               // K8: uciekająca w ciszy horda nie jest celem ani zagrożeniem
     const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z, d2 = dx * dx + dz * dz;
     if (d2 < 64) blisko8++;
     if (d2 < 9) blisko3++;
@@ -10007,9 +10943,58 @@ function botRuch() {                              // zwraca kierunek w ŚWIECIE 
       const dx = P.pos.x - gl.to.x, dz = P.pos.z - gl.to.z, d = Math.hypot(dx, dz) || 1;
       if (d < KETCH_R + 1) { wx += dx / d * 3; wz += dz / d * 3; }
     }
+    // K8: walka z Donem — średni krąży wokół niego w ~6 j. (tupnięcie/Wypad/aura sięgają, kontakt 200 HP nie),
+    // a nie „podchodzi do najbliższego" (to wbiegało prosto w Dona 4,75 j./s w fazie 2)
+    const don = G.enemies.find(e => e.don && !e.dying && !e.lot);
+    if (don) {
+      const dx = don.pos.x - P.pos.x, dz = don.pos.z - P.pos.z, kd = Math.hypot(dx, dz) || 1, ux = dx / kd, uz = dz / kd;
+      const rad = Math.max(-2.2, Math.min(1.5, (kd - 6) * 0.6));
+      wx = wx * 0.35 + ux * rad - uz * BOT.kier * 1.1; wz = wz * 0.35 + uz * rad + ux * BOT.kier * 1.1;
+    }
+    // E1-bieg K7/K8: telegrafy na ziemi (kręgi, pasy szarży, wycinek soli) — wyjdź z nich
+    for (const t of G.telegrafy) {
+      if (!t.strefa) continue;
+      const dx = P.pos.x - t.x, dz = P.pos.z - t.z;
+      if (t.rodzaj === 'pas') {
+        const ux = Math.sin(t.kat), uz = Math.cos(t.kat), wzd = dx * ux + dz * uz, pop = dx * uz - dz * ux;
+        if (wzd > -1 && wzd < t.dl + 1 && Math.abs(pop) < t.sz / 2 + 1.2) { const s = pop >= 0 ? 1 : -1; wx += uz * s * 3; wz -= ux * s * 3; }
+      } else {
+        const d = Math.hypot(dx, dz) || 1;
+        if (d < t.r + 1) { wx += dx / d * 3; wz += dz / d * 3; }
+      }
+    }
+    // K7: kapral to nagroda — średni krąży wokół niego w ~5 j. (bronie celują w najbliższego, więc człowiek
+    // podchodzi do kaprala, żeby to on był celem); bliżej niż 3,5 j. — odskok
+    let kap = null, kd = 1e9;
+    for (const e of G.enemies) if (e.kapral && !e.dying && !e.odwrot) { const d = e.pos.distanceTo(P.pos); if (d < kd) { kd = d; kap = e; } }
+    if (kap && kd < 40) {
+      const kx = (kap.pos.x - P.pos.x) / kd, kz = (kap.pos.z - P.pos.z) / kd;
+      const sila = kd > 5.5 ? Math.min(2, (kd - 5.5) * 0.4 + 0.8) : kd < 3.5 ? -1.5 : 0;
+      wx += kx * sila - kz * 0.6 * BOT.kier; wz += kz * sila + kx * 0.6 * BOT.kier;
+    }
+    // K8: salwa chipsów Dona leci na gracza (≤ 9 j., zbliża się) — bieg w bok od toru, ZAWSZE w tę samą
+    // stronę (BOT.kier), bo wachlarz zbiega się do środka i uniki „od każdego chipsa" się znosiły
+    let grozi = null;
+    for (const c of G.donPoc) {
+      const dx = P.pos.x - c.x, dz = P.pos.z - c.z, d = Math.hypot(dx, dz);
+      const vx = Math.sin(c.a), vz = Math.cos(c.a);
+      if (d < 9 && dx * vx + dz * vz > 0 && Math.abs(dx * vz - dz * vx) < 2.5) { grozi = c; break; }
+    }
+    if (grozi) {
+      const vx = Math.sin(grozi.a), vz = Math.cos(grozi.a);
+      wx = wx * 0.3 + vz * BOT.kier * 3; wz = wz * 0.3 - vx * BOT.kier * 3;
+    }
+    const sol = typeof solStrefa === 'function' ? solStrefa() : null;
+    if (sol) {                                    // wycinek soli: w bok od osi
+      const dx = P.pos.x - sol.x, dz = P.pos.z - sol.z, d = Math.hypot(dx, dz);
+      const ux = Math.sin(sol.a), uz = Math.cos(sol.a), pop = dx * uz - dz * ux;
+      if (d < sol.r + 1.5 && dx * ux + dz * uz > -1) { const s = pop >= 0 ? 1 : -1; wx += uz * s * 3.5; wz -= ux * s * 3.5; }
+    }
   }
   let cel = null, dc = now ? 8 : 12;
   if (wchest.active) { const d = wchest.pos.distanceTo(P.pos); if (now ? d < 8 : blisko8 < 5) { cel = wchest.pos; dc = d; } }
+  // E1-bieg K7: Skrzynia Kaprala ma pierwszeństwo przed złotą (średni: gdy w 8 j. < 5 wrogów, nowicjusz: < 8 j.)
+  for (const c of G.skrzynieKap) { const d = c.pos.distanceTo(P.pos); if (now ? d < 8 : blisko8 < 5) { cel = c.pos; dc = d; break; } }
   if (!cel) for (const c of chests) if (!c.opened) { const d = c.pos.distanceTo(P.pos); if (d < dc) { dc = d; cel = c.pos; } }
   if (cel && !now && blisko8 >= 8) cel = null;    // średni: do skrzyni tylko przy luzie
   // pigułki XP: bez zbierania η byłoby bliskie zera. Pomiar K5: przy warunku „w 8 j. < 8 wrogów"
@@ -10105,7 +11090,19 @@ async function botBieg(o = {}) {
     if (mapKey !== mapa) setMap(mapa);
     document.getElementById('startOv').style.display = 'none';
     document.getElementById('overOv').style.display = 'none';
+    // DETERMINIZM (K7): clearWorld() w newGame rozstawia skrzynie `landSpot`-em wokół STAREJ pozycji gracza
+    // i sprawdza kolizje w chunkach STAREGO miejsca — ten sam seed dawał inny bieg (inna liczba losowań).
+    // Start zawsze z (0,0) i świeżych chunków, dopiero potem seed.
+    P.pos.set(0, 0, 0); rebuildWorld();
+    for (const t of totems) placeTotem(t);          // garnki stoją tam, gdzie skończył się POPRZEDNI bieg (> 110 j. = losowanie w 1. klatce)
+    if (playerBB) playerBB.facing = 0;              // kierunek postaci z poprzedniego biegu celował pierwsze rzuty
+    if (!plamaGeo) splat(0, 0, 0xffffff, 0.01);      // tekstura plamy losuje kształt przy pierwszym trupie — rozgrzej przed seedem
+    Math.random = mulberry32(seed);
     newGame();
+    Math.random = mulberry32(seed * 7919 + 13);      // drugi seed PO newGame: nic z menu/audio nie przesuwa strumienia
+    for (const c of chests) placeChest(c);           // skrzynie i garnki od nowa, już z seedem
+    for (const t of totems) placeTotem(t);
+    if (o.start) devSkok(o.start.t, o.start.preset);   // K7/K8: np. { t: 585, preset: 'sredni-10' } — prosto do ciszy
     const t0 = performance.now();
     while (G.running && G.time < maxT) {
       for (let i = 0; i < 300 && G.running && G.time < maxT; i++) {
@@ -10113,6 +11110,7 @@ async function botBieg(o = {}) {
         if (o.niesmiertelny) P.hp = P.maxHp;         // pomiar krzywej poziomu/gęstości bez śmierci bota
         const tu = performance.now();
         update(dt);
+        if (o.hak) o.hak(w);                         // DEV: próbkowanie co krok (pomiary K7/K8)
         const du = performance.now() - tu;
         if (du > w.maxUpd) { w.maxUpd = +du.toFixed(1); w.maxUpdT = +G.time.toFixed(1); }
         const zw = liczZywych();
@@ -10134,6 +11132,14 @@ async function botBieg(o = {}) {
     w.obrazeniaOd = Object.fromEntries(Object.entries(G.obrazeniaOd || {}).map(([k, v]) => [k, Math.round(v)]));
     w.probki = G.probki.map(p => ({ t: p.t, zywi: p.zywi, w15: p.w15, hp: Math.round(p.hp), lvl: p.lvl, kills: p.kills, dps10s: p.dps10s }));
     w.zdarzenia = G.zdarzenia.slice();
+    // K7: TTK każdego kaprala (od pojawienia do piniaty); K8: walka z Donem
+    w.kaprale = G.zdarzenia.filter(z => /^kapral\d-smierc$/.test(z.typ)).map(z => ({ nr: +z.typ[6], t: z.t, ttk: z.ttk }));
+    for (const e of G.enemies) if (e.kapral && !e.dying)   // żywy na końcu: obrażenia/s zamiast TTK
+      w.kaprale.push({ nr: e.kapral, ttk: null, zywy: +(G.time - e.kStart).toFixed(1), dps: Math.round((e.maxHp - e.hp) / Math.max(1, G.time - e.kStart)) });
+    w.don = G.donStart == null ? null : {
+      start: +G.donStart.toFixed(1), faza2: G.donFaza2 != null ? +(G.donFaza2 - G.donStart).toFixed(1) : null,
+      walka: +((G.donKoniec != null ? G.donKoniec : G.time) - G.donStart).toFixed(1), wygrana: !!G.wygrana,
+      hpDona: (d => d ? +(Math.max(0, d.hp) / d.maxHp).toFixed(2) : 0)(G.enemies.find(e => e.don && !e.dying)) };
     w.msKrok = +((performance.now() - t0) / Math.max(1, G.time / dt)).toFixed(2);
     if (G.running) { G.running = false; clearWorld(); }
     document.getElementById('overOv').style.display = 'none';
@@ -10275,7 +11281,7 @@ if (loadTip) {
   // pomijał, bo katalog nazywał się 'squeezes_its_own_body_hard_with_tiny_arms_compress'
   await buildChar('ketchupino_splatterino', ['run', 'punch']);   // pierwszy wróg dystansowy
   await ladowanie(T('Don Chipso poprawia kapelusz…', 'Don Chipso straightens his fedora…'));
-  await buildChar('don_chipso', ['run']);          // boss ma wreszcie własny arkusz
+  await buildChar('don_chipso', ['run', 'jump', 'idle']);   // K8: jump = wejście i Chiamata, idle = telegraf/odpoczynek
   // Kernello ma WLASNA animacje eksplozji — jedyny wrog z prawdziwym `death`
   await buildChar('kernello_boomello', ['idle', 'run', 'death']);
   await ladowanie(T('Sadzenie krzaków…', 'Planting the bushes…'));
@@ -10581,6 +11587,11 @@ if (loadTip) {
     pomiar() { return G.probki; },
     ruch(vx, vz) { _ruchDev = vx == null ? null : { x: vx, z: vz }; return _ruchDev; },
     bot: BOT, botBieg, skok: devSkok, BOT_PRESETY,
+    // K7/K8: przywołaj kaprala nr 1–6 TERAZ (bez 1 s telegrafu) / Dona teraz (bez ciszy)
+    kapral(nr) { bezZapisu = true; return spawnKapral(nr, true); },
+    don() { bezZapisu = true; return wejscieDona(true); },
+    get telegrafy() { return G.telegrafy; },
+    telegraf, drawHearts,
     // bot steruje w czasie rzeczywistym (pętla rAF): HORDA.botNaZywo('sredni') / HORDA.botNaZywo(null)
     botNaZywo(tryb = 'sredni') { if (tryb) bezZapisu = true; Object.assign(BOT, { on: !!tryb, naZywo: !!tryb, tryb: tryb || BOT.tryb, karty: 'priorytet' }); return BOT; },
     // seria biegów: HORDA.botSeria([{tryb:'sredni',postac:'carrotello'}], 5) → tablica wyników

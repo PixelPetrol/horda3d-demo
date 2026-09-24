@@ -127,11 +127,15 @@
    tylko cień pod nimi, żeby czerwień nie ginęła na jasnym drewnie i na trawie */
 #hearts{text-shadow:var(--hud-obrys)}
 #hearts img{filter:drop-shadow(0 2px 0 rgba(0,0,0,.55))}
-/* E1-bieg K3: ćwiartka serca (pełne serce przycięte clip-path na pustym) + prawdziwe HP obok */
+/* E1-bieg K3: ćwiartka serca (pełne serce przycięte clip-path na pustym) + liczby HP brak (24.09) */
 #hearts .sc{position:relative;display:inline-block;line-height:0;vertical-align:baseline}
 #hearts .sc .scq{position:absolute;left:0;top:0}
-#hearts .hpn{font-size:11px;margin-left:5px;color:var(--hud-kreda,#fff);letter-spacing:0;vertical-align:middle}
 #hearts.drgnij{animation:drgnij .2s linear}
+/* 25.09: serca ZAWIJAJĄ się w 2–3 rzędy w pasie między pauzą a pełnym ekranem (max-width z drawHearts).
+   font-size/line-height 0 = rząd ma wysokość ikony (bez „strutu" czcionki), 1 px odstępu w poziomie
+   (krokSerca w main.js liczy ten margines), 2 px między rzędami. */
+#hearts{font-size:0;line-height:0;letter-spacing:0;text-align:center;white-space:normal;width:max-content}
+#hearts>img,#hearts>.sc{vertical-align:top;margin:0 1px 2px 0}
 @keyframes drgnij{0%,100%{transform:translateX(-50%)}25%{transform:translateX(calc(-50% - 3px))}75%{transform:translateX(calc(-50% + 3px))}}
 
 /* ================= PRAWY RÓG: czaszki i monety ================= */
@@ -147,18 +151,7 @@
   color:var(--hud-zloto);text-shadow:var(--hud-obrys);
   background:none;box-shadow:none;
 }
-/* ZAGROŻENIE = czysty napis z konturem */
-#tier{
-  top:60px;right:12px;padding:0;font-size:12px;line-height:16px;
-  color:var(--hud-pomidor);text-shadow:var(--hud-obrys);
-  background:none;box-shadow:none;
-}
-/* PASEK WIECZORU (E1-bieg) w miejscu „ZAGROŻENIE N": 0 → 10:00, fioletowe kreski = kaprale, korona = Don */
-#tier{display:flex;align-items:center;gap:4px}
-#tier .wiec{position:relative;width:96px;height:6px;background:rgba(0,0,0,.55);box-shadow:0 0 0 1px var(--hud-kontur)}
-#tier .wf{position:absolute;left:0;top:0;bottom:0;width:0;background:repeating-linear-gradient(90deg,#f5a623 0 5px,#ffc451 5px 10px)}
-#tier .wiec b{position:absolute;top:-2px;width:2px;height:10px;margin-left:-1px;background:#c07bff;box-shadow:0 0 0 1px var(--hud-kontur)}
-#tier .wkor img{display:block;filter:drop-shadow(0 1px 0 rgba(0,0,0,.6))}
+/* (24.09, decyzja właściciela) napis ZAGROŻENIE i pasek Wieczoru z koroną usunięte, zostaje sam zegar */
 
 /* ================= TOAST BUFFA = kredowa tabliczka na sznurku =================
    `white-space:nowrap` ZOSTAJE (main.js pilnuje ≤50 znaków także po angielsku),
@@ -224,6 +217,19 @@
   box-shadow:inset 0 3px 0 0 rgba(255,255,255,.22), inset 0 -3px 0 0 rgba(0,0,0,.3);
 }
 #bossHp .bl{color:var(--hud-kreda);text-shadow:var(--hud-obrys)}
+/* E1-bieg K7: kapral = fiolet (jak kręgi elit); K8: kreska 50% na pasku Dona = próg fazy 2 */
+#bossHp.kapral .bn{color:#c07bff}
+#bossHp.kapral .bf{background:repeating-linear-gradient(90deg,#8e4df0 0 6px,#c07bff 6px 12px)}
+#bossHp .bw{position:relative}
+#bossHp .bk{display:none;position:absolute;left:50%;top:-3px;bottom:-3px;width:3px;margin-left:-1px;
+  background:#fff4c8;box-shadow:0 0 0 1px #1b1b22}
+#bossHp.don .bk{display:block}
+/* K8: od ciszy 9:52 zegar pokazuje czerwone „DON" (puls), w walce czas walki „+0:23" */
+#timer.don{color:#ff4a4a;animation:donPuls .8s ease-in-out infinite alternate}
+@keyframes donPuls{from{transform:translateX(-50%) scale(1)}to{transform:translateX(-50%) scale(1.14)}}
+/* strzałka do Skrzyni Kaprala: ta sama ikona, przefarbowana na fiolet */
+#wArrow.kapral .ar{filter:hue-rotate(215deg) saturate(1.4)}
+#wArrow.kapral .dist{color:#c07bff}
 #bossNm{color:var(--hud-zloto);text-shadow:4px 4px 0 var(--hud-kontur)}
 #bossNm small{color:var(--hud-pomidor)}
 
@@ -397,10 +403,6 @@
    pliku (stare bloki `@media` z <style> stoją WYŻEJ w kaskadzie i same by nie
    wygrały). Zmieniam tu wyłącznie to, co wyżej ustawiłem w regule bazowej.
    ============================================================================ */
-@media (max-width:520px){
-  /* ZAGROŻENIE zostaje na zmierzonym top 76 (pod pauzą i pełnym ekranem) */
-  #tier{top:76px}
-}
 /* ===== ANIMACJE ZE <style> NADPISUJĄ box-shadow (recenzja 18.09) =====
    Deklaracje z @keyframes stoją w kaskadzie NAD zwykłymi, a `karPuls`/`stawPuls` są
    `infinite` i ustawiają box-shadow w każdej klatce — więc nowa rama skrzynki nigdy się

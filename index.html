@@ -74,7 +74,6 @@
   #timer{position:absolute;top:20px;left:50%;transform:translateX(-50%);font-weight:800;font-size:21px;text-shadow:0 2px 4px #000}
   #kills{position:absolute;top:18px;right:12px;font-weight:800;font-size:14px;text-shadow:0 2px 4px #000}
   #coins{position:absolute;top:38px;right:12px;font-weight:800;font-size:14px;color:#ffd75e;text-shadow:0 2px 4px #000}
-  #tier{position:absolute;top:58px;right:12px;font-weight:800;font-size:12px;color:#ff9d7a;text-shadow:0 2px 4px #000}
   #hearts{position:absolute;top:42px;left:50%;transform:translateX(-50%);font-size:17px;letter-spacing:1px;text-shadow:0 2px 4px #000}
   #buff{position:absolute;top:68px;left:50%;transform:translateX(-50%);font-weight:800;font-size:14px;color:#7ee7ff;
       text-shadow:0 2px 6px #000;opacity:0;transition:opacity .3s;white-space:nowrap}
@@ -488,10 +487,9 @@
     /* (18.09, decyzja właściciela) PAUZA PO LEWEJ OD SERC, PEŁNY EKRAN PO PRAWEJ — oba
        w rzędzie serc (top 40). Przy 375 px: serca do 8 szt. = x 111..263; pauza 73..107,
        pełny ekran 267..301. Żeby zmieścić pauzę, pasek rangi jest krótszy (56 px),
-       a licznik zagrożenia schodzi pod przyciski (top 76). Reguły pozycji niżej,
+       a licznik zagrożenia (usunięty 24.09) schodził pod przyciski. Reguły pozycji niżej,
        w bloku PELNY EKRAN / PWA (tam są też env() na notch). */
     #rangawrap{width:56px}
-    #tier{top:76px}
     #bossHp{top:calc(96px + env(safe-area-inset-top,0px))}
   }
 
@@ -511,7 +509,7 @@
   /* Przycisk pełnego ekranu: DRUGI W KOLUMNIE pod pauzą, nie obok.
      Obok się nie mieści — rząd serc (`#hearts`, top 42) sięga przy 375 px do x≈263,
      a pauza stoi 269..303, czyli na lewo od pauzy jest już zajęte. Pod pauzą
-     (y 58..92) wolne: `#tier` zaczyna się dopiero ~x 313. */
+     (y 58..92) wolne (dawny `#tier` usunięty 24.09). */
   /* pełny ekran PO PRAWEJ od serc, symetrycznie do pauzy (-140 px) po lewej */
   #fsBtn{position:fixed;top:calc(18px + env(safe-area-inset-top,0px));left:50%;transform:translateX(106px);
       z-index:7;width:34px;height:34px;border-radius:0;background:#2b3550;
@@ -696,7 +694,7 @@
      Kolejność między plikami: tokeny → menu → HUD (HUD dokłada drugi agent). -->
 <link rel="stylesheet" href="ui-base.css?v=1">
 <link rel="stylesheet" href="ui-menu.css?v=2">
-<link rel="stylesheet" href="ui-hud.css?v=9">
+<link rel="stylesheet" href="ui-hud.css?v=12">
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -717,7 +715,6 @@
   <div id="timer">0:00</div>
   <div id="kills"></div>
   <div id="coins"></div>
-  <div id="tier"></div>
   <div id="hearts"></div>
   <div id="buff"></div>
   <div id="wpns"></div>
@@ -988,6 +985,6 @@
     addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
   }
 </script>
-<script type="module" src="main.js?v=215"></script>
+<script type="module" src="main.js?v=240"></script>
 </body>
 </html>

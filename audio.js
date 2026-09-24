@@ -264,6 +264,10 @@ const EFEKTY = {
   zagrozenie:{ gap: 0.8, wazny: 1, f: () => { ton({ f: 740, d: 0.16, g: 0.14, typ: 'square' });
                                      ton({ f: 560, d: 0.22, g: 0.14, typ: 'square', op: 0.19 }); } },
   klik:     { gap: 0.04, wazny: 1, f: () => ton({ f: 880, f2: 1200, typ: 'square', d: 0.035, g: 0.09 }) },
+  // E1-bieg K8: szelest torby chipsów (cisza przed Donem, La Chiamata) — szum pasmowy 1,5–4 kHz, 0,4 s;
+  // `g` = głośność 0–1 (9:54 / 9:57 / 9:59 coraz głośniej)
+  szelest:  { gap: 0.3, wazny: 1, f: o => { szum({ d: 0.4, g: 0.05 + 0.22 * (o.g == null ? 1 : o.g), f: 2450, typ: 'bandpass', q: 0.9 });
+                                     szum({ d: 0.25, g: 0.04 + 0.12 * (o.g == null ? 1 : o.g), f: 3600, typ: 'bandpass', q: 1.6, op: 0.12 }); } },
 };
 
 function sfx(nazwa, opcje = {}) {
@@ -368,6 +372,8 @@ export const AUDIO = {
     S.przedBossem = null;
   },
   endRun() { this.menu(); },
+  // E1-bieg K8: cisza przed Donem i po zwycięstwie — muzyka wygasa (FADE 1 s), bossOn() włącza motyw bossa
+  cisza() { graj(null); },
   // ---- kwestie ----
   event(zdarzenie) { return mow(zdarzenie, zdarzenie === 'smierc'); },
   // ---- efekty (syntezowane; nazwy w EFEKTY) ----
