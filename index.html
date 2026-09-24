@@ -164,33 +164,8 @@
       box-shadow:-3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
 
   /* ===== GAMEPAD =====
-     KAPSLE PRZYCISKÓW. Emoji i znaki ✕○□△ odpadają z dwóch powodów: czcionka UI
-     (Jersey 10) ich nie ma, a nawet gdyby miała — fallback systemowy wstawiłby
-     obcy, gładki glif obok pixelowego UI. Stąd kapsel = kwadracik z konturem 3 px
-     (jak `.wp` w HUD), a symbole PlayStation rysujemy KSZTAŁTAMI (border, obrót). */
-  .gpk{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;
-      box-sizing:border-box;min-width:18px;height:18px;padding:0 3px;font-size:13px;font-weight:800;
-      line-height:1;letter-spacing:0;color:#101725;background:#dfe6f2;
-      box-shadow:-3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
-  .gpk+.gpk{margin-left:9px}
-  .gpk.a{background:#7ee787} .gpk.b{background:#ff8b7a}
-  .gpk.x{background:#8fd3ff} .gpk.y{background:#ffd75e}
-  /* bumpery/spusty/Start: napis dwuznakowy, więc niższy font i szerszy kapsel */
-  .gpk.sh{background:#c3ccdb;font-size:10px;min-width:24px;letter-spacing:.5px}
-  .gpk i{display:block;position:relative;width:10px;height:10px}
-  .gpk i.psK{border:2px solid #101725;border-radius:50%}
-  .gpk i.psS{border:2px solid #101725}
-  .gpk i.psT{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;
-      border-bottom:10px solid #101725}
-  .gpk i.psX::before,.gpk i.psX::after{content:'';position:absolute;left:-1px;top:4px;
-      width:12px;height:2px;background:#101725}
-  .gpk i.psX::before{transform:rotate(45deg)} .gpk i.psX::after{transform:rotate(-45deg)}
-  /* strzałki D-pada — ten sam trójkąt z bordera, obrócony na cztery strony */
-  .gpk i.dpL,.gpk i.dpP,.gpk i.dpG,.gpk i.dpD{width:0;height:0}
-  .gpk i.dpL{border-top:5px solid transparent;border-bottom:5px solid transparent;border-right:9px solid #101725}
-  .gpk i.dpP{border-top:5px solid transparent;border-bottom:5px solid transparent;border-left:9px solid #101725}
-  .gpk i.dpG{border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #101725}
-  .gpk i.dpD{border-left:5px solid transparent;border-right:5px solid transparent;border-top:9px solid #101725}
+     Kapsle przycisków (dawne `.gpk`) zastąpił system GLIFÓW na końcu ui-hud.css
+     (klawisz / przycisk twarzowy / pigułka, kolory wg rodziny pada, tryb wg ostatniego wejścia). */
 
   /* PODPOWIEDZI W BIEGU. Jeden rząd na dole, bo na desktopie #jbtn/#karabinBtn są
      ukryte (to przyciski dotykowe) i nie ma ich czym podpisać. Widoczny WYŁĄCZNIE
@@ -201,7 +176,7 @@
       background:rgba(8,12,20,.62);color:#dfe6f2;font-size:11.5px;letter-spacing:.5px;
       text-shadow:0 2px 4px #000;pointer-events:none;white-space:nowrap}
   #padHud.on{display:flex}
-  #padHud span{display:inline-flex;align-items:center;gap:5px}
+  #padHud>span{display:inline-flex;align-items:center;gap:5px}
   /* STOPKA OVERLAYA: „A wybierz · B wstecz". z-index 11 = NAD .ov (10). */
   #padFoot{position:fixed;left:0;right:0;bottom:0;z-index:11;display:none;
       justify-content:center;flex-wrap:wrap;gap:18px;align-items:center;
@@ -209,7 +184,7 @@
       background:rgba(8,12,20,.94);color:#dfe6f2;font-size:12.5px;letter-spacing:.5px;
       pointer-events:none;box-shadow:0 -3px 0 0 #1b1b22}
   #padFoot.on{display:flex}
-  #padFoot span{display:inline-flex;align-items:center;gap:6px}
+  #padFoot>span{display:inline-flex;align-items:center;gap:6px}
   /* stopka leży NA overlayu, więc overlay musi jej zrobić miejsce — inaczej ostatni
      przycisk (np. „Menu" na ekranie końca) chowa się pod paskiem podpowiedzi */
   body.pad-foot .ov{padding-bottom:calc(58px + env(safe-area-inset-bottom,0px))}   /* stopka pada sama ma env() — overlay musi zrobić tyle samo miejsca */
@@ -219,12 +194,6 @@
   #ctrlBox{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:8px}
   #ctrlBox b.gpv{width:auto;min-width:52px;display:inline-flex;align-items:center;
       justify-content:flex-end;gap:9px;color:#dfe6f2;font-size:12px}
-  /* `.snd b` (licznik procentów przy suwakach głośności) ma sztywne width:46px
-     I ZŁOTY KOLOR, a jest bardziej szczegółowe niż `.gpk` — rozciągało kapsel na pół
-     rzędu i malowało literę na złoto, czyli prawie niewidocznie na jasnym tle.
-     Stąd te trzy nadpisania z `#ctrlBox` (wyższa waga niż `.snd b`). */
-  #ctrlBox .snd b.gpk{width:auto;text-align:center;color:#101725;font-size:13px}
-  #ctrlBox .snd b.gpk.sh{font-size:10px}
   #ctrlBox .btn2{margin:0;padding:5px 13px;font-size:12px;
       box-shadow:inset 0 3px 0 0 #46557a, inset 0 -3px 0 0 #1a2135,
         -3px 0 0 0 #1b1b22, 3px 0 0 0 #1b1b22, 0 -3px 0 0 #1b1b22, 0 3px 0 0 #1b1b22}
@@ -642,7 +611,6 @@
   #karabinBtn:active{background:#4d3a20}
   #karabinBtn .kimg{width:38px;height:38px;background-size:contain;background-repeat:no-repeat;
       background-position:center;image-rendering:pixelated}
-  #karabinBtn .klaw{background:#ffd75e;color:#241a0e;padding:0 4px;font-size:12px}
   @keyframes karPuls{0%,100%{box-shadow:inset 0 4px 0 0 #6b4f24, inset 0 -4px 0 0 #241a0e,
         -4px 0 0 0 #1b1b22, 4px 0 0 0 #1b1b22, 0 -4px 0 0 #1b1b22, 0 4px 0 0 #1b1b22}
       50%{box-shadow:inset 0 4px 0 0 #6b4f24, inset 0 -4px 0 0 #241a0e,
@@ -677,7 +645,6 @@
   #stawBtn.pelno{opacity:.5}
   #stawBtn .kimg{width:34px;height:34px;background-size:contain;background-repeat:no-repeat;
       background-position:center;image-rendering:pixelated}
-  #stawBtn .klaw{background:#7ee7ff;color:#101c26;padding:0 4px;font-size:12px}
   /* ŁADUNKI: kwadratowe kropki, nie licznik — od razu widać ile masz */
   #stawBtn .lad{display:flex;gap:3px;height:8px}
   #stawBtn .lad i{width:8px;height:8px;display:block;background:#7ee7ff;
@@ -690,6 +657,36 @@
   @media (max-height:520px){ #stawBtn{width:70px;height:70px;
       bottom:calc(130px + env(safe-area-inset-bottom,0px));
       right:calc(30px + env(safe-area-inset-right,0px))} #stawBtn .kimg{width:28px;height:28px} }
+  /* ================= PRZYCISK AURY GARLICINA (E1-bieg K6) =================
+     Na DOTYKU (jak skok): telefon poziomo I tablet; na PC aura idzie z klawisza G. Kolumna nad skokiem
+     (stawianie, karabin) jest pełna, więc stoi NA LEWO od skoku, 12 px przerwy między otoczkami:
+     duży ekran: skok 96 px na right 38, otoczka -22 → 156 px; aura 86 px na right 176 (otoczka -8 → 168).
+     ≤ 520 px wys.: skok 82 px na right 30 → 134 px; aura 70 px na right 154 (otoczka → 146). */
+  #smrodBtn{position:fixed;display:none;z-index:7;width:86px;height:86px;
+      right:calc(176px + env(safe-area-inset-right,0px));
+      bottom:calc(52px + env(safe-area-inset-bottom,0px));
+      background:#243a1a;color:#c9f07a;font-family:inherit;font-size:10px;font-weight:700;letter-spacing:1px;
+      flex-direction:column;align-items:center;justify-content:center;gap:1px;
+      pointer-events:auto;cursor:pointer;-webkit-tap-highlight-color:transparent;
+      box-shadow:inset 0 4px 0 0 #3f6a2a, inset 0 -4px 0 0 #121f0c,
+        -4px 0 0 0 #1b1b22, 4px 0 0 0 #1b1b22, 0 -4px 0 0 #1b1b22, 0 4px 0 0 #1b1b22}
+  @media (pointer:coarse){ #smrodBtn.on{display:flex} }
+  @media (max-height:520px){ #smrodBtn{width:70px;height:70px;
+      right:calc(154px + env(safe-area-inset-right,0px));
+      bottom:calc(30px + env(safe-area-inset-bottom,0px))} }
+  #smrodBtn::after{content:'';position:absolute;inset:-8px}
+  #smrodBtn:active{background:#34521f}
+  #smrodBtn.gotowy{animation:smrodPuls .9s ease-in-out infinite}
+  @keyframes smrodPuls{0%,100%{box-shadow:inset 0 4px 0 0 #3f6a2a, inset 0 -4px 0 0 #121f0c,
+        -4px 0 0 0 #1b1b22, 4px 0 0 0 #1b1b22, 0 -4px 0 0 #1b1b22, 0 4px 0 0 #1b1b22}
+      50%{box-shadow:inset 0 4px 0 0 #3f6a2a, inset 0 -4px 0 0 #121f0c,
+        -4px 0 0 0 #c9f07a, 4px 0 0 0 #c9f07a, 0 -4px 0 0 #c9f07a, 0 4px 0 0 #c9f07a}}
+  #smrodBtn .kimg{width:34px;height:34px;background-size:contain;background-repeat:no-repeat;
+      background-position:center;image-rendering:pixelated}
+  @media (max-height:520px){ #smrodBtn .kimg{width:28px;height:28px} }
+  #smrodBtn .pas{position:absolute;left:5px;right:5px;bottom:5px;height:5px;background:#121f0c}
+  #smrodBtn .pas b{display:block;height:100%;width:0%;
+      background:repeating-linear-gradient(90deg,#c9f07a 0 4px,transparent 4px 6px)}
 </style>
 <!-- ================= SKÓRA „WARZYWNIAK NONNY" (etap 3) =================
      CELOWO PO </style>, NIE PRZED NIM: stare reguły menu/HUD zostają w <style>
@@ -699,7 +696,7 @@
      Kolejność między plikami: tokeny → menu → HUD (HUD dokłada drugi agent). -->
 <link rel="stylesheet" href="ui-base.css?v=1">
 <link rel="stylesheet" href="ui-menu.css?v=2">
-<link rel="stylesheet" href="ui-hud.css?v=4">
+<link rel="stylesheet" href="ui-hud.css?v=9">
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -737,9 +734,10 @@
 </div>
 <div id="fpsFlash"></div>
 <div id="stick"><div id="knob"></div></div>
-<div id="jbtn" data-pl="SKOK" data-en="JUMP">SKOK</div>
-<div id="karabinBtn"><div class="kimg"></div><div data-pl="KARABIN" data-en="RIFLE">KARABIN</div><div class="klaw">R</div></div>
-<div id="stawBtn"><div class="kimg"></div><div class="lad"></div><div class="klaw">F</div><div class="pas"><b></b></div></div>
+<div id="jbtn"><span data-pl="SKOK" data-en="JUMP">SKOK</span><span class="glRog" data-glif="skok"></span></div>
+<div id="karabinBtn"><div class="kimg"></div><div data-pl="KARABIN" data-en="RIFLE">KARABIN</div><span class="glRog" data-glif="karabin"></span></div>
+<div id="stawBtn"><div class="kimg"></div><div class="lad"></div><span class="glRog" data-glif="wieza"></span><div class="pas"><b></b></div></div>
+<div id="smrodBtn"><div class="kimg"></div><span class="glRog" data-glif="smrod"></span><div class="pas"><b></b></div></div>
 <div id="pauseBtn"></div>
 <!-- przełącznik pełnego ekranu w biegu — widoczny TYLKO na dotyku (CSS: pointer:coarse) -->
 <div id="fsBtn" title="Pełny ekran" data-pl="Pełny ekran" data-en="Fullscreen" data-attr="title"><i class="fsIco"></i></div>
@@ -909,8 +907,8 @@
          Cała reszta instrukcji sterowania (klawiatura, dotyk) też jest tutaj —
          `#startFoot` skrócony do jednej linii właśnie dlatego. -->
     <h3 class="sekcja" data-pl="STEROWANIE" data-en="CONTROLS">STEROWANIE</h3>
-    <p data-pl="Klawiatura: <b>WASD</b> ruch · <b>SPACJA</b> skok · <b>Q/E</b> obrót kamery · <b>ESC</b> pauza.<br>Telefon: lewa połowa ekranu = joystick, prawa = obrót kamery, skok przyciskiem po prawej.<br>Podpowiedzi pada same dopasują się do jego rodziny (Xbox, PlayStation, Switch, Steam Deck)."
-       data-en="Keyboard: <b>WASD</b> move · <b>SPACE</b> jump · <b>Q/E</b> turn the camera · <b>ESC</b> pause.<br>Phone: left half of the screen = joystick, right half = camera, jump with the button on the right.<br>Pad prompts match your pad family by themselves (Xbox, PlayStation, Switch, Steam Deck).">Klawiatura: <b>WASD</b> ruch · <b>SPACJA</b> skok · <b>Q/E</b> obrót kamery · <b>ESC</b> pauza.<br>
+    <p data-pl="Klawiatura: <span class='gl gl-kl dl'>WASD</span> ruch · <span class='gl gl-kl dl'>SPACJA</span> skok · <span class='gl gl-kl'>Q</span><span class='gl gl-kl'>E</span> obrót kamery · <span class='gl gl-kl dl'>ESC</span> pauza.<br>Telefon: lewa połowa ekranu = joystick, prawa = obrót kamery, skok przyciskiem po prawej.<br>Podpowiedzi pada same dopasują się do jego rodziny (Xbox, PlayStation, Switch, Steam Deck)."
+       data-en="Keyboard: <span class='gl gl-kl dl'>WASD</span> move · <span class='gl gl-kl dl'>SPACE</span> jump · <span class='gl gl-kl'>Q</span><span class='gl gl-kl'>E</span> turn the camera · <span class='gl gl-kl dl'>ESC</span> pause.<br>Phone: left half of the screen = joystick, right half = camera, jump with the button on the right.<br>Pad prompts match your pad family by themselves (Xbox, PlayStation, Switch, Steam Deck).">Klawiatura: <span class='gl gl-kl dl'>WASD</span> ruch · <span class='gl gl-kl dl'>SPACJA</span> skok · <span class='gl gl-kl'>Q</span><span class='gl gl-kl'>E</span> obrót kamery · <span class='gl gl-kl dl'>ESC</span> pauza.<br>
        Telefon: lewa połowa ekranu = joystick, prawa = obrót kamery, skok przyciskiem po prawej.<br>
        Podpowiedzi pada same dopasują się do jego rodziny (Xbox, PlayStation, Switch, Steam Deck).</p>
     <div id="ctrlBox"></div>
@@ -929,9 +927,7 @@
   <!-- JEDNA LINIA: pełna instrukcja sterowania przeniosła się do zakładki
        USTAWIENIA (sekcja STEROWANIE), a czterowierszowa stopka zjadała na
        telefonie miejsce potrzebne scence i paskowi ikon. -->
-  <p id="startFoot"
-     data-pl="<b>WASD</b> ruch · <b>SPACJA</b> skok · <b>ESC</b> pauza · reszta w <b>Ustawieniach</b>"
-     data-en="<b>WASD</b> move · <b>SPACE</b> jump · <b>ESC</b> pause · the rest is in <b>Settings</b>"><b>WASD</b> ruch · <b>SPACJA</b> skok · <b>ESC</b> pauza · reszta w <b>Ustawieniach</b></p>
+  <p id="startFoot"></p>
 </div>
 
 <!-- ================= EKRANY W GRZE ================= -->
@@ -992,6 +988,6 @@
     addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
   }
 </script>
-<script type="module" src="main.js?v=192"></script>
+<script type="module" src="main.js?v=215"></script>
 </body>
 </html>

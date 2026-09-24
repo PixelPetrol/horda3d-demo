@@ -127,6 +127,12 @@
    tylko cień pod nimi, żeby czerwień nie ginęła na jasnym drewnie i na trawie */
 #hearts{text-shadow:var(--hud-obrys)}
 #hearts img{filter:drop-shadow(0 2px 0 rgba(0,0,0,.55))}
+/* E1-bieg K3: ćwiartka serca (pełne serce przycięte clip-path na pustym) + prawdziwe HP obok */
+#hearts .sc{position:relative;display:inline-block;line-height:0;vertical-align:baseline}
+#hearts .sc .scq{position:absolute;left:0;top:0}
+#hearts .hpn{font-size:11px;margin-left:5px;color:var(--hud-kreda,#fff);letter-spacing:0;vertical-align:middle}
+#hearts.drgnij{animation:drgnij .2s linear}
+@keyframes drgnij{0%,100%{transform:translateX(-50%)}25%{transform:translateX(calc(-50% - 3px))}75%{transform:translateX(calc(-50% + 3px))}}
 
 /* ================= PRAWY RÓG: czaszki i monety ================= */
 #kills{
@@ -147,6 +153,12 @@
   color:var(--hud-pomidor);text-shadow:var(--hud-obrys);
   background:none;box-shadow:none;
 }
+/* PASEK WIECZORU (E1-bieg) w miejscu „ZAGROŻENIE N": 0 → 10:00, fioletowe kreski = kaprale, korona = Don */
+#tier{display:flex;align-items:center;gap:4px}
+#tier .wiec{position:relative;width:96px;height:6px;background:rgba(0,0,0,.55);box-shadow:0 0 0 1px var(--hud-kontur)}
+#tier .wf{position:absolute;left:0;top:0;bottom:0;width:0;background:repeating-linear-gradient(90deg,#f5a623 0 5px,#ffc451 5px 10px)}
+#tier .wiec b{position:absolute;top:-2px;width:2px;height:10px;margin-left:-1px;background:#c07bff;box-shadow:0 0 0 1px var(--hud-kontur)}
+#tier .wkor img{display:block;filter:drop-shadow(0 1px 0 rgba(0,0,0,.6))}
 
 /* ================= TOAST BUFFA = kredowa tabliczka na sznurku =================
    `white-space:nowrap` ZOSTAJE (main.js pilnuje ≤50 znaków także po angielsku),
@@ -243,7 +255,7 @@
 /* karabin i stawianie: ta sama skrzynka, różni je kolor napisu i pulsu (gracz
    musi je rozróżniać kątem oka) */
 /* Barwę daje WARSTWA TŁA nad kaflem, nie `filter` — filtr przefarbowałby też
-   ikonę, klawisz i kropki ładunków w środku przycisku. */
+   ikonę, plakietkę i kropki ładunków w środku przycisku. */
 #karabinBtn,#stawBtn{
   background-size:86px 86px, 86px 86px;background-repeat:no-repeat,no-repeat;
   image-rendering:pixelated;
@@ -258,6 +270,19 @@
   background-image:linear-gradient(rgba(20,54,78,.62),rgba(20,54,78,.62)), var(--hud-skrzynka-m);
   color:#7ee7ff;text-shadow:var(--hud-obrys);
 }
+/* E1-bieg K6: aura Garlicina — ta sama skrzynka, zielona warstwa (smród, nie woda i nie złoto) */
+#smrodBtn{
+  background-image:linear-gradient(rgba(44,84,22,.6),rgba(44,84,22,.6)), var(--hud-skrzynka-m);
+  background-size:86px 86px, 86px 86px;background-repeat:no-repeat,no-repeat;image-rendering:pixelated;
+  color:#c9f07a;text-shadow:var(--hud-obrys);
+  box-shadow:inset 0 4px 0 0 rgba(255,255,255,.14), inset 0 -4px 0 0 rgba(0,0,0,.4), var(--hud-rama3);
+}
+#smrodBtn .pas{background:var(--hud-kontur)}
+@keyframes smrodPuls{
+  0%,100%{box-shadow:inset 0 4px 0 0 rgba(255,255,255,.14), inset 0 -4px 0 0 rgba(0,0,0,.4), var(--hud-rama3)}
+  50%{box-shadow:inset 0 4px 0 0 rgba(255,255,255,.14), inset 0 -4px 0 0 rgba(0,0,0,.4),
+      -3px 0 0 0 #c9f07a, 3px 0 0 0 #c9f07a, 0 -3px 0 0 #c9f07a, 0 3px 0 0 #c9f07a}
+}
 #karabinBtn:active{
   background-image:linear-gradient(rgba(150,96,26,.45),rgba(150,96,26,.45)), var(--hud-skrzynka-m);
   background-size:86px 86px, 86px 86px;
@@ -266,8 +291,11 @@
   background-image:linear-gradient(rgba(34,76,104,.62),rgba(34,76,104,.62)), var(--hud-skrzynka-m);
   background-size:86px 86px, 86px 86px;
 }
-#karabinBtn .klaw{background:var(--hud-zloto);color:var(--hud-kontur)}
-#stawBtn .klaw{background:#7ee7ff;color:var(--hud-kontur)}
+/* stare `#smrodBtn:active{background:#34521f}` w <style> to skrót — zerował teksturę skrzynki */
+#smrodBtn:active{
+  background-image:linear-gradient(rgba(64,114,34,.6),rgba(64,114,34,.6)), var(--hud-skrzynka-m);
+  background-size:86px 86px, 86px 86px;
+}
 #stawBtn .pas{background:var(--hud-kontur)}
 /* strzałka do złotej skrzyni — wg zlecenia tylko kolor */
 #wArrow .dist{color:var(--hud-zloto);text-shadow:var(--hud-obrys)}
@@ -278,7 +306,7 @@
 #fpsHud .fpsL i.off{background:var(--hud-drewno-c)}
 
 /* ================= PODPOWIEDZI PADA = wąska deseczka ================= */
-/* kapsle `.gpk` zostają jak były (są też w menu — wspólne z drugim agentem) */
+/* plakietki przycisków: sekcja GLIFY na końcu pliku */
 #padHud{
   background:var(--hud-deska-c) 0 0/128px 64px;image-rendering:pixelated;
   color:var(--hud-kreda);text-shadow:var(--hud-obrys);
@@ -331,7 +359,6 @@
 .jakGrac>div{display:flex;justify-content:space-between;align-items:center;gap:10px;
   padding:2px 0;border-bottom:1px dashed rgba(242,240,228,.18);font-size:clamp(10.5px,2.8vw,13px)}
 .jakGrac>div>span:first-child{opacity:.85}
-.jakGrac .gpk{min-width:20px;padding:0 6px;font-size:11px;line-height:18px}
 .jakGrac b{color:inherit}
 
 /* --- koniec biegu: ticker liczb na kredzie (klasy .pieczatka / i[data-licz]
@@ -397,6 +424,103 @@
   /* przyciski akcji są tu mniejsze (stare `@media` w <style>: skok 82, akcje 70) —
      kafel skrzynki musi zejść razem z nimi, inaczej widać jedną listwę zamiast trzech */
   #jbtn,#jbtn:active{background-size:82px 82px}
-  #karabinBtn,#stawBtn,#karabinBtn:active,#stawBtn:active{background-size:70px 70px, 70px 70px}
+  #karabinBtn,#stawBtn,#karabinBtn:active,#stawBtn:active,#smrodBtn,#smrodBtn:active{background-size:70px 70px, 70px 70px}
   #komiksRama{box-shadow:0 0 0 3px var(--hud-drewno), 0 0 0 5px var(--hud-kontur)}
 }
+
+/* ============================================================================
+   GLIFY: PODPOWIEDZI KLAWISZY I PRZYCISKÓW PADA (24.09.2026)
+   Makieta, pomiary i uzasadnienie: dokumenty/menu-makiety/glify.html + README §5.
+   Markup składa main.js (sekcja „GLIFY" przy KONTROLERZE): glKl / glPb / glPr / glRomb.
+   - KSZTAŁT MÓWI, CO TO JEST: kremowa nasadka = klawisz, pixelowe koło = przycisk
+     twarzowy pada, ciemna pigułka = bumper / spust / menu / krzyżak.
+   - WŁASNE NIEPRZEZROCZYSTE TŁO + 2 px konturu i `text-shadow:none`: plakietka NIE
+     dziedziczy obrysu przycisku (`--hud-obrys` 2 px na 4 strony robił z litery 7 px kleks).
+   - Elementy to <span>/<i>, nie <b>: `.snd b` (width 46 px, złoto) i `#pauseStats b`
+     przefarbowywały i rozciągały dawne kapsle `b.gpk`.
+   - `--g` = wysokość plakietki: 26 px na telefonie w poziomie, 34 px od 700 px wysokości.
+   ============================================================================ */
+:root{--g:26px}
+@media (min-height:521px){:root{--g:30px}}
+@media (min-height:700px){:root{--g:34px}}
+.gl{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;position:relative;
+  box-sizing:border-box;flex:0 0 auto;height:var(--g);min-width:var(--g);
+  font-family:'Pixel','Courier New',monospace;font-weight:400;font-style:normal;line-height:1;letter-spacing:0;
+  text-shadow:none;white-space:nowrap;image-rendering:pixelated}
+.gl+.gl,.gl-gr+.gl,.gl+.gl-gr,.gl-gr+.gl-gr{margin-left:4px}
+/* KLAWISZ: kremowa nasadka, 3 px „grubości" pod spodem, ścięte narożniki */
+.gl-kl{padding:0 calc(var(--g)*.2) calc(var(--g)*.08);font-size:calc(var(--g)*.78);color:#1b1b22;background:#f2f0e4;
+  border:2px solid #1b1b22;box-shadow:inset 0 -4px 0 0 #b9b39c, inset 0 2px 0 0 #fff;
+  clip-path:polygon(2px 0,calc(100% - 2px) 0,100% 2px,100% calc(100% - 2px),calc(100% - 2px) 100%,2px 100%,0 calc(100% - 2px),0 2px)}
+.gl-kl.dl{font-size:calc(var(--g)*.7);letter-spacing:.5px}      /* ESC, SPACJA, WASD */
+/* PRZYCISK TWARZOWY: pixelowe koło (schodkowy wielokąt), kolorowa twarz */
+.gl-pb{--kol:#dfe6f2;--lit:#1b1b22;width:var(--g);background:#1b1b22;
+  clip-path:polygon(30% 0,70% 0,70% 8%,84% 8%,84% 16%,92% 16%,92% 30%,100% 30%,100% 70%,92% 70%,92% 84%,84% 84%,84% 92%,70% 92%,70% 100%,30% 100%,30% 92%,16% 92%,16% 84%,8% 84%,8% 70%,0 70%,0 30%,8% 30%,8% 16%,16% 16%,16% 8%,30% 8%)}
+.gl-pb::before{content:'';position:absolute;inset:2px;background:var(--kol);clip-path:inherit;
+  box-shadow:inset 0 -3px 0 0 rgba(0,0,0,.28), inset 0 2px 0 0 rgba(255,255,255,.3)}
+.gl-pb>i{position:relative;font-style:normal;font-size:calc(var(--g)*.8);color:var(--lit);margin-top:-1px}
+/* symbol PlayStation: siatka 8×8 z icons.js skalowana CAŁKOWICIE (×2), żeby piksele były równe.
+   ×3 (24 px) przy 34 px zalewał całą twarz przycisku — 16 px to 47–62% plakietki */
+.gl-pb>img{position:relative;width:16px;height:16px;image-rendering:pixelated}
+/* Xbox: prawdziwe, nasycone kolory (nie pastelowe jak dawne `.gpk`) */
+.gl-xa{--kol:#5fc44a}.gl-xb{--kol:#ee4b3e;--lit:#fff}.gl-xx{--kol:#3d8fe8;--lit:#fff}.gl-xy{--kol:#f5c21b}
+/* ciemna twarz: PlayStation (kolorowy symbol), Switch i Steam Deck (jasna litera), drążki */
+.gl-ciem{--kol:#2f333b;--lit:#f2f0e4}
+/* PIGUŁKA: bumper / spust / Start / krzyżak. Litery 0,72 --g = tusz ≥ 10 px przy 26 px */
+.gl-pr{min-width:calc(var(--g)*1.4);padding:0 calc(var(--g)*.2);font-size:calc(var(--g)*.72);color:#f2f0e4;
+  background:#2f333b;border:2px solid #1b1b22;box-shadow:inset 0 -3px 0 0 #1b1d22, inset 0 2px 0 0 #4b515c;
+  clip-path:polygon(4px 0,calc(100% - 4px) 0,100% 4px,100% calc(100% - 2px),calc(100% - 2px) 100%,2px 100%,0 calc(100% - 2px),0 4px)}
+.gl-pr.sp{clip-path:polygon(9px 0,calc(100% - 9px) 0,100% 7px,100% calc(100% - 2px),calc(100% - 2px) 100%,2px 100%,0 calc(100% - 2px),0 7px)}
+.gl-pr.dl{font-size:calc(var(--g)*.6)}
+.gl-pr.zn{font-size:var(--g)}                                  /* Switch „+" / „−": sam znak jest drobny */
+.gl-pr.kw{min-width:var(--g);padding:0}                        /* krzyżak: kwadrat ze strzałką */
+/* Start/Options/Menu = trzy kreski, Back/View = dwa okienka (tak są oznaczone na padach) */
+.gl-menu3{display:block;width:calc(var(--g)*.5);height:calc(var(--g)*.42);
+  background:linear-gradient(#f2f0e4 0 22%,transparent 22% 39%,#f2f0e4 39% 61%,transparent 61% 78%,#f2f0e4 78%)}
+.gl-widok{display:block;position:relative;width:calc(var(--g)*.36);height:calc(var(--g)*.3);
+  margin:calc(var(--g)*.1) calc(var(--g)*.1) 0 0;box-shadow:inset 0 0 0 2px #f2f0e4;background:#2f333b}
+.gl-widok::before{content:'';position:absolute;left:calc(var(--g)*.14);top:calc(var(--g)*-.14);width:100%;height:100%;
+  box-shadow:inset 0 0 0 2px #f2f0e4;z-index:-1}
+.gl-strz{display:block;width:calc(var(--g)*.46);height:calc(var(--g)*.4);background:#f2f0e4;clip-path:polygon(50% 0,100% 100%,0 100%)}
+.gl-strz.d{transform:rotate(180deg)}.gl-strz.l{transform:rotate(-90deg)}.gl-strz.p{transform:rotate(90deg)}
+/* SWITCH: przycisk + romb pozycji (A/B i X/Y są tam zamienione względem Xboxa,
+   więc romb mówi „dolny"/„prawy" niezależnie od litery) */
+.gl-gr{display:inline-flex;align-items:center;gap:3px;vertical-align:middle;flex:0 0 auto}
+.gl-romb{display:inline-grid;flex:0 0 auto;grid-template-columns:repeat(3,calc(var(--g)*.22));
+  grid-template-rows:repeat(3,calc(var(--g)*.22))}
+.gl-romb i{background:#6b7280;box-shadow:0 0 0 1px #1b1b22}
+.gl-romb i:nth-child(1){grid-area:1/2}.gl-romb i:nth-child(2){grid-area:2/3}
+.gl-romb i:nth-child(3){grid-area:3/2}.gl-romb i:nth-child(4){grid-area:2/1}
+.gl-romb i.on{background:var(--hud-zloto)}
+
+/* PLAKIETKA PRZY PRZYCISKU AKCJI: prawy górny róg, wystaje o 1/3 poza ramę (nie zasłania
+   ikony ani podpisu). `pointer-events:none` — dotyk ma trafiać w przycisk pod spodem. */
+.glRog{position:absolute;right:calc(var(--g)*-.35);top:calc(var(--g)*-.35);z-index:2;display:flex;pointer-events:none}
+.glRog:empty,body.wej-dotyk .glRog{display:none}
+/* overlay otwarty (menu, pauza, karty) = stopka pada mówi, co wcisnąć; plakietki skoku i pauzy
+   z HUD-u prześwitywałyby spod półprzezroczystego menu jako druga, fałszywa podpowiedź */
+body.pad-foot .glRog{display:none}
+/* pauza ma 34 px — plakietka obok zasłoniłaby serca, więc wisi POD przyciskiem */
+#pauseBtn .glRog{right:auto;left:50%;top:calc(100% + 7px);transform:translateX(-50%)}
+#jbtn>span:first-child{pointer-events:none}
+
+/* „JAK GRAĆ" (pauza), stopka menu, zakładka Sterowanie: plakietka stoi przy opisie */
+.jakGrac>div{min-height:calc(var(--g) + 4px)}
+.jakGrac .jgOpis{font-style:normal;opacity:.8}
+.jakGrac .jgIko{display:inline-flex;align-items:center;gap:4px}
+@media (max-height:520px){
+  /* telefon w poziomie: dwie kolumny, bo 8 wierszy po 30 px nie mieści się pod statystykami */
+  .jakGrac{display:grid;grid-template-columns:1fr 1fr;column-gap:18px;max-width:min(94vw,600px)}
+  .jakGrac h3{grid-column:1 / -1}
+}
+/* PC: plakietka ma 34 px, więc opis 13 px wyglądał przy niej jak przypis */
+@media (min-height:700px){.jakGrac{max-width:min(92vw,480px)} .jakGrac>div,.jakGrac h3{font-size:16px}}
+#padFoot>span{display:inline-flex;align-items:center;gap:7px}
+#padFoot{font-size:15px}
+@media (max-height:520px){#padFoot{font-size:13px}}
+/* stopka menu: przygaszona była przez `opacity` — to gasiło też plakietki, więc przygaszamy
+   tylko kolor tekstu (kreda ciemna z ui-menu.css), a plakietki mają pełny kontrast */
+#startFoot{opacity:1}
+#startFoot .gl{margin:0 2px}
+#startFoot:empty{display:none}
+@media (min-height:700px){#startFoot{font-size:15px}}

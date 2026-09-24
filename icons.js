@@ -12,6 +12,8 @@ const PAL = {
   p: '#b06fd8', P: '#d9a8f0',      // fiolet (radio)
   s: '#8a8f85',                    // kamień
   f: '#ff7a1f', F: '#ffc44d',      // ogień
+  // symbole PlayStation (glify pada): kolory prawdziwego pada, jasne, bo stoją na ciemnej twarzy
+  u: '#8fb8ff', c: '#ff6b6b', m: '#ff8ad8', t: '#4fe0b0',
 };
 
 const ART = {
@@ -517,6 +519,49 @@ const ART = {
     '.fFFkFf.',
     'fFFFFFFf',
     'ffffffff',
+  ],
+  // ---- GLIFY PADA PLAYSTATION (24.09) ----
+  // Czcionka UI (Jersey 10) nie ma znaków ✕○□△, a systemowy fallback wstawiłby gładki glif
+  // obok pixelowego UI. Rysujemy je tu i skalujemy ×2/×3 (patrz `.gl-pb>img` w ui-hud.css).
+  psKrzyzyk: [
+    'u......u',
+    'uu....uu',
+    '.uu..uu.',
+    '..uuuu..',
+    '..uuuu..',
+    '.uu..uu.',
+    'uu....uu',
+    'u......u',
+  ],
+  psKolo: [
+    '..cccc..',
+    '.cc..cc.',
+    'cc....cc',
+    'c......c',
+    'c......c',
+    'cc....cc',
+    '.cc..cc.',
+    '..cccc..',
+  ],
+  psKwadrat: [
+    'mmmmmmmm',
+    'mmmmmmmm',
+    'mm....mm',
+    'mm....mm',
+    'mm....mm',
+    'mm....mm',
+    'mmmmmmmm',
+    'mmmmmmmm',
+  ],
+  psTrojkat: [
+    '...tt...',
+    '...tt...',
+    '..tttt..',
+    '..t..t..',
+    '.tt..tt.',
+    '.t....t.',
+    'tttttttt',
+    'tttttttt',
   ],
 };
 

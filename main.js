@@ -1,7 +1,7 @@
 // HORDA 3D v4 — teren 3D + kamera za plecami + meta-progresja (monety/sklep)
 import * as THREE from './lib/three.module.js';
 import { SPRITEDATA } from './spritedata.js?v=11';
-import { icon, ico } from './icons.js?v=5';
+import { icon, ico } from './icons.js?v=6';
 import { AUDIO } from './audio.js?v=5';            // muzyka wg fazy gry + kwestie głosowe + efekty
 import { initKomiks, pokazKomiks } from './komiks.js?v=1';   // komiks wprowadzający (Etap 2)
 import { generujSzkielet, siatkaGalezi, RNG } from './lib/drzewa-szkielet.js?v=2';
@@ -114,8 +114,8 @@ const CHARS = {
   // bron truje pasywnie, a `KeyG` odpycha horde. Cena 900 = kolejny przystanek
   // po Granny (700), czyli powod, zeby grac dalej po wykupieniu poprzedniej.
   garlicino:  { nm: 'Garlicino Stinkerino',
-                ds: T('Czosnkino Smrodino — na zadanie odpycha horde smrodliwa aura (G).',
-                      'The garlic stinker — on demand, a reeking aura shoves the horde (G).'),
+                ds: T('Czosnkino Smrodino — na zadanie odpycha horde smrodliwa aura.',
+                      'The garlic stinker — on demand, a reeking aura shoves the horde.'),
                 char: 'garlicino_stinkerino', price: 900, startWpn: 'skarpeta',
                 spd: 1.0, hp: 1, dmg: 1.0, mag: 1.05, scale: 1.22 },
 };
@@ -3467,7 +3467,7 @@ function loadMeta() {
     audio: { muz: 0.15, glos: 0.9, efe: 0.7, mute: 0 },   // głośności i wyciszenie (zakładka Dźwięk)
     // KONTROLER (zakładka Sterowanie). `map` trzyma INDEKSY przycisków w układzie
     // `standard` Gamepad API — nie litery, bo te same indeksy noszą u Nintendo inne
-    // napisy (patrz PAD_GLIFY) i zapis przeniósłby się między padami błędnie.
+    // napisy (patrz glTabela) i zapis przeniósłby się między padami błędnie.
     pad: { map: { ...PAD_MAP_DOM }, czulosc: 1, invY: 0, wibracje: 1, uklad: 'auto' },   // uklad: auto|xbox|ps|switch
     // JEDNORAZOWE PODPOWIEDZI UI. `pwaHint` = czy pokazaliśmy już iPhone'owi, że
     // pełny ekran robi się przez „Dodaj do ekranu początkowego" (Safari nie ma
@@ -3578,8 +3578,10 @@ const SHOP = [
   // i Charm) — to wentyl na „wykupiłem cały sklep i nie mam po co grać": zamiast
   // końca progresji dostajesz dźwignię. Więcej wrogów = więcej XP i monet.
   { key: 'klatwa', ico: 'ostrzezenie', nm: T('Klątwa Nonny', "Nonna's Curse"),
-    ds: T('Wrogowie twardsi i liczniejsi, ale monety sypią się gęściej',
-          'Tougher, denser enemies — but the coins pour harder'), base: 120, max: 5 },
+    // E1-bieg: od K1 klątwa NIE zagęszcza spawnu (tylko hpScale ×(1+0,1·poz.) i monety) — opis bez
+    // „liczniejsi". Cała klątwa zniknie w E4.
+    ds: T('Wrogowie twardsi (+10% HP), ale monety sypią się gęściej (+20%)',
+          'Tougher enemies (+10% HP) — but the coins pour harder (+20%)'), base: 120, max: 5 },
   // Sam KARABIN wypada ze skrzyni (nie da się go kupić) — w sklepie kupujesz tylko
   // DŁUŻSZY tryb. Inaczej najmocniejsza rzecz w grze byłaby na stałe za monety.
   { key: 'karabin', ico: 'celownik', nm: T('Magazynek Nonny', "Nonna's Magazine"),
@@ -3762,7 +3764,7 @@ function renderBestiary() {
     if (znany) odkryte++;
     const eTempo = T('TEMPO', 'SPEED'), eCios = T('CIOS', 'HIT');
     const staty = znany
-      ? `HP ${W.hp} · ${eTempo} ${W.speed} · ${eCios} ${W.dmg} · XP ${W.xp}`
+      ? `HP ${W.hp * SKALA_WROGA} · ${eTempo} ${W.speed} · ${eCios} ${W.dmg * HP_SERCA} · XP ${W.xp}`
       : `HP ? · ${eTempo} ? · ${eCios} ? · XP ?`;
     const d = document.createElement('div');
     // .dark = zablokowany wpis: sylwetka na czarno (CSS brightness(0)) i „NIEODKRYTY"
@@ -3826,8 +3828,13 @@ const G = {
   gluty: [], kaluze: [],                           // globy ketchupu w locie + kałuże po nich
   seria: [],                                       // kolejka rzutów scyzorykiem
   hitstop: 0,                                      // krótkie zatrzymanie czasu przy grubym zabójstwie
-  spawnT: 0, shake: 0, bossAt: 120, ringAt: 60, tier: 0,
-  tlok: 0,                                         // 0-1: jak gesto jest wokol gracza (kamera odjezdza)
+  shake: 0,
+  // E1-bieg: spawner Wieczoru (akumulator, podłoga, recykling, Ketchupino, kalendarz, odroczone fale)
+  spawnAkum: 0, podlogaT: 0, recyklT: 0, ketchT: 0, wiecIdx: 0, kolejkaFal: [], kolejkaSpawnu: [], falaNr: 0,
+  dmgBron: {}, maxHit: { dmg: 0, zr: '', crit: false },   // E1-bieg: obrażenia per źródło (zadajDmg)
+  obrazeniaOd: {}, ostatniCios: null,              // E1-bieg K3: obrażenia GRACZA per źródło (ranGracza)
+  zdarzenia: [], probki: [],                       // E1-bieg: log zdarzeń Wieczoru, próbki DEV co 10 s
+  tlok: 0,                                        // 0-1: jak gesto jest wokol gracza (kamera odjezdza)
   kino: 0,                                         // s pozostalej oprawy filmowej (wejscie bossa)
   vacuum: 0, buff: { key: null, t: 0 },
   streak: 0, streakT: -9,
@@ -3839,9 +3846,14 @@ const G = {
 };
 const P = {};
 
+// E1-bieg K3: HP GRACZA ×100 — serce = HP_SERCA (decyzja właściciela). Zapis i sklep dalej liczą SERCA.
+const HP_SERCA = 100;
+// E1-bieg K4: HP WROGÓW I OBRAŻENIA BRONI ×100 (osobna para od HP_SERCA — nigdy nie mnożyć jednej
+// przez drugą). Definicje broni zostają w jednostkach bazowych; skalę dokłada `zadajDmg` na wejściu.
+const SKALA_WROGA = 100;
 function resetStats() {
   const C = CHARS[charKey];
-  const maxHp = Math.max(2, 5 + META.up.serce + C.hp);
+  const maxHp = HP_SERCA * Math.max(2, 5 + META.up.serce + C.hp);
   Object.assign(P, {
     pos: new THREE.Vector3(0, 0, 0),
     hp: maxHp, maxHp,
@@ -3853,7 +3865,7 @@ function resetStats() {
     vx: 0, vz: 0,
     kbx: 0, kbz: 0,                                  // odrzut gracza (tarcza Lolliniego), gaśnie sam
     coyoteT: 0, jumpBufT: 0,                         // coyote time i bufor skoku (patrz tryJump)
-    weapons: [{ key: CHARS[charKey].startWpn || 'kule', lvl: 1, t: 0 }],   // max 3 sloty (broń z biblii)
+    weapons: [{ key: CHARS[charKey].startWpn || 'kule', lvl: 1, t: 0, t0: 0 }],   // max 3 sloty; t0 = od kiedy (DPS broni)
     passives: {},                                // key -> poziom
     repeat: {},                                  // key -> ile razy wzięte (karty bez limitu)
     evo: {},                                     // key -> true
@@ -3894,7 +3906,11 @@ function sprawdzRange() {
 // do jednej („Znaleźne”), czyli 29 obowiązkowych kliknięć pod rząd (zmierzone).
 // Człon kwadratowy 0.30L² zostawia pierwsze ~8 poziomów prawie bez zmian
 // (L=8: 51 vs 31 XP), a późną grę rozciąga: ~31 poziom w 5:00 zamiast 55.
-const xpDoNast = l => Math.round(5 + 3.2 * l + 0.30 * l * l);
+// E1-bieg K5 (spec 07 §6): człon SZEŚCIENNY. Horda 500 daje ~1,5× więcej XP na minutę niż przy
+// starej krzywej, a bieg ma koniec o 10:00 — cel: ~22. poziom w 5:00 i ~37. przy Donie, czyli pula
+// kart (~49 znaczących + 6 skrzyń kaprali) wysycha dokładnie na finał. Wczesne progi prawie bez zmian
+// (l=2: 13 jak dawniej), późne dużo wyżej (l=30: 1385 zamiast 371).
+const xpDoNast = l => Math.round(5 + 2.5 * l + 0.70 * l * l + 0.025 * l * l * l);
 
 // BURACZANE CIŚNIENIE (pasyw Beetina z biblii, wdrożony 18.09 na zgłoszenie właściciela
 // „burak prawie nieużywalny"): poniżej połowy serc +20% obrażeń i wysysanie życia
@@ -4065,6 +4081,8 @@ addEventListener('pointercancel', endTouch);
   kb.addEventListener('pointerdown', e => { e.stopPropagation(); startKarabin(); });
   const sb = document.getElementById('stawBtn');
   sb.addEventListener('pointerdown', e => { e.stopPropagation(); postawWiezyczke(); });
+  const smb = document.getElementById('smrodBtn');   // E1-bieg K6: aura Garlicina na dotyku
+  if (smb) smb.addEventListener('pointerdown', e => { e.stopPropagation(); odpalSmrod(); });
 }
 
 // ============================== KONTROLER (Gamepad API) ==============================
@@ -4097,7 +4115,7 @@ const PAD_TXT = {
   nasluch: T('naciśnij przycisk…', 'press a button…'), anuluj: T('anuluj', 'cancel'),
   zajety: T('Ten przycisk jest zajęty na stałe', 'That button is reserved'),
   wl: T('WŁ.', 'ON'), wyl: T('WYŁ.', 'OFF'),
-  uklad: T('Układ przycisków', 'Button layout'), ukl_auto: 'AUTO', ukl_xbox: 'XBOX', ukl_ps: 'PLAYSTATION', ukl_switch: 'SWITCH',
+  uklad: T('Układ przycisków', 'Button layout'), ukl_auto: 'AUTO', ukl_xbox: 'XBOX', ukl_ps: 'PLAYSTATION', ukl_switch: 'SWITCH', ukl_deck: 'STEAM DECK',
   polaczony: T('KONTROLER: ', 'CONTROLLER: '), odlaczony: T('Kontroler odłączony', 'Controller disconnected'),
   ustawione: T('Przypisano: ', 'Mapped: '),
 };
@@ -4116,40 +4134,133 @@ function padRodzina(id) {
   if (/nintendo|pro controller|joy-?con|057e/.test(s)) return 'switch';
   return 'generic';
 }
-// symbole PlayStation jako KSZTAŁTY CSS — czcionka UI (Jersey 10) nie ma tych glifów,
-// a systemowy fallback wstawiłby gładki znak obok pixelowego interfejsu
-const PS_KSZ = { x: '<i class="psX"></i>', k: '<i class="psK"></i>', s: '<i class="psS"></i>', t: '<i class="psT"></i>' };
-// [klasa koloru, treść]. UWAGA NA SWITCHA: fizyczne A/B i X/Y są tam ZAMIENIONE
-// względem układu `standard`, więc przycisk o indeksie 0 podpisujemy „B", nie „A"
-// (inaczej podpowiedź kazałaby graczowi cisnąć nie ten guzik, co trzeba).
-const PAD_GLIFY = {
-  xbox: { 0: ['a', 'A'], 1: ['b', 'B'], 2: ['x', 'X'], 3: ['y', 'Y'],
-          4: ['sh', 'LB'], 5: ['sh', 'RB'], 6: ['sh', 'LT'], 7: ['sh', 'RT'], 8: ['sh', 'BACK'], 9: ['sh', 'START'] },
-  ps:   { 0: ['a', PS_KSZ.x], 1: ['b', PS_KSZ.k], 2: ['x', PS_KSZ.s], 3: ['y', PS_KSZ.t],
-          4: ['sh', 'L1'], 5: ['sh', 'R1'], 6: ['sh', 'L2'], 7: ['sh', 'R2'], 8: ['sh', 'CRE'], 9: ['sh', 'OPT'] },
-  switch: { 0: ['', 'B'], 1: ['', 'A'], 2: ['', 'Y'], 3: ['', 'X'],
-          4: ['sh', 'L'], 5: ['sh', 'R'], 6: ['sh', 'ZL'], 7: ['sh', 'ZR'], 8: ['sh', '-'], 9: ['sh', '+'] },
+// ---- GLIFY: podpowiedzi klawiszy i przycisków pada (24.09) ----
+// Kształt mówi, co to jest: kremowa nasadka = klawisz, pixelowe koło = przycisk twarzowy,
+// ciemna pigułka = bumper / spust / menu / krzyżak. Wygląd: sekcja GLIFY w ui-hud.css,
+// makieta i pomiary: dokumenty/menu-makiety/glify.html. Elementy to <span>/<i>, nie <b> —
+// `.snd b` i `#pauseStats b` rozciągały i przefarbowywały dawne kapsle `b.gpk`.
+const glKl = t => `<span class="gl gl-kl${t.length > 1 ? ' dl' : ''}">${t}</span>`;
+const glPb = (kol, tresc) => `<span class="gl gl-pb ${kol}">${tresc}</span>`;
+const glPr = (tresc, cls = '') => `<span class="gl gl-pr${cls}">${tresc}</span>`;
+// romb pozycji (Switch): 0 góra, 1 prawo, 2 dół, 3 lewo — zaświecona kropka = ten przycisk
+const glRomb = n => `<span class="gl-romb">${[0, 1, 2, 3].map(i => `<i${i === n ? ' class="on"' : ''}></i>`).join('')}</span>`;
+const glGr = (...h) => `<span class="gl-gr">${h.join('')}</span>`;
+const GL_MENU = '<i class="gl-menu3"></i>', GL_WIDOK = '<i class="gl-widok"></i>';
+// symbole PS z icons.js w skali 1 (8×8) — CSS skaluje je ×2, więc piksele zostają równe
+const glPs = n => glPb('gl-ciem', `<img src="${icon(n, 1)}" alt="">`);
+// drążek (ruch / kamera) — ciemne kółko z literą strony
+const glDrazek = s => glPb('gl-ciem', `<i>${s}</i>`);
+// [indeks przycisku standard] → markup, osobno na rodzinę. UWAGA NA SWITCHA: fizyczne A/B
+// i X/Y są ZAMIENIONE względem układu `standard`, więc indeks 0 (dolny) podpisujemy „B",
+// a romb pokazuje pozycję. Budowane leniwie: `icon()` potrzebuje canvasu.
+let _glTab = null;
+function glTabela() {
+  if (_glTab) return _glTab;
+  const wspolne = (lb, rb, lt, rt, back, start) => ({
+    4: glPr(lb), 5: glPr(rb), 6: glPr(lt, ' sp'), 7: glPr(rt, ' sp'), 8: back, 9: start,
+    10: glDrazek('L'), 11: glDrazek('R'),
+  });
+  _glTab = {
+    xbox: { 0: glPb('gl-xa', '<i>A</i>'), 1: glPb('gl-xb', '<i>B</i>'), 2: glPb('gl-xx', '<i>X</i>'), 3: glPb('gl-xy', '<i>Y</i>'),
+            ...wspolne('LB', 'RB', 'LT', 'RT', glPr(GL_WIDOK), glPr(GL_MENU)) },
+    ps:   { 0: glPs('psKrzyzyk'), 1: glPs('psKolo'), 2: glPs('psKwadrat'), 3: glPs('psTrojkat'),
+            ...wspolne('L1', 'R1', 'L2', 'R2', glPr('CREATE', ' dl'), glPr(GL_MENU)) },
+    switch: { 0: glGr(glPb('gl-ciem', '<i>B</i>'), glRomb(2)), 1: glGr(glPb('gl-ciem', '<i>A</i>'), glRomb(1)),
+              2: glGr(glPb('gl-ciem', '<i>Y</i>'), glRomb(3)), 3: glGr(glPb('gl-ciem', '<i>X</i>'), glRomb(0)),
+              ...wspolne('L', 'R', 'ZL', 'ZR', glPr('−', ' zn'), glPr('+', ' zn')) },
+    // Steam Deck: ten sam układ liter co Xbox, ale przyciski są ciemne z jasną literą,
+    // a bumpery/spusty podpisane L1/R1/L2/R2 (tak jak na obudowie)
+    deck: { 0: glPb('gl-ciem', '<i>A</i>'), 1: glPb('gl-ciem', '<i>B</i>'), 2: glPb('gl-ciem', '<i>X</i>'), 3: glPb('gl-ciem', '<i>Y</i>'),
+            ...wspolne('L1', 'R1', 'L2', 'R2', glPr(GL_WIDOK), glPr(GL_MENU)) },
+  };
+  return _glTab;
+}
+// SŁOWNA nazwa przycisku do komunikatów tekstowych („Wciśnij X") — tam nie wstawiamy plakietek
+const PAD_NAZWY = {
+  xbox: { 0: 'A', 1: 'B', 2: 'X', 3: 'Y', 4: 'LB', 5: 'RB', 6: 'LT', 7: 'RT', 9: 'START' },
+  deck: { 0: 'A', 1: 'B', 2: 'X', 3: 'Y', 4: 'L1', 5: 'R1', 6: 'L2', 7: 'R2', 9: 'MENU' },
+  ps: { 0: T('KRZYŻYK', 'CROSS'), 1: T('KÓŁKO', 'CIRCLE'), 2: T('KWADRAT', 'SQUARE'), 3: T('TRÓJKĄT', 'TRIANGLE'),
+        4: 'L1', 5: 'R1', 6: 'L2', 7: 'R2', 9: 'OPTIONS' },
+  switch: { 0: 'B', 1: 'A', 2: 'Y', 3: 'X', 4: 'L', 5: 'R', 6: 'ZL', 7: 'ZR', 9: '+' },
 };
-// D-pad (12-15) wygląda tak samo na każdym padzie — strzałki rysowane kształtem CSS,
-// wspólne dla wszystkich rodzin, więc siedzą poza `PAD_GLIFY`
-const PAD_DPAD = { 12: 'dpG', 13: 'dpD', 14: 'dpL', 15: 'dpP' };
-function padKapsel(i) {
-  if (PAD_DPAD[i]) return `<b class="gpk sh"><i class="${PAD_DPAD[i]}"></i></b>`;
-  // UKŁAD: ręczny wybór z zakładki Sterowanie wygrywa; „auto" = rodzina wykrytego pada,
-  // a pad nieznany lub jeszcze nie podłączony dostaje nazwy Xboxa (A/B/X/Y/LB/RB) —
-  // gołe cyfry nic graczowi nie mówią (test Piotra na RP6, 18.09)
+// D-pad (12-15) wygląda tak samo na każdym padzie: kwadratowa pigułka ze strzałką
+const PAD_DPAD = { 12: 'g', 13: 'd', 14: 'l', 15: 'p' };
+// UKŁAD: ręczny wybór z zakładki Sterowanie wygrywa; „auto" = rodzina wykrytego pada,
+// a pad nieznany lub jeszcze nie podłączony dostaje nazwy Xboxa (A/B/X/Y/LB/RB) —
+// gołe cyfry nic graczowi nie mówią (test Piotra na RP6, 18.09)
+function padUklad() {
   const reczny = META.pad.uklad && META.pad.uklad !== 'auto' ? META.pad.uklad : null;
-  const rodz = reczny || (PAD.rodzina === 'ps' || PAD.rodzina === 'switch' ? PAD.rodzina : 'xbox');
-  const tab = PAD_GLIFY[rodz];
-  const g = tab && tab[i];
-  if (!g) return `<b class="gpk">${i}</b>`;        // przycisk poza znanym zakresem = goły numer
-  return `<b class="gpk ${g[0]}">${g[1]}</b>`;
+  return reczny || (PAD.rodzina === 'ps' || PAD.rodzina === 'switch' || PAD.rodzina === 'deck' ? PAD.rodzina : 'xbox');
+}
+function padKapsel(i) {
+  if (PAD_DPAD[i]) return glPr(`<i class="gl-strz ${PAD_DPAD[i]}"></i>`, ' kw');
+  const g = glTabela()[padUklad()][i];
+  return g || glPr(String(i));                     // przycisk poza znanym zakresem = goły numer
 }
 // glyph akcji z `META.pad.map` — do HUD-u, stopki i zakładki Sterowanie
 function padGlyph(akcja) {
   const i = META.pad.map[akcja];
   return i == null ? '' : padKapsel(i);
 }
+// ---- TRYB WEJŚCIA: podpowiedzi idą za OSTATNIO UŻYTYM wejściem ----
+// klawiatura/mysz → litery klawiszy, pad → glify pada, dotyk → NIC (przycisk sam jest
+// sterowaniem, litera na telefonie nic nie znaczy). `pointer:coarse` tego nie rozstrzyga:
+// laptop z ekranem dotykowym ma oba, a handheld (Retroid) ma dotyk I pada.
+const WEJ = { tryb: '', padT: -1e9, poprzedni: '' };   // poprzedni = tryb sprzed pada (powrót po odłączeniu)
+const KLAW_GLIF = { skok: () => T('SPACJA', 'SPACE'), karabin: () => 'R', wieza: () => 'F', smrod: () => 'G', pauza: () => 'ESC' };
+const wejDomyslny = () => (matchMedia('(pointer:coarse)').matches ? 'dotyk' : 'klaw');
+function ustawWej(t) {
+  if (WEJ.tryb === t) return;
+  if (t === 'pad' && WEJ.tryb) WEJ.poprzedni = WEJ.tryb;
+  WEJ.tryb = t;
+  const b = document.body.classList;
+  b.remove('wej-klaw', 'wej-pad', 'wej-dotyk'); b.add('wej-' + t);
+  glifyOdswiez();
+}
+// plakietka akcji dla bieżącego trybu ('' na dotyku)
+function glif(akcja) {
+  if (WEJ.tryb === 'pad') return padGlyph(akcja);
+  if (WEJ.tryb === 'klaw' && KLAW_GLIF[akcja]) return glKl(KLAW_GLIF[akcja]());
+  return '';
+}
+// to samo słowami — do komunikatów („Wciśnij R" / „Wciśnij KWADRAT" / „Dotknij przycisku")
+function glifTekst(akcja) {
+  if (WEJ.tryb === 'pad') {
+    const i = META.pad.map[akcja];
+    return (PAD_NAZWY[padUklad()] || PAD_NAZWY.xbox)[i] || '';
+  }
+  return WEJ.tryb === 'klaw' && KLAW_GLIF[akcja] ? KLAW_GLIF[akcja]() : '';
+}
+// jedna stopka menu głównego: klawiatura = skrót sterowania; pad ma własną stopkę
+// (#padFoot), a na dotyku klawisze nic nie znaczą — wtedy pusta (CSS ją chowa)
+function startFootHTML() {
+  if (WEJ.tryb !== 'klaw') return '';
+  return `${glKl('WASD')} ${T('ruch', 'move')} · ${glKl(T('SPACJA', 'SPACE'))} ${T('skok', 'jump')} · ` +
+    `${glKl('ESC')} ${T('pauza', 'pause')} · ${T('reszta w <b>Ustawieniach</b>', 'the rest is in <b>Settings</b>')}`;
+}
+// przerysuj WSZYSTKIE podpowiedzi: zmiana trybu, rodziny pada, układu albo mapowania
+function glifyOdswiez() {
+  document.querySelectorAll('[data-glif]').forEach(el => { el.innerHTML = glif(el.dataset.glif); });
+  const sf = document.getElementById('startFoot');
+  if (sf) sf.innerHTML = startFootHTML();
+  const jg = document.querySelector('#pauseStats .jakGrac');
+  if (jg) jg.outerHTML = jakGracHTML();
+  PAD.sygHud = PAD.sygFoot = '';
+  padHudOdswiez(); padFootOdswiez();
+}
+addEventListener('keydown', e => {
+  // Android potrafi dostarczyć przyciski pada TAKŻE jako klawisze — bez tego progu
+  // tryb skakałby pad/klawiatura przy każdym naciśnięciu
+  if (performance.now() - WEJ.padT < 500) return;
+  if (!e.key || e.key === 'Unidentified' || /^(Gamepad|Media|Audio|Volume)/.test(e.key)) return;
+  ustawWej('klaw');
+}, true);
+// pointerdown myszy = klawiatura/mysz; palec albo rysik = dotyk. Kompatybilnościowe
+// zdarzenia myszy po dotknięciu NIE są pointer eventami typu 'mouse', więc nie mieszają.
+addEventListener('pointerdown', e => ustawWej(e.pointerType === 'mouse' ? 'klaw' : 'dotyk'), true);
+addEventListener('pointermove', e => {
+  if (e.pointerType === 'mouse' && Math.abs(e.movementX) + Math.abs(e.movementY) > 3) ustawWej('klaw');
+}, true);
 
 // WIBRACJE. Firefox i Safari nie mają `vibrationActuator`, a Chrome zwraca PROMISE,
 // który przy odpiętym padzie odrzuca się — bez `.catch` leciałoby to prosto
@@ -4200,10 +4311,13 @@ addEventListener('gamepadconnected', e => {
   padZywy();
   PAD.rodzina = padRodzina(e.gamepad && e.gamepad.id);
   renderSterowanie();                              // glify w zakładce muszą pasować do NOWEGO pada
+  glifyOdswiez();
   padToast(PAD_TXT.polaczony + String(e.gamepad && e.gamepad.id || 'pad').slice(0, 22));
 });
 addEventListener('gamepaddisconnected', () => {
   PAD.on = false; PAD.akt = 0; PAD.mx = PAD.mz = 0; PAD.jump = false; PAD.prev = []; PAD.uczy = null;
+  // pad zniknął = podpowiedzi wracają do trybu sprzed pada (tablet z klawiaturą nie wraca do „dotyku")
+  if (WEJ.tryb === 'pad') ustawWej(WEJ.poprzedni || wejDomyslny());
   padHudOdswiez(); padFootOdswiez();
   padToast(PAD_TXT.odlaczony);
 });
@@ -4322,7 +4436,9 @@ function padHudOdswiez(ov = topOverlay()) {
 function padFootOdswiez(ov = topOverlay()) {
   const el = document.getElementById('padFoot');
   if (!el) return;
-  if (!PAD.on || !ov) {
+  // stopka wisi, dopóki OSTATNIM wejściem był pad (dawniej gasła po 4 s bezruchu pada,
+  // czyli akurat wtedy, gdy gracz czytał menu)
+  if (WEJ.tryb !== 'pad' || !ov) {
     el.classList.remove('on'); document.body.classList.remove('pad-foot');
     PAD.sygFoot = ''; return;
   }
@@ -4364,6 +4480,7 @@ function padKoniecNauki(i) {
   }
   PAD.sygHud = PAD.sygFoot = '';                   // podpowiedzi muszą pokazać NOWY przycisk
   renderSterowanie();
+  glifyOdswiez();
 }
 // AIM ASSIST (lekki). Nie strzela za gracza — tylko domyka ostatnie stopnie, gdy
 // drążek STOI (wychylenie < 0.15). Szarpanie kamerą w trakcie celowania byłoby
@@ -4412,7 +4529,7 @@ function pollPads(dt) {
   const rodz = padRodzina(gp.id);
   if (rodz !== PAD.rodzina) {                      // przepięcie pada w locie = inne glify
     PAD.rodzina = rodz; PAD.sygHud = PAD.sygFoot = '';
-    renderSterowanie();
+    renderSterowanie(); glifyOdswiez();
   }
   const B = gp.buttons || [], ax = gp.axes || [];
   const btn = i => !!(B[i] && (B[i].pressed || B[i].value > 0.5));   // spusty analogowe: próg 0.5
@@ -4428,6 +4545,12 @@ function pollPads(dt) {
   if (!ruch) for (let i = 0; i < B.length; i++) if (btn(i)) { ruch = true; break; }
   if (ruch) padZywy();
   else if (PAD.akt > 0 && (PAD.akt -= dt) <= 0) PAD.on = false;
+  // TRYB PODPOWIEDZI = pad dopiero po WYRAŹNYM użyciu: nowe naciśnięcie albo drążek za
+  // połową. Sama martwa strefa (0.18) to za mało — zużyty drążek dryfuje i przełączałby
+  // glify graczowi, który od kwadransa gra na klawiaturze z padem leżącym obok.
+  let wejPad = Math.hypot(ax[0] || 0, ax[1] || 0) > 0.5 || Math.hypot(ax[2] || 0, ax[3] || 0) > 0.5;
+  if (!wejPad) for (let i = 0; i < B.length; i++) if (hit(i)) { wejPad = true; break; }
+  if (wejPad) { WEJ.padT = performance.now(); ustawWej('pad'); }
 
   // ---- NASŁUCH przy zmianie mapowania: pad NIE steruje wtedy niczym innym ----
   if (PAD.uczy) {
@@ -4531,11 +4654,11 @@ function renderSterowanie() {
   const pokaz = () => { czV.textContent = (cz.value / 100).toFixed(2) + '×'; };
   pokaz();
   cz.oninput = () => { META.pad.czulosc = cz.value / 100; pokaz(); saveMetaSoon(); };
-  // układ przycisków: cykl auto → xbox → ps → switch (glify w HUD i stopce od razu)
+  // układ przycisków: cykl auto → xbox → ps → switch → deck (glify w HUD i stopce od razu)
   document.getElementById('padUklad').onclick = () => {
-    const cykl = ['auto', 'xbox', 'ps', 'switch'];
+    const cykl = ['auto', 'xbox', 'ps', 'switch', 'deck'];
     META.pad.uklad = cykl[(cykl.indexOf(META.pad.uklad || 'auto') + 1) % cykl.length];
-    saveMeta(); PAD.sygHud = PAD.sygFoot = ''; renderSterowanie();
+    saveMeta(); PAD.sygHud = PAD.sygFoot = ''; renderSterowanie(); glifyOdswiez();
   };
   document.getElementById('padInv').onclick = () => {
     META.pad.invY = META.pad.invY ? 0 : 1; saveMeta(); renderSterowanie();
@@ -4721,13 +4844,8 @@ function updateGluty(dt) {
     G.gluty.splice(i, 1);
     okruchy(gl.to.x, terrainH(gl.to.x, gl.to.z) + 0.4, gl.to.z, 0xba2a24, 7);
     AUDIO.sfx('wybuch');
-    if (Math.hypot(P.pos.x - gl.to.x, P.pos.z - gl.to.z) < KETCH_R
-        && P.iframes <= 0 && !ciosPochloniety()) {
-      P.hp -= 1 * dmgScale(); P.iframes = 0.9; drawHearts(); AUDIO.sfx('hurt'); G.shake = 0.3;
-      const v = document.getElementById('vign');
-      v.style.opacity = 1; setTimeout(() => v.style.opacity = 0, 180);
-      if (P.hp <= 0) startDeath();
-    }
+    if (Math.hypot(P.pos.x - gl.to.x, P.pos.z - gl.to.z) < KETCH_R)
+      ranGracza(obrazeniaWroga(1), 'ketchupino', { shake: 0.3 });
     G.kaluze.push({ x: gl.to.x, z: gl.to.z, r: KETCH_R, t: KETCH_KALUZA,
                     mesh: (() => { const m = new THREE.Mesh(blobGeo, ketchKalMat.clone());
                       m.scale.set(KETCH_R * 2, 1, KETCH_R * 2);
@@ -4830,15 +4948,32 @@ const ENEMY_TYPES = {
 };
 
 let eliteRingMat = null;
-// ---- PROGRESJA: poziom zagrożenia rośnie co minutę ----
-const tier = () => 1 + Math.floor(G.time / 60);
+// (E1-bieg: „poziom zagrożenia" co minutę usunięty — pasek Wieczoru, patrz pasekWieczoru)
 // KLĄTWA: kupione poziomy podnoszą HP wrogów i zagęszczają spawn, a w zamian
 // mnożą monety (patrz `monetyMul`). Świadomie kupowana trudność.
 const klatwa = () => META.up.klatwa || 0;
 const monetyMul = () => (1 + 0.20 * klatwa()) * (G.buff.key === 'kasa' ? 2 : 1);
-const hpScale = () => (1 + G.time / 60 * 0.55 + Math.pow(G.time / 300, 2) * 1.5) * (1 + 0.10 * klatwa());  // późno rośnie ostro
-const spdScale = () => Math.min(1.5, 1 + G.time / 60 * 0.035);
-const dmgScale = () => G.time > 600 ? 3 : (G.time > 330 ? 2 : 1);               // 5.5 min → 2, 10 min → 3
+// E1-bieg K2: PŁYNNA TRUDNOŚĆ (spec 07 §5) zamiast schodków obrażeń 1 / 2 / 3 (skok ×2 w 5:30
+// i ×3 w 10:00). `L` = mnożniki łagodnego pierwszego biegu (K10; w normalnym = wartości poniżej).
+// hpScale: 1:00 1,47 · 5:00 3,88 · 10:00 8,00 (dawniej 1,61 / 5,25 / 12,5) — niżej późno, bo nowa
+// krzywa XP daje mniej poziomów; resztę trudności niosą skład, ściany i obrażenia (dmgMul).
+const L_BIEG = { hp: 1, spd: 0.035, dmgA: 0.06, dmgB: 0.004, elita: 1, tempo: 1 };
+const hpScale = () => { const m = G.time / 60; return (1 + 0.45 * m + 0.025 * m * m) * (1 + 0.10 * klatwa()) * L_BIEG.hp * rozgrz('hp'); };
+const spdScale = () => Math.min(1.5, 1 + L_BIEG.spd * G.time / 60);
+// mnożnik obrażeń wrogów: 5:00 ×1,40 · 10:00 ×2,00 (ciągle, bez skoków)
+const dmgMul = () => { const m = G.time / 60; return (1 + L_BIEG.dmgA * m + L_BIEG.dmgB * m * m) * rozgrz('dmg'); };
+// szansa elity: 1:00 6,2% · 5:00 11% · 10:00 17% (dawniej 7,5 / 13,5 / 21%)
+const szansaElity = () => G.time < 60 ? 0 : (0.05 + 0.012 * G.time / 60) * L_BIEG.elita * rozgrz('elita');
+// E1-bieg ROZGRZEWKA (24.09, szybkie złagodzenie — decyzja właściciela; pełne strojenie w K10/K11):
+// mnożnik rośnie liniowo od CFG_BIEG.rozgrzewka[k] w 0:00 do 1 w `do` (3:00) — po nim formuły §5 bez zmian.
+function rozgrz(k, t = G.time) {
+  const R = CFG_BIEG.rozgrzewka;
+  if (!R || R[k] == null || t >= R.do) return 1;
+  return R[k] + (1 - R[k]) * Math.pow(Math.max(0, t) / R.do, R.wykl || 1);   // wykl > 1 = dłużej nisko
+}
+// mnożnik liczebności (łagodny bieg × rozgrzewka): `co` = 'tempo' (spawner), 'podloga', 'zdarzenia'
+// (obręcze, pierścienie, ściany, rój) — osobno, żeby rozgrzewka nie zostawiała pustej łąki
+const mnFali = (t = G.time, co = 'tempo') => CFG_BIEG.lagodny.tempo * rozgrz(co, t);
 
 // ---- SZARŻA FRIESETTIEGO (biblia: „szarżują w liniach, telegraf 0.6 s") ----
 // Okno startu 8-12 j.: bliżej nie ma czasu na tell, dalej szarża 12 j. (4.0 × 3 × 1 s)
@@ -4851,28 +4986,34 @@ const LOLLINI_TARCZA = 0.9, LOLLINI_ODRZUT = 10;   // 10 j./s z tłumieniem 7/s 
 
 // `mozeElita = false` — potomki Marshmalliniego: elita to 6× HP i 12 monet, a mini
 // dostawało HP malucha z flagą elity (najszybsza kasa w grze, audyt 13.08).
-function spawnEnemy(type, angle = null, przy = null, mozeElita = true) {
+// E1-bieg: `opcje = { elita: 'los'|'tak'|'nie', r: [min, max], kapral: null }` zastępuje `mozeElita`
+// (stare `false` = { elita: 'nie' }). Domyślny promień = pierścień SPAWN_R tuż za kadrem (dawniej 34–44).
+function spawnEnemy(type, angle = null, przy = null, opcje = {}) {
+  if (opcje === false) opcje = { elita: 'nie' };
   const T = ENEMY_TYPES[type];
   const a = angle === null ? Math.random() * Math.PI * 2 : angle;
-  const r = 34 + Math.random() * 10;
+  const [r0, r1] = opcje.r || spawnR();
+  let r = r0 + Math.random() * (r1 - r0);
+  if (!opcje.r) r = rZaKadrem(a, r);
   const hpMul = hpScale();
-  const elite = mozeElita && !T.boss && G.time > 60 && Math.random() < 0.06 + G.time / 60 * 0.015;
+  const el = opcje.elita || 'los';
+  const elite = el === 'tak' || (el === 'los' && !T.boss && Math.random() < szansaElity());
   const e = {
     type, T, elite,
     pos: przy ? new THREE.Vector3(przy.x, 0, przy.z)
               : new THREE.Vector3(P.pos.x + Math.sin(a) * r, 0, P.pos.z + Math.cos(a) * r),
     // Boss dotad NIE skalowal sie wcale: w 20. minucie mial 90 HP, gdy szeregowy
     // mial 108, a elita 648. Teraz rosnie jak wszyscy (bez mnoznika elity).
-    hp: T.hp * hpMul * (elite ? 6 : 1),
+    hp: T.hp * SKALA_WROGA * hpMul * (elite ? 6 : 1),
     // `maxHp` NIE ISTNIALO na wrogach — pasek HP bossa liczyl „100 / NaN".
     // Ustawiamy je od razu przy spawnie: potrzebne do kazdego paska i do procentow.
-    maxHp: T.hp * hpMul * (elite ? 6 : 1),
+    maxHp: T.hp * SKALA_WROGA * hpMul * (elite ? 6 : 1),
     dying: false, hitCd: 0, kb: new THREE.Vector3(), orbCd: 0, climbing: false,
     ty: 0, vy: 0, jumpCd: 1 + Math.random() * 3, faza: Math.random() * 6.28,
     bb: new Billboard(T.char || type, T.scale * (elite ? 1.45 : 1), false, true),   // true = instancja (E1)
   };
   e.ty = terrainH(e.pos.x, e.pos.z);
-  if (elite) {                              // złota obwódka pod elitą (instancja w `pulaKrag`, poza sceną)
+  if (elite) {                              // fioletowa obwódka pod elitą (instancja w `pulaKrag`, poza sceną)
     e.ring = new THREE.Object3D();
     e.ring.scale.set(1.8, 1, 1.8);
   }
@@ -4921,7 +5062,7 @@ function killEnemy(e, i) {
     // muzyka bossa wraca do utworu z biegu dopiero, gdy padnie OSTATNI boss
     if (!G.enemies.some(o => o !== e && o.T.boss && !o.dying)) AUDIO.bossOff();
   }
-  else if (e.elite) { dmgPop(e.pos.x, e.ty + 0.8, e.pos.z, T('ELITA!', 'ELITE!'), '#ffd75e', 1.9); padWibruj(0.55, 90); }
+  else if (e.elite) { dmgPop(e.pos.x, e.ty + 0.8, e.pos.z, T('ELITA!', 'ELITE!'), '#c07bff', 1.9); padWibruj(0.55, 90); }
   // przy serii sam mnożnik wystarcza — słowo „KILL" tylko rozciągało napis na pół ekranu
   else dmgPop(e.pos.x, e.ty + 0.5, e.pos.z, G.streak > 1 ? 'x' + G.streak : 'KILL',
     '#ff6a5e', Math.min(1.0 + G.streak * 0.08, 1.6));
@@ -4946,6 +5087,7 @@ function killEnemy(e, i) {
                             e.pos.z + (Math.random() - .5) * rozrzut, val * mnoznikSerii));
   };
   if (e.T.boss) wyplac(3, 10, 2.5);
+  else if (e.rodzina) { /* E1-bieg: „RODZINA" (7:00) daje XP, nie daje monet (plan §6.2) */ }
   else if (e.elite) wyplac(1, 4);
   else if (Math.random() < 0.16) wyplac(1, 1);
   // serca: elity 30%, boss zawsze 2
@@ -4962,11 +5104,21 @@ function killEnemy(e, i) {
     if (P.hp <= P.maxHp * 0.34) G.hps.push(makeHeart(e.pos.x + 0.8, e.pos.z));   // litosc przy 1/3 zycia
   } else if (e.elite && Math.random() < 0.08) G.hps.push(makeHeart(e.pos.x, e.pos.z));
   // Marshmallini po śmierci DZIELI SIĘ na dwa mniejsze (wg biblii)
-  if (e.T.dzieli && !e.mini) {
+  // E1-bieg: podział może wejść w rezerwę skryptu (do MAX_WROGOW), nigdy wyżej — wtedy zamiast
+  // potomków 2 pigułki XP po 2 (twardy warunek: żywych nigdy > MAX_WROGOW)
+  if (e.T.dzieli && !e.mini && liczZywych() >= MAX_WROGOW) {   // e jeszcze żyje: po podziale +1
+    for (const bok of [-1, 1]) G.gems.push(makeGem(e.pos.x + bok * 0.8, e.pos.z, 2));
+  } else if (e.T.dzieli && !e.mini) {
+    // E1-bieg (24.09): potomki PROSTOPADLE do kierunku na gracza i co najmniej ~1,8 j. od niego, z krótkim
+    // ogłuszeniem. Dawniej ±0,8 j. wzdłuż osi X świata — przy zabiciu z bliska (Czosnek, Tupnięcie) jeden
+    // potomek lądował w zasięgu kontaktu (0,9 j.) i bił od razu: bot miał 55–70% obrażeń od Marshmalliniego
+    // przy 15–25% udziału w spawnie (kryterium §10.3 nr 12: żadne źródło > 50%).
+    const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z, dl = Math.hypot(dx, dz) || 1;
+    const ux = dx / dl, uz = dz / dl, odsun = Math.max(0, 1.8 - dl);
     for (const bok of [-1, 1]) {
       // `false` = potomek NIGDY nie jest elitą (miał HP malucha, a płacił 12 monet + XP ×4)
-      const m = spawnEnemy(e.type, null, { x: e.pos.x + bok * 0.8, z: e.pos.z }, false);
-      if (m) { m.mini = true; m.hp = m.maxHp = e.T.hp * 0.5 * hpScale(); m.bb.mesh.scale.multiplyScalar(0.62); }
+      const m = spawnEnemy(e.type, null, { x: e.pos.x - uz * bok * 0.8 + ux * odsun, z: e.pos.z + ux * bok * 0.8 + uz * odsun }, false);
+      if (m) { m.mini = true; m.stun = 0.3; m.hp = m.maxHp = e.T.hp * 0.5 * SKALA_WROGA * hpScale(); m.bb.mesh.scale.multiplyScalar(0.62); }
     }
   }
   if (e.ring) { scene.remove(e.ring); e.ring = null; }
@@ -4975,6 +5127,416 @@ function killEnemy(e, i) {
   } else {
     startRozpad(e);                                // brak arkusza `death` → śmierć z kodu
   }
+}
+
+// ============================== E1-bieg: WIECZÓR — SPAWNER, FALE, ZDARZENIA (spec 07 §0.1, §1) ==============================
+const MAX_WROGOW = 500;          // budżet wydajności (instancing v192: Nord 54–61 FPS). JEDYNE miejsce limitu
+const REZERWA_SKRYPT = 30;       // miejsca tylko dla kaprali, Dona, La Chiamaty i podziałów Marshmalliniego
+const LIMIT_SPAWNERA = MAX_WROGOW - REZERWA_SKRYPT;   // 470 — spawner, ściany i pierścienie nie wchodzą wyżej
+const SKALA_GESTOSCI = MAX_WROGOW / 500;              // tabela fal jest napisana dla 500
+const SPAWN_R = { tel: [24, 30], pc: [30, 38] };      // pierścień spawnu tuż za kadrem (dawniej 34–44)
+const RECYKL_R = 46;             // dalej = przenieś przed gracza
+const CZAS_WIECZORU = 600;       // 10:00 — Don (K8)
+const CISZA_OD = 592;            // 9:52 — 8 s ciszy
+// telefon poziomo ma CAM_DIST 3.6 (kadr ~24 j.), desktop 6.8 — patrz fitCamera
+const spawnR = () => CAM_DIST < 5 ? SPAWN_R.tel : SPAWN_R.pc;
+// Decyzja K1: kamera jest nisko, więc PRZED nią widać ziemię aż po horyzont — wróg z r 24–30 na wprost
+// „wyrasta" w kadrze (zrzut: widać nawet r 38). W stożku kadru przed kamerą zwykły spawn idzie 8 j. dalej
+// (mała sylwetka przy horyzoncie, pod rzędem serc); boki i tył zostają na SPAWN_R jak w spec.
+// Stożek = POZIOME pół-pole widzenia z camera.fov i camera.aspect + zapas 0,2 rad (szerokość sylwetki).
+// Dawniej stałe ±40° — telefon poziomo (aspect ~2,2, fov 60) widzi ±52°, więc wrogowie wyrastali na
+// bokach kadru. Kąt liczony od gracza, a kamera stoi ZA nim — od kamery ten sam wróg jest bliżej osi,
+// więc próg z pola widzenia kamery jest po bezpiecznej stronie.
+function rZaKadrem(a, r) {
+  const d = Math.abs(((a - katKamery()) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
+  const polPoziom = Math.atan(Math.tan(camera.fov * Math.PI / 360) * camera.aspect);
+  return d < polPoziom + 0.2 ? r + 8 : r;
+}
+// WSZYSTKIE LICZBY WIECZORU W JEDNYM OBIEKCIE (DEV: HORDA.cfg — strojenie bez przeładowania)
+const CFG_BIEG = {
+  // [start okna s, tempo wr/s, paczka, podłoga żywych] — tempo interpolowane liniowo między oknami
+  fale: [[0, 1.2, 3, 10], [30, 2.0, 5, 15], [60, 3.0, 5, 20], [90, 3.8, 5, 25], [120, 5.0, 6, 35],
+         [150, 6.0, 6, 40], [180, 7.5, 7, 50], [210, 9.5, 8, 65], [240, 13.0, 10, 85], [270, 14.5, 10, 95],
+         [300, 17.0, 11, 110], [330, 19.0, 12, 125], [360, 21.0, 12, 140], [390, 23.0, 13, 150],
+         [420, 25.0, 14, 165], [450, 27.0, 14, 180], [480, 29.0, 15, 190], [510, 31.0, 15, 205],
+         [540, 34.0, 16, 225], [570, 37.0, 16, 245]],
+  naplyw: { od: 240, do: 260, mn: 1.35 },          // 4:00 NAPŁYW
+  szturm: { od: 570, do: CISZA_OD, mn: 1.5 },      // 9:30 OSTATNI SZTURM
+  // udziały w spawnie (%): [od s, chipsetti, marshmallini, gummini, friesetti (porcje 5), sodino, lollini]
+  pula: [[0, 100, 0, 0, 0, 0, 0], [60, 85, 15, 0, 0, 0, 0], [90, 75, 25, 0, 0, 0, 0], [120, 60, 20, 20, 0, 0, 0],
+         [150, 55, 20, 25, 0, 0, 0], [180, 50, 20, 30, 0, 0, 0], [210, 45, 15, 25, 15, 0, 0],
+         [240, 40, 15, 20, 15, 10, 0], [300, 38, 14, 18, 14, 10, 6], [330, 36, 14, 18, 14, 10, 8],
+         [360, 35, 13, 17, 15, 11, 9], [420, 34, 12, 17, 16, 11, 10], [480, 33, 12, 16, 16, 12, 11],
+         [540, 32, 12, 16, 16, 12, 12]],
+  limity: { ketchupino: 6, sodino: 45, lollini: 40 },   // żywych danego typu; ponad = Chipsetti
+  ketchup: [[210, 25], [360, 15]],                 // [od s, co ile s] — Ketchupino poza pulą
+  podlogaCo: 0.25, podlogaIle: 6,                  // dosyp do podłogi: co 0,25 s najwyżej 6
+  recyklCo: 0.5, recyklIle: 30,                    // recykling dalekich: co 0,5 s najwyżej 30
+  obreczR: 22, pierscienR: 16, scianaR: 18,        // promienie fal w kadrze (telefon poziomo)
+  scianaCzas: 5,                                   // s marszu ściany „razem"
+  falaNaKlatke: 20,                                // wrogów fali na klatkę (ściana 80 = 4 klatki)
+  lagodny: L_BIEG,                                 // mnożniki L (łagodny bieg = K10); tempo mnoży też fale
+  // ROZGRZEWKA (24.09, szybkie złagodzenie; pełne strojenie K10/K11): mnożnik w 0:00 rośnie do 1 w `do`
+  // jak (t/do)^wykl — długo nisko, domyka się w 4:00–5:00. Od 5:00 formuły §5 i tabela fal bez zmian.
+  // Stan przy 3:00: tempo ×0,35 (2,6 wr/s zamiast 7,5), zdarzenia ×0,57, HP ×0,64, obrażenia ×0,50.
+  // Podłoga żywych bez rozgrzewki — silny gracz zawsze ma co kosić. Pomiar botem: INFO-PROJEKT.md.
+  rozgrzewka: { do: 300, wykl: 2.5, tempo: 0.10, podloga: 1, zdarzenia: 0.40, hp: 0.50, dmg: 0.30, elita: 0.20 },
+  // XP z pigułki ×2 (cały bieg): mniej wrogów w rozgrzewce = mniej XP; bot-średni ma teraz poziom 21–22
+  // w 5:00 i 36–38 w 10:00 = cel spec §6 (19–24 / 35–40), przed zmianą 12 i 30.
+  xpPigulki: 2,
+};
+const TYPY_PULI = ['chipsetti', 'marshmallini', 'gummini', 'friesetti', 'sodino', 'lollini'];
+const lerp = (a, b, k) => a + (b - a) * k;
+function falaTeraz(t) {                           // { tempo, paczka, podloga } w chwili t
+  const F = CFG_BIEG.fale;
+  let i = F.length - 1;
+  while (i > 0 && F[i][0] > t) i--;
+  const a = F[i], b = F[i + 1];
+  const k = b ? Math.min(1, (t - a[0]) / (b[0] - a[0])) : 0;
+  let tempo = b ? lerp(a[1], b[1], k) : a[1];
+  const N = CFG_BIEG.naplyw, S = CFG_BIEG.szturm;
+  if (t >= N.od && t < N.do) tempo *= N.mn;
+  if (t >= S.od && t < S.do) tempo *= S.mn;
+  return { tempo: tempo * SKALA_GESTOSCI * mnFali(t), paczka: a[2],
+           podloga: Math.round(lerp(a[3], b ? b[3] : a[3], k) * SKALA_GESTOSCI * mnFali(t, 'podloga')) };
+}
+function pulaTeraz(t) {
+  const P_ = CFG_BIEG.pula;
+  let i = P_.length - 1;
+  while (i > 0 && P_[i][0] > t) i--;
+  return P_[i];
+}
+// liczniki żywych (bez umierających) — raz na wołanie, 500 wrogów to ułamek ms
+const _ileTyp = {};
+function liczZywych(poTypach = false) {
+  let n = 0;
+  if (poTypach) for (const k in _ileTyp) _ileTyp[k] = 0;
+  for (const e of G.enemies) {
+    if (e.dying) continue;
+    n++;
+    if (poTypach) _ileTyp[e.type] = (_ileTyp[e.type] || 0) + 1;
+  }
+  return n;
+}
+function losujTyp(t) {                            // typ wg udziałów okna; Friesetti waży udział/5 (porcja 5)
+  const w = pulaTeraz(t);
+  let suma = 0;
+  for (let i = 1; i < w.length; i++) suma += i === 4 ? w[i] / 5 : w[i];
+  let r = Math.random() * suma;
+  for (let i = 1; i < w.length; i++) { r -= i === 4 ? w[i] / 5 : w[i]; if (r <= 0) return TYPY_PULI[i - 1]; }
+  return 'chipsetti';
+}
+const typZLimitem = typ => (CFG_BIEG.limity[typ] != null && (_ileTyp[typ] || 0) >= CFG_BIEG.limity[typ]) ? 'chipsetti' : typ;
+// kąt „przed graczem": w kierunku ruchu, gdy biegnie; gdy stoi — przed kamerą
+function katPrzod() {
+  if (Math.hypot(P.vx || 0, P.vz || 0) > 1) return Math.atan2(P.vx, P.vz);
+  return Math.atan2(-Math.sin(camYaw), -Math.cos(camYaw));
+}
+const katKamery = () => Math.atan2(-Math.sin(camYaw), -Math.cos(camYaw));
+// Porcja Friesettich: 5 w linii prostopadłej do kierunku na gracza, odstęp 1,2 j.
+function porcjaFrytek(a, r, opcje = {}) {
+  const cx = P.pos.x + Math.sin(a) * r, cz = P.pos.z + Math.cos(a) * r;
+  const px = Math.cos(a), pz = -Math.sin(a);       // prostopadle do promienia
+  for (let k = -2; k <= 2; k++) wrogFali('friesetti', cx + px * k * 1.2, cz + pz * k * 1.2, opcje, k === 0 ? { puff: 1.3 } : null);
+}
+// PACZKA = jedna grupa z jednego kierunku (każdy wróg ±0,2 rad) — roje z biblii widać jako roje
+function spawnPaczka(n, t) {
+  const a = Math.random() * Math.PI * 2, R = spawnR();
+  let zrodzeni = 0;
+  while (zrodzeni < n) {
+    const typ = typZLimitem(losujTyp(t));
+    const r = rZaKadrem(a, R[0] + Math.random() * (R[1] - R[0]));
+    if (typ === 'friesetti') {
+      const cx = P.pos.x + Math.sin(a) * r, cz = P.pos.z + Math.cos(a) * r, px = Math.cos(a), pz = -Math.sin(a);
+      for (let k = -2; k <= 2; k++) spawnEnemy('friesetti', null, { x: cx + px * k * 1.2, z: cz + pz * k * 1.2 });
+      zrodzeni += 5; _ileTyp.friesetti = (_ileTyp.friesetti || 0) + 5;
+    } else {
+      spawnEnemy(typ, a + (Math.random() - 0.5) * 0.4, null, { r: [r, r] });
+      zrodzeni++; _ileTyp[typ] = (_ileTyp[typ] || 0) + 1;
+    }
+  }
+  return zrodzeni;
+}
+// WRÓG FALI: do LIMIT_SPAWNERA nowy; powyżej — zabiera miejsce najdalszemu zwykłemu wrogowi
+// (d > 20 j.), więc fala jest zawsze pełna, a limit nietknięty (spec §1.5 „Fale przy limicie").
+// Pomiar K1 na telefonie: ściana 80 w jednej klatce = przycięcie 50 ms, więc fale idą KOLEJKĄ
+// (najwyżej CFG_BIEG.falaNaKlatke wrogów na klatkę; pozycje liczone w chwili zdarzenia).
+// `ext` = pola doklejane do wroga (stun, sciana, rodzina), `ext.puff` = obłoczek przy pojawieniu.
+let _zywiFali = 0;
+function wrogFali(typ, x, z, opcje = {}, ext = null) {
+  G.kolejkaSpawnu.push({ typ, x, z, opcje, ext, nr: G.falaNr });
+}
+function wrogFaliTeraz(typ, x, z, opcje = {}, ext = null, nr = 0) {
+  if (_zywiFali >= LIMIT_SPAWNERA) {
+    let naj = -1, najD = 400;
+    for (let j = 0; j < G.enemies.length; j++) {
+      const o = G.enemies[j];
+      if (o.dying || o.T.boss || o.kapral || o.elite || o.fala === nr) continue;   // elity (i Rodzina) zostają
+      const d2 = (o.pos.x - P.pos.x) ** 2 + (o.pos.z - P.pos.z) ** 2;
+      if (d2 > najD) { najD = d2; naj = j; }
+    }
+    if (naj < 0) return null;                      // nikogo dalej niż 20 j. — fala krótsza, limit ważniejszy
+    const o = G.enemies[naj];
+    o.bb.dispose(); if (o.rozpadMat) o.rozpadMat.dispose();
+    G.enemies.splice(naj, 1);
+    _zywiFali--;
+  }
+  const e = spawnEnemy(typ, null, { x, z }, opcje);
+  e.fala = nr;                                    // numer fali: nie zabieramy miejsca wrogom TEJ SAMEJ fali
+  if (ext) { const { puff: pf, ...reszta } = ext; Object.assign(e, reszta); if (pf) puff(x, e.ty + 0.6, z, 0xfff0d0, pf); }
+  _zywiFali++;
+  return e;
+}
+function kolejkaSpawnu() {
+  if (!G.kolejkaSpawnu.length) return;
+  _zywiFali = liczZywych();
+  for (let k = 0; k < CFG_BIEG.falaNaKlatke && G.kolejkaSpawnu.length; k++) {
+    const q = G.kolejkaSpawnu.shift();
+    wrogFaliTeraz(q.typ, q.x, q.z, q.opcje, q.ext, q.nr);
+  }
+}
+function toastWieczoru(pl, en, ms = 2200) {
+  toastBuff(T(pl, en));
+  setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, ms);
+}
+// MAŁA OBRĘCZ (:15 / :45): równo na okręgu r 22 (tuż za kadrem), bez toastu — poza pierwszą
+function malaObrecz(toast) {
+  const min = G.time / 60;
+  const n = Math.round((8 + 2.5 * min) * SKALA_GESTOSCI * mnFali(G.time, 'zdarzenia'));
+  const typy = G.time < 180 ? ['chipsetti', 'chipsetti', 'marshmallini'] : ['chipsetti', 'gummini', 'friesetti', 'marshmallini'];
+  const r = CFG_BIEG.obreczR, a0 = Math.random() * 6.28;
+  for (let k = 0; k < n; k++) {
+    const a = a0 + k / n * Math.PI * 2;
+    wrogFali(typy[Math.floor(Math.random() * typy.length)], P.pos.x + Math.sin(a) * r, P.pos.z + Math.cos(a) * r);
+  }
+  if (toast) toastWieczoru('Okrążają cię!', 'They are closing in!', 1600);
+}
+// WIELKI PIERŚCIEŃ: r 16 — widać, jak się zaciska; od 70 wrogów dwa okręgi; luka ucieczki 3 j.
+function wielkiPierscien(n, typy) {
+  n = Math.round(n * SKALA_GESTOSCI * mnFali(G.time, 'zdarzenia'));
+  const R = CFG_BIEG.pierscienR, okregi = n >= 70 ? 2 : 1;
+  const luka = Math.random() * Math.PI * 2, lukaK = 3 / R / 2;   // pół szerokości luki w radianach
+  const naOkrag = Math.ceil(n / okregi);
+  for (let o = 0; o < okregi; o++) {
+    const r = R + o * 1.5;
+    for (let k = 0; k < naOkrag; k++) {
+      const a = (k + o * 0.5) / naOkrag * Math.PI * 2;
+      const dl = Math.abs(((a - luka) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
+      if (dl < lukaK) continue;
+      const x = P.pos.x + Math.sin(a) * r, z = P.pos.z + Math.cos(a) * r;
+      // stun 0.4 s: gracz widzi obręcz, zanim ruszy
+      wrogFali(typy[Math.floor(Math.random() * typy.length)], x, z, {}, { stun: 0.4, puff: k % 4 === 0 ? 1.4 : 0 });
+    }
+  }
+  G.shake = Math.max(G.shake, 0.25);
+  toastWieczoru('FALA OKRĄŻAJĄCA — biegną ze wszystkich stron!', 'ENCIRCLING WAVE — they come from every side!', 1800);
+}
+// ŚCIANA HORDY: łuk ~95° przed graczem, r 18, rzędy co 1,1 j., wrogowie co ≥ 1,0 j.;
+// przez pierwsze 5 s idzie RAZEM (prędkość najwolniejszego typu), potem każdy wraca do swojego AI
+function scianaHordy(n, typy, rzedy, pierwszyRzad = null, a = null) {
+  n = Math.round(n * SKALA_GESTOSCI * mnFali(G.time, 'zdarzenia'));
+  if (a === null) a = katPrzod();
+  const R = CFG_BIEG.scianaR, naRzad = Math.ceil(n / rzedy);
+  const luk = Math.max(naRzad * 1.0 / R, 95 * Math.PI / 180);   // radiany
+  const dir = new THREE.Vector3(-Math.sin(a), 0, -Math.cos(a));    // marsz ku graczowi
+  const wszystkie = pierwszyRzad ? [...typy, pierwszyRzad] : typy;
+  const spd = Math.min(...wszystkie.map(k => ENEMY_TYPES[k].speed)) * spdScale();
+  let zrob = 0;
+  for (let w = 0; w < rzedy && zrob < n; w++) {
+    const r = R + w * 1.1;
+    for (let k = 0; k < naRzad && zrob < n; k++, zrob++) {
+      const ak = a + (k / Math.max(1, naRzad - 1) - 0.5) * luk;
+      const x = P.pos.x + Math.sin(ak) * r, z = P.pos.z + Math.cos(ak) * r;
+      const typ = w === 0 && pierwszyRzad ? pierwszyRzad : typy[Math.floor(Math.random() * typy.length)];
+      wrogFali(typ, x, z, {}, { sciana: { t: CFG_BIEG.scianaCzas, dir, spd }, puff: k % 4 === 0 ? 1.2 : 0 });
+    }
+  }
+  G.shake = Math.max(G.shake, 0.2);
+}
+// KALENDARZ WIECZORU (spec §1.4). `kapral`/`don` to na razie tylko wpisy w logu (K7/K8).
+const WIECZOR = [
+  { t: 0.3, typ: 'otwarcie' }, { t: 3.0, typ: 'otwarcie2' }, { t: 30, typ: 'roj' },
+  { t: 60, typ: 'nowy', co: 'marshmallini' }, { t: 65, typ: 'pierwsza-elita' },
+  { t: 90, typ: 'kapral', nr: 1 }, { t: 120, typ: 'sciana', n: 40 }, { t: 150, typ: 'pierscien', n: 45 },
+  { t: 180, typ: 'kapral', nr: 2 }, { t: 210, typ: 'frytki' }, { t: 240, typ: 'naplyw' },
+  { t: 270, typ: 'kapral', nr: 3 }, { t: 300, typ: 'polowa', n: 80 }, { t: 330, typ: 'pierscien', n: 70 },
+  { t: 360, typ: 'kapral', nr: 4 }, { t: 390, typ: 'nalot' }, { t: 420, typ: 'rodzina' },
+  { t: 450, typ: 'kapral', nr: 5 }, { t: 480, typ: 'pierscien', n: 100 }, { t: 510, typ: 'sodowa' },
+  { t: 540, typ: 'kapral', nr: 6 }, { t: 570, typ: 'szturm' }, { t: 577, typ: 'szturm-sciana' },
+  { t: 584, typ: 'szturm-sciana' }, { t: 592, typ: 'cisza' }, { t: 600, typ: 'don' },
+];
+for (let s = 75; s <= 555; s += 30) WIECZOR.push({ t: s, typ: 'obrecz', maly: true });
+WIECZOR.sort((a, b) => a.t - b.t);
+function odpalZdarzenie(z) {
+  const typy = pulaTeraz(G.time).slice(1).map((u, i) => u > 0 ? TYPY_PULI[i] : null).filter(Boolean);
+  const wrecz = typy.filter(k => k !== 'friesetti' && k !== 'sodino');
+  switch (z.typ) {
+    case 'otwarcie': case 'otwarcie2': {           // 4 Chipsettich w kadrze: pierwszy kill po 2–3 s
+      const a = katKamery() + (z.typ === 'otwarcie2' ? Math.PI / 2 * (Math.random() < 0.5 ? 1 : -1) : 0);
+      const r = z.typ === 'otwarcie2' ? 18 : 16 + Math.random() * 2;
+      for (let k = 0; k < 4; k++) {
+        const ak = a + (k - 1.5) * 0.12;
+        wrogFali('chipsetti', P.pos.x + Math.sin(ak) * r, P.pos.z + Math.cos(ak) * r, { elita: 'nie' }, { puff: 1.0 });
+      }
+      break;
+    }
+    case 'roj': {                                  // 15 Chipsettich z jednego kierunku, przed graczem
+      const a = katPrzod(), R = spawnR();
+      for (let k = 0; k < Math.round(15 * mnFali(G.time, 'zdarzenia')); k++) {
+        const ak = a + (Math.random() - 0.5) * 0.5, r = R[0] + Math.random() * 3;
+        wrogFali('chipsetti', P.pos.x + Math.sin(ak) * r, P.pos.z + Math.cos(ak) * r, { elita: 'nie' }, { puff: k % 3 === 0 ? 1.2 : 0 });
+      }
+      toastWieczoru('PIERWSZY RÓJ!', 'FIRST SWARM!', 1600);
+      break;
+    }
+    case 'pierwsza-elita': {                       // gwarantowana pierwsza elita, w kadrze przed kamerą
+      const a = katKamery();
+      wrogFali('chipsetti', P.pos.x + Math.sin(a) * 20, P.pos.z + Math.cos(a) * 20, { elita: 'tak' }, { puff: 1.5 });
+      break;
+    }
+    case 'obrecz': malaObrecz(G.time < 80); break;
+    case 'sciana':
+      scianaHordy(z.n, ['chipsetti', 'gummini'], 2);
+      toastWieczoru('ŚCIANA HORDY — przebij się albo obiegnij!', 'HORDE WALL — break through or run around!');
+      break;
+    case 'pierscien':
+      wielkiPierscien(z.n, z.n >= 100 ? wrecz : z.n >= 70 ? ['chipsetti', 'marshmallini', 'gummini', 'friesetti'] : ['chipsetti', 'marshmallini']);
+      break;
+    case 'frytki': porcjaFrytek(katPrzod(), 12); break;   // pierwsza porcja w kadrze — widać szarżę
+    case 'naplyw': toastWieczoru('NAPŁYW! Horda gęstnieje', 'SURGE! The horde thickens'); break;
+    case 'polowa':
+      scianaHordy(z.n, ['chipsetti', 'marshmallini', 'gummini'], 3, 'lollini');
+      toastWieczoru('POŁOWA WIECZORU — Don już wie', 'HALF THE EVENING — the Don knows', 2600);
+      break;
+    case 'nalot': {                                // 3 porcje po 5 Friesettich z jednej strony, co 1,5 s
+      const a = katPrzod() + (Math.random() < 0.5 ? 1 : -1) * Math.PI / 2;
+      porcjaFrytek(a, spawnR()[0]);
+      G.kolejkaFal.push({ t: G.time + 1.5, f: () => porcjaFrytek(a + 0.15, spawnR()[0]) });
+      G.kolejkaFal.push({ t: G.time + 3.0, f: () => porcjaFrytek(a - 0.15, spawnR()[0]) });
+      toastWieczoru('NALOT FRYTEK!', 'FRY RAID!', 1800);
+      break;
+    }
+    case 'rodzina': {                              // 10 elit z jednego kierunku: XP tak, monety nie
+      const a = katPrzod(), R = spawnR();
+      for (let k = 0; k < 10; k++) {
+        const ak = a + (k - 4.5) * 0.09, r = R[0] + (k % 2) * 1.5;
+        wrogFali(wrecz[k % wrecz.length], P.pos.x + Math.sin(ak) * r, P.pos.z + Math.cos(ak) * r, { elita: 'tak' }, { rodzina: true, puff: k % 2 === 0 ? 1.3 : 0 });
+      }
+      toastWieczoru('RODZINA IDZIE — same elity!', 'THE FAMILY IS COMING — all elites!');
+      break;
+    }
+    case 'sodowa': {                               // 16 Sodino w pierścieniu r 18 — wybiegnij z kręgu
+      for (let k = 0; k < 16; k++) {
+        const a = k / 16 * Math.PI * 2;
+        wrogFali('sodino', P.pos.x + Math.sin(a) * 18, P.pos.z + Math.cos(a) * 18, { elita: 'nie' }, { puff: k % 2 === 0 ? 1.2 : 0 });
+      }
+      toastWieczoru('SODOWA OBRĘCZ — wybiegnij z kręgu!', 'SODA RING — get out of the circle!');
+      break;
+    }
+    case 'szturm':
+      scianaHordy(60, wrecz, 3);
+      toastWieczoru('OSTATNI SZTURM!', 'FINAL ASSAULT!', 2600);
+      break;
+    case 'szturm-sciana': scianaHordy(60, wrecz, 3, null, katPrzod() + (z.t < 580 ? 2.1 : -2.1)); break;
+    case 'cisza': break;                           // K8: odwrót hordy, szelest; na razie tylko stop spawnu
+    case 'don':                                    // K8: wejście Dona. Do tego czasu bieg trwa dalej
+      toastWieczoru('DON CHIPSO… jeszcze się spóźnia', 'DON CHIPSO… is running late', 2600);
+      break;
+  }
+}
+// przewinięcie kalendarza (HORDA.skok): zdarzenia przed t oznaczone jako odpalone
+function przewinWieczor(t) {
+  G.wiecIdx = 0;
+  while (G.wiecIdx < WIECZOR.length && WIECZOR[G.wiecIdx].t < t) G.wiecIdx++;
+  G.kolejkaFal = []; G.kolejkaSpawnu = [];
+  G.spawnAkum = 0;
+}
+// RECYKLING: wrogowie dalej niż 46 j. wracają w pierścień spawnu, w kąt ±60° od kierunku ruchu
+function recyklingDalekich() {
+  const v = Math.hypot(P.vx || 0, P.vz || 0), kv = Math.atan2(P.vx || 0, P.vz || 0), R = spawnR();
+  let ile = 0;
+  for (const e of G.enemies) {
+    if (ile >= CFG_BIEG.recyklIle) break;
+    if (e.dying || e.T.boss || e.kapral || e.odwrot) continue;
+    const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z;
+    if (dx * dx + dz * dz < RECYKL_R * RECYKL_R) continue;
+    const a = v > 1 ? kv + (Math.random() - 0.5) * (Math.PI * 2 / 3) : Math.random() * Math.PI * 2;
+    const r = rZaKadrem(a, R[0] + Math.random() * (R[1] - R[0]));
+    e.pos.set(P.pos.x + Math.sin(a) * r, 0, P.pos.z + Math.cos(a) * r);
+    e.ty = terrainH(e.pos.x, e.pos.z); e.vy = 0;
+    e.kb.set(0, 0, 0); e.faz = null; e.szarzaCd = null; e.sciana = null;
+    if (e.T.szarzuje || e.T.wiruje) e.bb.mesh.scale.set(e.bb.h, e.bb.h, 1);
+    e.bb.update(0, e.pos, e.ty);
+    if (e.ring) e.ring.position.set(e.pos.x, e.ty + 0.06, e.pos.z);
+    ile++;
+  }
+}
+// SPAWNER WIECZORU — wołany co klatkę z update() (poza STRES)
+function spawnerWieczoru(dt) {
+  const t = G.time;
+  // zdarzenia z kalendarza + kolejka odroczonych (nalot frytek)
+  while (G.wiecIdx < WIECZOR.length && WIECZOR[G.wiecIdx].t <= t) {
+    const z = WIECZOR[G.wiecIdx++];
+    G.falaNr = (G.falaNr || 0) + 1;                // numer fali dla wrogFali (zastępowanie przy limicie)
+    odpalZdarzenie(z);
+    G.zdarzenia.push({ t: +t.toFixed(1), typ: z.typ + (z.typ === 'kapral' ? z.nr + ' (K7)' : '') });
+  }
+  for (let i = G.kolejkaFal.length - 1; i >= 0; i--) {
+    if (G.kolejkaFal[i].t > t) continue;
+    G.kolejkaFal.splice(i, 1)[0].f();
+  }
+  kolejkaSpawnu();
+  G.recyklT -= dt;
+  if (G.recyklT <= 0) { G.recyklT = CFG_BIEG.recyklCo; recyklingDalekich(); }
+  if (t >= CISZA_OD && t < CZAS_WIECZORU) return;    // cisza przed Donem: nic nie dochodzi
+  // po 10:00 (do K8) spawner jedzie dalej na ostatnim oknie tabeli
+  let zywi = liczZywych(true);
+  const f = falaTeraz(t);
+  G.spawnAkum += f.tempo * dt;
+  while (G.spawnAkum >= f.paczka && zywi < LIMIT_SPAWNERA) {
+    zywi += spawnPaczka(Math.min(f.paczka, LIMIT_SPAWNERA - zywi), t);
+    G.spawnAkum -= f.paczka;
+  }
+  G.spawnAkum = Math.min(G.spawnAkum, f.paczka * 2);   // na limicie nie zbieramy zapasu na później
+  // podłoga żywych (wzór VS): silny gracz zawsze ma co kosić
+  G.podlogaT -= dt;
+  if (G.podlogaT <= 0) {
+    G.podlogaT = CFG_BIEG.podlogaCo;
+    for (let k = 0; k < CFG_BIEG.podlogaIle && zywi < f.podloga && zywi < LIMIT_SPAWNERA; k++) {
+      let typ = typZLimitem(losujTyp(t));
+      if (typ === 'friesetti') typ = 'chipsetti';  // podłoga dosypuje pojedynczo — frytki chodzą porcjami
+      spawnEnemy(typ);
+      _ileTyp[typ] = (_ileTyp[typ] || 0) + 1; zywi++;
+    }
+  }
+  // Ketchupino na własnym zegarze (poza pulą)
+  const K = CFG_BIEG.ketchup;
+  if (t >= K[0][0]) {
+    const co = t >= K[1][0] ? K[1][1] : K[0][1];
+    if (t >= G.ketchT && (_ileTyp.ketchupino || 0) < CFG_BIEG.limity.ketchupino && zywi < LIMIT_SPAWNERA) {
+      spawnEnemy('ketchupino');
+      G.ketchT = t + co;
+    }
+  }
+}
+
+// ---- PASEK WIECZORU (zamiast „ZAGROŻENIE N"): 0 → 10:00, 6 fioletowych kresek = kaprale, korona = Don ----
+let _pasekWiecOk = false, _pasekWiecW = -1;
+function pasekWieczoru() {
+  const el = document.getElementById('tier');
+  if (!el) return;
+  if (!_pasekWiecOk) {
+    _pasekWiecOk = true;
+    el.innerHTML = '<div class="wiec"><i class="wf"></i>' +
+      [90, 180, 270, 360, 450, 540].map(s => `<b style="left:${s / 6}%"></b>`).join('') +
+      '</div><span class="wkor">' + ico('korona', 14) + '</span>';
+  }
+  // DOM tylko przy zmianie o 0,1% (co 0,6 s gry), nie co klatkę
+  const w = Math.round(Math.min(100, G.time / CZAS_WIECZORU * 100) * 10) / 10;
+  if (w === _pasekWiecW) return;
+  _pasekWiecW = w;
+  const wf = el.querySelector('.wf');
+  if (wf) wf.style.width = w + '%';
 }
 
 // ============================== POCISKI / DROPY ==============================
@@ -5423,8 +5985,11 @@ function dmgPop(x, ty, z, str, color = '#ffe066', scale = 1) {
   scene.add(mesh);
   G.pops.push({ mesh, t: 0 });
 }
-// wyświetlana liczba obrażeń (dopaminowa skala ×250, zaokrąglona do 10)
-const dmgNum = d => String(Math.max(50, Math.round(d * 250 / 10) * 10));
+// E1-bieg K4: liczba na ekranie = PRAWDZIWE obrażenia (skala ×100 w HP wrogów), 2 cyfry znaczące:
+// 327 → 330, 1234 → 1200, 14 321 → 14K, 4,2 mln → 4.2M. Dawniej kosmetyczne ×250 bez związku z HP.
+const dmgNum = d => d < 100 ? String(Math.round(d))
+  : d < 1e4 ? String(Number(d.toPrecision(2)))
+  : d < 999500 ? Math.round(d / 1e3) + 'K' : (d / 1e6).toFixed(1) + 'M';   // bez „1000K"
 
 // ============================== WSPÓLNY CIOS: zadajDmg ==============================
 // Do 03.09 krytyk (`critC`) liczyły TYLKO pociski z `G.shots` i karabin. Piorun,
@@ -5442,9 +6007,21 @@ const dmgNum = d => String(Math.max(50, Math.round(d * 250 / 10) * 10));
 // Dodając nową broń: NIGDY `e.hp -= x` na piechotę, zawsze `zadajDmg(e, x, {...})`.
 const _kbV = new THREE.Vector3();          // wektor roboczy dla `o.kb` — zero alokacji na cios
 function zadajDmg(e, dmg, o = {}) {
+  // E1-bieg K4: bronie liczą w jednostkach bazowych, wróg ma HP ×SKALA_WROGA. `o.bezSkali` = obrażenia
+  // już w skali ekranu albo WZGLĘDNE (% maxHp: głazy Wąwozów, regał) — bez tego głaz dałby bossowi 1500%.
+  if (!o.bezSkali) dmg *= SKALA_WROGA;
   const crit = dmg > 0 && Math.random() < critC();   // nova Sodino ma dmg 0 — nie ma czego krytykować
   if (crit) dmg *= 3;
+  const hpPrzed = e.hp;
   e.hp -= dmg;
+  // E1-bieg: ŹRÓDŁO CIOSU (`o.zr` = klucz broni). Liczymy obrażenia SKUTECZNE (bez nadwyżki
+  // ponad resztę HP), więc suma `G.dmgBron` = suma HP utraconego przez wrogów, a DPS broni
+  // na ekranie końca nie puchnie od przebitych trupów.
+  if (dmg > 0) {
+    const zr = o.zr || 'inne';
+    G.dmgBron[zr] = (G.dmgBron[zr] || 0) + Math.min(dmg, Math.max(0, hpPrzed));
+    if (dmg > G.maxHit.dmg && !o.bezSkali) G.maxHit = { dmg, zr, crit };   // bez głazów i regału (% maxHp)
+  }
   // wysysanie życia Beetina (Buraczane Ciśnienie): 10% obrażeń zbiera się w „soku",
   // co 2.5 j. soku = +1 serce (przy broniach 2.5-10 dmg to co ~5 ciosów poniżej połowy HP)
   // NERF 23.09 (pomiar: bot z samą bronią startową, Łąki): Beetino przeżywał 293 s i odzyskał
@@ -5453,9 +6030,9 @@ function zadajDmg(e, dmg, o = {}) {
   // najtrudniejszy moment gry był dla niego najłatwiejszy. Teraz NAJWYŻEJ 1 serce na 3 s, a sok
   // nie odkłada się na zapas (limit 4) — wysysanie zostaje tożsamością postaci, znika nieśmiertelność.
   if (dmg > 0 && cisnienie()) {
-    P.sok = Math.min(4, (P.sok || 0) + dmg * 0.10);
+    P.sok = Math.min(4, (P.sok || 0) + dmg / SKALA_WROGA * 0.10);   // sok w jednostkach bazowych (próg 4 bez zmian)
     if (P.sok >= 4 && P.hp < P.maxHp && G.time >= (P.leczT || 0)) {
-      P.sok = 0; P.leczT = G.time + BEET_LECZ_CD; P.hp++; drawHearts();
+      P.sok = 0; P.leczT = G.time + BEET_LECZ_CD; P.hp = Math.min(P.maxHp, P.hp + HP_SERCA); drawHearts();
       dmgPop(P.pos.x, P.y + 0.7, P.pos.z, T('+SERCE', '+HEART'), '#ff6fa5', 1.2);
       AUDIO.sfx('serce');
     }
@@ -5563,7 +6140,7 @@ const WEAPONS = {
       w.t -= dt;
       if (w.t > 0) return;
       w.t = (P.evo.sejsm ? 2.0 : 3.2) / fireMul();
-      nova(P.pos.x, P.pos.z, stompRad(w.lvl), stompDmg(w.lvl));
+      nova(P.pos.x, P.pos.z, stompRad(w.lvl), stompDmg(w.lvl), 'tupniecie');
     },
   },
   piorun: {
@@ -5581,7 +6158,7 @@ const WEAPONS = {
         boltFx(e.pos.x, e.ty, e.pos.z);
         AUDIO.sfx('piorun');
         e.kb.set(0, 0, 0);
-        zadajDmg(e, 3 * dmgAll(), { col: '#e8f4ff', sc: 1.2 });
+        zadajDmg(e, 3 * dmgAll(), { col: '#e8f4ff', sc: 1.2, zr: 'piorun' });
       }
     },
   },
@@ -5633,7 +6210,7 @@ const WEAPONS = {
       m.scale.set(0.9, 0.9, 1);
       scene.add(m);
       const dir = new THREE.Vector3(Math.sin(playerBB.facing), 0, Math.cos(playerBB.facing));
-      G.boomers.push({ mesh: m, dir, t: 0, dur: 1.6, dist: (8 + 0.6 * w.lvl) * rangeM(), lvl: w.lvl, hit: new Set() });
+      G.boomers.push({ mesh: m, dir, t: 0, dur: 1.6, dist: (8 + 0.6 * w.lvl) * rangeM(), lvl: w.lvl, hit: new Set(), zr: 'bumerang' });
     },
   },
   skarpeta: {
@@ -5660,7 +6237,7 @@ const WEAPONS = {
         const e = G.enemies[j];
         if (e.dying) continue;
         const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z;
-        if (dx * dx + dz * dz < r * r) zadajDmg(e, ad, { col: '#a8e05f', sc: 0.75 });
+        if (dx * dx + dz * dz < r * r) zadajDmg(e, ad, { col: '#a8e05f', sc: 0.75, zr: 'skarpeta' });
       }
     },
   },
@@ -5695,7 +6272,7 @@ const WEAPONS = {
         const perp = Math.abs(ex * dir.z - ez * dir.x);
         if (perp < 0.9) {
           spark(e.pos.x, e.ty + 1.0, e.pos.z);
-          zadajDmg(e, wd, { col: '#e0f0ff', kb: dir, kbSila: 2 });
+          zadajDmg(e, wd, { col: '#e0f0ff', kb: dir, kbSila: 2, zr: 'wiatrowka' });
         }
       }
     },
@@ -5772,7 +6349,7 @@ const WEAPONS = {
         m.scale.set(0.85 * kapecAspect, 0.85, 1);
         scene.add(m);
         G.boomers.push({ mesh: m, dir: new THREE.Vector3(Math.sin(a), 0, Math.cos(a)),
-                         t: 0, dur: 1.5, dist: (6 + 0.5 * w.lvl) * rangeM(), lvl: w.lvl + 1, hit: new Set() });
+                         t: 0, dur: 1.5, dist: (6 + 0.5 * w.lvl) * rangeM(), lvl: w.lvl + 1, hit: new Set(), zr: 'ciabatta' });
       }
     },
   },
@@ -5830,7 +6407,7 @@ const WEAPONS = {
         if (d > zasieg || d < 1e-3) continue;
         if (!dookola && (dx / d) * fx + (dz / d) * fz < 0.5) continue;      // stożek ~60°
         if (P.evo.selekcja) e.stun = Math.max(e.stun || 0, 0.6);
-        zadajDmg(e, dmg, { col: '#ff9d7a', sc: 1.1, kb: _kbV.set(dx, 0, dz), kbSila: odrzut });
+        zadajDmg(e, dmg, { col: '#ff9d7a', sc: 1.1, kb: _kbV.set(dx, 0, dz), kbSila: odrzut, zr: 'wypad' });
         trafil++;
       }
       if (dookola) novaRing(P.pos.x, P.pos.z, zasieg);
@@ -5879,7 +6456,9 @@ const WEAPONS = {
       w.lad = (w.lad || 0) + 1;
       if (!P.sokoPierwszy) {                                // raz na bieg: naucz gracza przycisku
         P.sokoPierwszy = true;
-        toastBuff(T('SOKOWIRÓWKA GOTOWA — wciśnij F, żeby POSTAWIĆ', 'JUICER READY — press F to PLACE IT'), 'sokowirowka');
+        const kw = glifTekst('wieza');
+        toastBuff(kw ? T(`SOKOWIRÓWKA GOTOWA — wciśnij ${kw}, żeby POSTAWIĆ`, `JUICER READY — press ${kw} to PLACE IT`)
+          : T('SOKOWIRÓWKA GOTOWA — dotknij przycisku, żeby POSTAWIĆ', 'JUICER READY — tap the button to PLACE IT'), 'sokowirowka');
         setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 4000);
       }
     },
@@ -5970,7 +6549,7 @@ function updatePestki(dt, lvl) {
       if (e.dying || e.orbCd > 0) continue;
       if (e.pos.distanceTo(p.pos) > 0.85) continue;
       e.orbCd = 0.4 / fireMul();          // Pipsini tez slucha Tempa
-      zadajDmg(e, 1.2 * dmgAll(), { col: '#c9f07a', sc: 0.85, kb: _kbV.copy(e.pos).sub(p.pos), kbSila: 1.8 });
+      zadajDmg(e, 1.2 * dmgAll(), { col: '#c9f07a', sc: 0.85, kb: _kbV.copy(e.pos).sub(p.pos), kbSila: 1.8, zr: 'pipsini' });
     }
     // ---- sadzenie ----
     p.sadzT -= dt;
@@ -5992,7 +6571,7 @@ function updatePestki(dt, lvl) {
         const e = G.enemies[j];
         if (e.dying) continue;
         if (e.pos.distanceTo(k.pos) > (P.evo.jablon ? 1.9 : 1.4) * rangeM()) continue;
-        zadajDmg(e, dmg, { col: '#a8e05f', sc: 0.7 });
+        zadajDmg(e, dmg, { col: '#a8e05f', sc: 0.7, zr: 'pipsini' });
       }
     }
     if (k.t > zycie) { scene.remove(k.mesh); G.kielki.splice(i, 1); }
@@ -6005,7 +6584,7 @@ const SOKO_ILE = l => 1 + Math.floor(l / 2);      // 1 / 1 / 2 / 2 / 3
 const SOKO_LAD = l => Math.min(2, SOKO_ILE(l));
 const STAW_KLAWISZ = 'KeyF';
 const SOKO_ZYCIE = l => 20 + l * 3;               // 23 → 35 s (jeśli wcześniej nie rozwalą)
-const SOKO_HP = l => 6 + 3 * l;                   // wytrzymałość na ciosy wrogów
+const SOKO_HP = l => (6 + 3 * l) * HP_SERCA;      // wytrzymałość na ciosy wrogów (skala serca, K3)
 const SOKO_WABI = 9.5;                            // w tym promieniu wrogowie idą po NIĄ, nie po gracza
 const SOKO_CD = l => 0.55 - 0.05 * l;             // strzał co 0.5 → 0.3 s
 const SOKO_DMG = l => 0.8 + 0.25 * l;             // mnożnik obrażeń pocisku
@@ -6105,6 +6684,24 @@ function odswiezStawBtn() {
   for (let i = 0; i < maxLad; i++) lw.children[i].className = i < lad ? '' : 'off';
   el.querySelector('.pas b').style.width = fill + '%';
 }
+// E1-bieg K6: PRZYCISK AURY GARLICINA (dotyk, poziomo). Dotąd aura działała tylko z klawisza G / pada,
+// więc na telefonie umiejętność postaci nie istniała. Pasek = ładowanie (1 − cd/SMROD_CD), puls = gotowa.
+let _smrodStan = '';
+function odswiezSmrodBtn() {
+  const el = document.getElementById('smrodBtn');
+  if (!el) return;
+  const widoczny = charKey === 'garlicino' && G.running && !G.paused && !G.fps.on && !G.dying;
+  const gotowy = widoczny && P.smrodCd <= 0 && P.smrodT <= 0;
+  const fill = widoczny ? Math.round(Math.max(0, Math.min(1, 1 - P.smrodCd / SMROD_CD)) * 20) * 5 : 0;
+  const stan = widoczny + '|' + gotowy + '|' + fill;
+  if (stan === _smrodStan) return;
+  _smrodStan = stan;
+  el.classList.toggle('on', widoczny);
+  el.classList.toggle('gotowy', gotowy);
+  const im = el.querySelector('.kimg');
+  if (im && !im.style.backgroundImage) im.style.backgroundImage = `url(${icon('skarpeta', 4)})`;
+  el.querySelector('.pas b').style.width = fill + '%';
+}
 function stawSokowirowke(lvl) {
   // sprite od wlasciciela (`assets/mikser.png`, 66x120 px w natywnej rozdzielczosci
   // pixel-artu); proceduralna `sokowirowkaTexture()` zostaje jako zaslepka, gdyby
@@ -6191,7 +6788,7 @@ function updateKrzaki(dt) {
     // ten sam mechanizm łuku, co butelka żula (`G.lobs`), ale z WŁASNYM promieniem
     // i obrażeniami — dlatego lobs dostały opcjonalne pola `r`/`dmg`
     G.lobs.push({ mesh: m, from: k.pos.clone(), to: cel.pos.clone(), t: 0, dur: 0.62,
-                  lvl: k.lvl, r: KRZAK_R(k.lvl), dmg: KRZAK_DMG(k.lvl), wys: 2.2 });
+                  lvl: k.lvl, r: KRZAK_R(k.lvl), dmg: KRZAK_DMG(k.lvl), wys: 2.2, zr: 'krzak' });
   }
 }
 
@@ -6234,7 +6831,7 @@ function updateSmrodGracza(dt) {
     const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z;
     const d = Math.hypot(dx, dz) || 1;
     if (d > SMROD_R) continue;
-    if (bije && zadajDmg(e, dmg, { col: '#c9f07a', sc: 0.7 }).dead) continue;   // petla od konca, wiec splice jest bezpieczny
+    if (bije && zadajDmg(e, dmg, { col: '#c9f07a', sc: 0.7, zr: 'smrod' }).dead) continue;   // petla od konca, wiec splice jest bezpieczny
     // im blizej gracza, tym mocniej wypycha — inaczej wrogowie tuz przy postaci
     // (czyli ci, o ktorych chodzi) ruszaliby sie najmniej
     const s = SMROD_SILA * dt * (1.15 - 0.5 * (d / SMROD_R));
@@ -6259,7 +6856,7 @@ function updateTurrets(dt) {
     if (t.hitCd <= 0) {
       for (const e of G.enemies) {
         if (e.dying || e.pos.distanceTo(t.pos) > 1.3) continue;
-        t.hp -= e.T.dmg * dmgScale();
+        t.hp -= obrazeniaWroga(e.T.dmg);
         t.hitCd = 0.35;
         okruchy(t.pos.x, t.pos.y + 0.9, t.pos.z, 0xd7dde6, 2);
         break;
@@ -6282,7 +6879,7 @@ function updateTurrets(dt) {
         mm.position.set(t.pos.x, t.pos.y + 0.7, t.pos.z);
         scene.add(mm);
         G.shots.push({ mesh: mm, dir, life: 1.1, pierce: 0, hit: new Set(),
-                       y: t.pos.y + 0.7, dmg: SOKO_DMG(t.lvl) });
+                       y: t.pos.y + 0.7, dmg: SOKO_DMG(t.lvl), zr: 'sokowirowka' });
         AUDIO.sfx('strzal');
       }
     }
@@ -6290,7 +6887,7 @@ function updateTurrets(dt) {
       scene.remove(t.mesh); scene.remove(t.pasTlo); scene.remove(t.pasFill);
       t.pasFill.material.dispose();
       okruchy(t.pos.x, t.pos.y + 0.5, t.pos.z, 0xd7dde6, t.hp <= 0 ? 10 : 5);
-      if (t.hp <= 0) { nova(t.pos.x, t.pos.z, 2.4, 2 * dmgAll()); AUDIO.sfx('wybuch'); }
+      if (t.hp <= 0) { nova(t.pos.x, t.pos.z, 2.4, 2 * dmgAll(), 'sokowirowka'); AUDIO.sfx('wybuch'); }
       G.turrets.splice(i, 1);
     }
   }
@@ -6399,7 +6996,7 @@ function updateCzosnki(dt, lvl) {
       if (dx * dx + dz * dz < rr && e.orbCd <= 0) {
         e.orbCd = 0.5 / fireMul();       // czosnek tez slucha Tempa
         // noKill: zabójstwo robi linia niżej (po szarpnięciu linki), jak dotąd
-        zadajDmg(e, oDmg, { col: '#eaffd0', sc: 0.9, kb: _kbV.copy(e.pos).sub(P.pos), kbSila: 2.6, noKill: true });
+        zadajDmg(e, oDmg, { col: '#eaffd0', sc: 0.9, kb: _kbV.copy(e.pos).sub(P.pos), kbSila: 2.6, noKill: true, zr: 'kosc' });
         spark(e.pos.x, e.ty + 1.0, e.pos.z);
         // SZARPNIĘCIE: czubek traci prędkość i napęd na moment staje
         const dl = Math.hypot(dx, dz) || 1e-6;
@@ -6472,7 +7069,7 @@ function repeatPool() {
     const R = REPEAT[key];
     const n = P.repeat[key] || 0;
     return {
-      ico: R.ico, nm: R.nm + (n ? ` ×${n + 1}` : ''), ds: R.ds,
+      klucz: 'rep:' + key, ico: R.ico, nm: R.nm + (n ? ` ×${n + 1}` : ''), ds: R.ds,
       // `n` sluzy TYLKO do podpisu. Licznik czytamy na nowo w chwili klikniecia:
       // kafelek moze przelezec w kolejce overlayow (dwa awanse w jednej klatce),
       // a `n + 1` z chwili budowy COFNELOBY licznik do 1 zamiast go podniesc.
@@ -6487,11 +7084,11 @@ function cardPool() {
   for (const w of P.weapons) {
     const W = WEAPONS[w.key];
     if (w.lvl < W.max) pool.push({
-      ico: W.ico, nm: W.nm + T(' → poz. ', ' → lv. ') + (w.lvl + 1), ds: W.lvlDs(w.lvl + 1),
+      klucz: 'bron:' + w.key, ico: W.ico, nm: W.nm + T(' → poz. ', ' → lv. ') + (w.lvl + 1), ds: W.lvlDs(w.lvl + 1),
       do: () => { w.lvl++; renderWpns(); },
     });
     else if (W.evoKey && !P.evo[W.evoKey]) pool.push({
-      gold: true, ico: W.evoIco, nm: W.evoNm, ds: W.evoDs,
+      gold: true, klucz: 'evo:' + W.evoKey, ico: W.evoIco, nm: W.evoNm, ds: W.evoDs,
       do: () => { P.evo[W.evoKey] = true; renderWpns(); blysk('#ffd75e', 0.55); },
     });
   }
@@ -6502,10 +7099,10 @@ function cardPool() {
     const lvl = P.passives[key] || 0;
     if (lvl >= S.max) continue;
     pool.push({
-      ico: S.ico, nm: S.nm + (lvl ? ` (${lvl}→${lvl + 1})` : ''), ds: S.ds,
+      klucz: 'pas:' + key, ico: S.ico, nm: S.nm + (lvl ? ` (${lvl}→${lvl + 1})` : ''), ds: S.ds,
       do: () => {
         P.passives[key] = lvl + 1;
-        if (key === 'serce') { P.maxHp++; P.hp = P.maxHp; drawHearts(); }
+        if (key === 'serce') { P.maxHp += HP_SERCA; P.hp = P.maxHp; drawHearts(); }
       },
     });
   }
@@ -6531,6 +7128,7 @@ function pchnijOverlay(fn) {
   if (G.dying || G.over || !G.running) return;
   if (ovWidoczny()) { OV_Q.push(fn); return; }
   G.paused = true;
+  odswiezStawBtn(); odswiezSmrodBtn();             // karty: przyciski akcji nie wiszą nad overlayem
   fn();
 }
 function zamknijOverlay(id) {
@@ -6574,6 +7172,7 @@ function showCards() {
     const d = document.createElement('div');
     d.className = 'card' + (u.gold ? ' gold' : '');
     d.innerHTML = `<div class="ico">${ico(u.ico, 42)}</div><div class="nm">${u.nm}</div><div class="ds">${u.ds}</div>`;
+    d._klucz = u.klucz;                            // DEV: bot wybiera kartę po kluczu
     d.onclick = () => { u.do(); zamknijOverlay('cardsOv'); };
     wrap.appendChild(d);
   }
@@ -6624,7 +7223,7 @@ function openNewWeapon() {
     d.className = 'card gold';
     d.innerHTML = `<div class="ico">${ico(W.ico, 42)}</div><div class="nm">${W.nm}</div><div class="ds">${W.ds}</div>`;
     d.onclick = () => {
-      P.weapons.push({ key, lvl: 1, t: 0 });
+      P.weapons.push({ key, lvl: 1, t: 0, t0: G.time });
       renderWpns();
       closeSwap();
     };
@@ -6654,7 +7253,7 @@ function pickNewWeapon(oldW) {
     d.onclick = () => {
       if (oldW.key === 'kosc') usunCzosnki();                 // razem z segmentami linki
       if (oldW.key === 'pipsini') usunPestki();               // razem z kiełkami
-      Object.assign(oldW, { key, lvl: 1, t: 0 });
+      Object.assign(oldW, { key, lvl: 1, t: 0, t0: G.time });
       renderWpns();
       closeSwap();
     };
@@ -6664,16 +7263,71 @@ function pickNewWeapon(oldW) {
 function closeSwap() { zamknijOverlay('swapOv'); }
 
 // ============================== HUD ==============================
-function drawHearts() {
+let _drgT = 0;
+function drawHearts(drgnij = false) {
   // HP przycinamy do maksimum: `repeat()` z liczba ujemna rzuca RangeError i zabija
   // cala klatke, a wystarczy jedno leczenie ponad max (albo hak debugowy), zeby to
   // wywolac. Prog licznika nizszy na waskich ekranach — rzad 11 serc wchodzil
   // w licznik ZAGROZENIA.
+  // E1-bieg K3: HP w skali ×100 — reszta serca rysuje się ĆWIARTKAMI (pełne serce przycięte
+  // clip-path na pustym, bez nowej grafiki), obok mała liczba prawdziwego HP.
   const hp = Math.max(0, Math.min(P.hp, P.maxHp));
+  const serc = Math.round(P.maxHp / HP_SERCA);
   const prog = innerWidth < 520 ? 8 : 12;
-  document.getElementById('hearts').innerHTML = P.maxHp > prog
-    ? ico('serce', 18) + ` ${hp} / ${P.maxHp}`      // dużo serc = licznik zamiast rzędu
-    : ico('serce', 18).repeat(hp) + ico('sercePuste', 18).repeat(Math.max(0, P.maxHp - hp));
+  const el = document.getElementById('hearts');
+  if (serc > prog) el.innerHTML = ico('serce', 18) + ` ${Math.ceil(hp)} / ${Math.round(P.maxHp)}`;   // dużo serc = licznik
+  else {
+    const pelne = Math.floor(hp / HP_SERCA), r = hp - pelne * HP_SERCA;
+    const q = r > 0 ? Math.max(1, Math.round(r / (HP_SERCA / 4))) : 0;
+    let h = ico('serce', 18).repeat(pelne), puste = serc - pelne;
+    if (q >= 4) { h += ico('serce', 18); puste--; }
+    else if (q > 0) {
+      h += `<span class="sc">${ico('sercePuste', 18)}<span class="scq" style="clip-path:inset(0 ${100 - 25 * q}% 0 0)">${ico('serce', 18)}</span></span>`;
+      puste--;
+    }
+    el.innerHTML = h + ico('sercePuste', 18).repeat(Math.max(0, puste)) + `<small class="hpn">${Math.ceil(hp)}</small>`;
+  }
+  if (drgnij) {                                    // trafienie: serca drgają 200 ms
+    el.classList.remove('drgnij'); void el.offsetWidth; el.classList.add('drgnij');
+    clearTimeout(_drgT); _drgT = setTimeout(() => el.classList.remove('drgnij'), 200);
+  }
+}
+// E1-bieg K3: JEDEN helper obrażeń gracza — zastępuje każde „P.hp -= …" (kontakt, Sodino, ketchup,
+// regał; K7/K8: kaprale i Don). Sprawdza nietykalność (chyba że `o.dot`), garnek/karabin
+// (`ciosPochloniety`), tarczę brainrota; ustawia nietykalność, winietę, wstrząs, dźwięk, czerwony pop
+// nad graczem, źródło ostatniego ciosu (ekran porażki, K9) i licznik obrażeń per źródło.
+//   o.nietyk — s nietykalności (domyślnie 0,9), o.shake — wstrząs, o.dot — obrażenia ciągłe.
+// Zwraca true, gdy cios wszedł.
+const obrazeniaWroga = baza => baza * HP_SERCA * dmgMul();   // baza = dawne T.dmg w sercach
+function ranGracza(ile, zr = 'inne', o = {}) {
+  if (G.dying || !G.running) return false;
+  if (!o.dot && P.iframes > 0) return false;
+  // DoT (tiki co klatkę) przy garnku albo w trybie karabinu: pochłonięte BEZ kosztu — inaczej każdy
+  // tik zabierałby życie trybu karabinu (karabinZjadlCios) i 3 tiki kończyłyby tryb (pułapka na K8)
+  if (o.dot && (G.buff.key === 'niet' || G.fps.on)) return false;
+  if (ciosPochloniety()) return false;
+  const tarczaLvl = P.passives.tarcza || 0;
+  if (!o.dot && tarczaLvl > 0 && P.shieldCd <= 0) {  // 🛡️ tarcza zjada cios
+    P.shieldCd = [30, 24, 18][tarczaLvl - 1];
+    P.iframes = 0.9;
+    AUDIO.sfx('tarcza');
+    toastBuff(T('TARCZA zablokowała cios!', 'The SHIELD took that hit!'));
+    setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 1500);
+    novaRing(P.pos.x, P.pos.z, 2);
+    return false;
+  }
+  P.hp -= ile;
+  if (!o.dot) P.iframes = o.nietyk != null ? o.nietyk : 0.9;
+  G.shake = Math.max(G.shake, o.shake != null ? o.shake : 0.35);
+  AUDIO.sfx('hurt');
+  const v = document.getElementById('vign');
+  v.style.opacity = 1; setTimeout(() => { if (!G.dying) v.style.opacity = 0; }, 180);
+  dmgPop(P.pos.x, P.y + 0.4, P.pos.z, '-' + Math.round(ile), '#ff4a4a', 1.1);   // ≥ 1: nie ginie w tłumie
+  G.ostatniCios = zr;
+  G.obrazeniaOd[zr] = (G.obrazeniaOd[zr] || 0) + ile;
+  drawHearts(true);
+  if (P.hp <= 0) startDeath();
+  return true;
 }
 const fmtTime = t => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
 const drawCoins = () => document.getElementById('coins').innerHTML = ico('moneta', 15) + ' ' + G.runCoins;
@@ -7264,7 +7918,7 @@ function updateGlazyRantu(dt) {
           if (ed > b.r + 0.7 || Math.abs(e.ty - b.y) > 2.6) continue;
           b.trafieni.add(e);
           const mx = e.maxHp || e.hp;
-          zadajDmg(e, e.T.boss ? mx * 0.15 : mx * 1.3);
+          zadajDmg(e, e.T.boss ? mx * 0.15 : mx * 1.3, { zr: 'glaz', bezSkali: true });
           if (!e.T.bezKb) e.kb.set(ex / (ed || 1) * 16, 0, ez / (ed || 1) * 16);
           if (b.trafieni.size === 1) AUDIO.sfx('wybuch');
           if (b.trafieni.size % 5 === 0) dmgPop(b.x, b.y + 2, b.z, 'x' + b.trafieni.size, '#ffd24a', 1.3);
@@ -7468,10 +8122,17 @@ function chestReward(c) {
   const wybor = (scenariusz === 'djump' && hasDjump()) ? 'magnes' : scenariusz;
   const roll = wybor === 'djump' ? 0.0 : wybor === 'monety' ? 0.3
              : wybor === 'kosci' ? 0.7 : wybor === 'magnes' ? 0.99 : Math.random();
-  if (roll < 0.14 && !hasDjump()) {   // 🦘🦘 PODWÓJNY SKOK (na ten bieg)
+  // E1-bieg K6: pasma 0–0,12 skok · 0,12–0,18 FOLIOWA TORBA · do 0,62 monety · do 0,87 XP · magnes.
+  // Torba była kupowalna w sklepie (`META.unlocked.glide`), ale `P.runGlide` nie ustawiało nic —
+  // teraz jak podwójny skok: najpierw spróbuj w biegu, potem kup.
+  if (roll < 0.12 && !hasDjump()) {   // 🦘🦘 PODWÓJNY SKOK (na ten bieg)
     P.runDjump = true;
     toastBuff(T('PODWÓJNY SKOK do końca biegu!', 'DOUBLE JUMP for the rest of the run!'));
     setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2500);
+  } else if (roll >= 0.12 && roll < 0.18 && !hasGlide()) {   // FOLIOWA TORBA (na ten bieg)
+    P.runGlide = true;
+    toastBuff(T('FOLIOWA TORBA do końca biegu! Trzymaj skok', 'PLASTIC BAG for the rest of the run! Hold jump'));
+    setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2800);
   } else if (roll < 0.62) {          // monety
     for (let k = 0; k < 8 + Math.floor(Math.random() * 8); k++)
       G.coins.push(makeCoin(c.pos.x + (Math.random() - .5) * 2, c.pos.z + (Math.random() - .5) * 2));
@@ -7770,7 +8431,10 @@ function dajKarabin() {
   AUDIO.sfx('zlota');
   G.shake = Math.max(G.shake, 0.3);
   // krotko: pelne zdanie mialo 382 px przy ekranie 375 px i wychodzilo za oba brzegi
-  toastBuff(T('KARABIN! Wciśnij R, gdy będzie gęsto', 'RIFLE! Press R when it gets thick'), 'celownik');
+  // klawisz / przycisk pada wg trybu wejścia; na dotyku „dotknij przycisku" (litera nic nie znaczy)
+  const kk = glifTekst('karabin');
+  toastBuff(kk ? T(`KARABIN! Wciśnij ${kk}, gdy będzie gęsto`, `RIFLE! Press ${kk} when it gets thick`)
+    : T('KARABIN! Dotknij go, gdy będzie gęsto', 'RIFLE! Tap it when it gets thick'), 'celownik');
   setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 4200);
 }
 function odswiezKarabinBtn() {
@@ -7783,7 +8447,9 @@ function odswiezKarabinBtn() {
 function startKarabin() {
   if (!G.running || G.paused || G.dying) return;    // przycisk/pad nie mogą odpalić go z menu ani pauzy
   const F = G.fps;
-  if (F.on) { F.t = Math.min(F.max, F.t + 8); toastBuff(T('KARABIN DOŁADOWANY', 'RIFLE TOPPED UP')); return; }
+  // E1-bieg K6: drugie R w trybie NIC nie robi. Dawniej dokładało +8 s (bez limitu wciśnięć), więc
+  // wystarczyło klepać R, żeby tryb trwał, ile się chce — karabin ma być rzadkim złotym momentem.
+  if (F.on) return;
   if (!P.karabinMa) return;                          // nie ma czego odpalać
   P.karabinMa = false;
   odswiezKarabinBtn();
@@ -7914,7 +8580,7 @@ function updateKarabinPoc(dt) {
       if (dx * dx + dz * dz + dy * dy > rr * rr) continue;
       s.hit.add(e);
       spark(e.pos.x, e.ty + 1.2, e.pos.z);
-      zadajDmg(e, KARABIN_DMG * dmgAll(), { col: '#fff3b0', sfx: 'traf', kb: s.dir, kbSila: 1.0 });
+      zadajDmg(e, KARABIN_DMG * dmgAll(), { col: '#fff3b0', sfx: 'traf', kb: s.dir, kbSila: 1.0, zr: 'karabin' });
       if (s.pierce-- <= 0) { dead = true; break; }
     }
     if (dead) { scene.remove(s.mesh); G.karabinPoc.splice(i, 1); }
@@ -7952,7 +8618,7 @@ function novaRing(x, z, rMax) {
   m.position.set(x, terrainH(x, z) + 0.1, z);
   G.rings.push({ mesh: m, t: 0, rMax, a: 1 });
 }
-function nova(x, z, r, dmg) {
+function nova(x, z, r, dmg, zr = 'inne') {
   novaRing(x, z, r);
   AUDIO.sfx('wybuch');
   // Regały kładą tylko DUŻE fale. Zmierzone: bez tego gate'a Kule Meteoryczne
@@ -7967,7 +8633,7 @@ function nova(x, z, r, dmg) {
     if (dx * dx + dz * dz < r * r) {
       spark(e.pos.x, e.ty + 1.0, e.pos.z);
       // dmg 0 (wybuch Sodino) = sam odrzut, bez liczby
-      zadajDmg(e, dmg, { col: '#ffb56e', sc: 0.85, kb: _kbV.set(dx, 0, dz), kbSila: 4.5, noPop: dmg <= 0 });
+      zadajDmg(e, dmg, { col: '#ffb56e', sc: 0.85, kb: _kbV.set(dx, 0, dz), kbSila: 4.5, noPop: dmg <= 0, zr });
     }
   }
 }
@@ -8045,7 +8711,7 @@ function updatePadajace(dt) {
       // zabijać — dokładnie wtedy, gdy market jest najbardziej zapchany.
       // Regał to element mapy, a nie broń: jego siła nie ma zależeć od tego,
       // jaką broń ma gracz. 8 × hpScale() = zawsze 2.7 szeregowego, nigdy elita.
-      const dmg = 8 * hpScale();
+      const dmg = 8 * hpScale() * SKALA_WROGA;          // K4: w skali HP wrogów (= 2,7 szeregowego)
       let przygnieceni = 0;
       for (let j = G.enemies.length - 1; j >= 0; j--) {
         const e = G.enemies[j];
@@ -8053,11 +8719,11 @@ function updatePadajace(dt) {
         if (Math.abs(e.pos.x - s.x) > s.len / 2 + 0.7) continue;
         const wzdluz = (e.pos.z - s.pivotZ) * s.kier;             // leży od pivotu w stronę upadku
         if (wzdluz < -0.7 || wzdluz > SHELF_H + 0.7) continue;
-        e.hp -= dmg;
-        e.kb.set(0, 0, s.kier * 3);
-        dmgPop(e.pos.x, e.ty + 0.6, e.pos.z, dmgNum(dmg), '#ffd75e', 1.5);
+        // K4: przez zadajDmg (źródło 'regal', bez skali — już ×SKALA_WROGA; bez krytyka byłoby
+        // wierniej, ale regał jest „bronią mapy" i krytyk Pieprzu Nonny działa tu jak wszędzie)
+        zadajDmg(e, dmg, { bezSkali: true, zr: 'regal', col: '#ffd75e', sc: 1.5 });
+        if (!e.T.bezKb) e.kb.set(0, 0, s.kier * 3);
         przygnieceni++;
-        if (e.hp <= 0) killEnemy(e, j);
       }
       // NAGRODA za dobre ustawienie regału — bez niej przewrócenie nie dawało
       // graczowi nic mierzalnego poza hałasem
@@ -8069,10 +8735,8 @@ function updatePadajace(dt) {
       // gracz też dostanie, jeśli stoi w linii upadku — regały nie wybierają
       if (Math.abs(P.pos.x - s.x) < s.len / 2 + 0.6 && P.iframes <= 0 && !P.airborne) {
         const wzdluz = (P.pos.z - s.pivotZ) * s.kier;
-        if (wzdluz > -0.6 && wzdluz < SHELF_H + 0.6 && !ciosPochloniety()) {
-          P.hp -= 1; P.iframes = 1.1; drawHearts(); AUDIO.sfx('hurt'); G.shake = 0.5;
-          if (P.hp <= 0) startDeath();
-        }
+        if (wzdluz > -0.6 && wzdluz < SHELF_H + 0.6)
+          ranGracza(HP_SERCA, 'regal', { nietyk: 1.1, shake: 0.5 });   // element mapy: stałe 1 serce
       }
       AUDIO.sfx('wybuch');
       G.shake = Math.max(G.shake, 0.4);
@@ -8135,19 +8799,10 @@ function update(dt) {
   refreshSpriteTilt();                             // pochylenie billboardów liczymy raz na klatkę
   G.time += dt;
   document.getElementById('timer').textContent = fmtTime(G.time);
-  // komunikat o wzroście poziomu zagrożenia
-  const tr = tier();
-  if (tr !== G.tier) {
-    G.tier = tr;
-    document.getElementById('tier').innerHTML = ico('ostrzezenie', 14) + T(' ZAGROŻENIE ', ' THREAT ') + tr;
-    if (tr > 1) {
-      AUDIO.sfx('zagrozenie');
-      toastBuff(T('POZIOM ZAGROŻENIA ', 'THREAT LEVEL ') + tr
-        + (dmgScale() > 1 ? T(' — wrogowie biją mocniej!', ' — enemies hit harder!') : ''));
-      setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2200);
-      G.shake = Math.max(G.shake, 0.25);
-    }
-  }
+  if (DEV) devProbka();                            // HORDA.pomiar(): próbka co 10 s czasu gry
+  // E1-bieg: pasek Wieczoru zamiast „ZAGROŻENIE N" (toast „POZIOM ZAGROŻENIA" co minutę usunięty —
+  // rytm niosą teraz nazwane zdarzenia z kalendarza WIECZOR)
+  pasekWieczoru();
 
   // ---- obrót kamery klawiszami ----
   // 2.6 rad/s = tyle, co pełne wychylenie prawego drążka pada (spójność); 90° w 0.6 s.
@@ -8161,6 +8816,12 @@ function update(dt) {
   let mz = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0);
   if (touch.on) { mx = touch.vx; mz = touch.vy; }
   else if (PAD.mx || PAD.mz) { mx = PAD.mx; mz = PAD.mz; }   // lewy drążek pada
+  if (DEV && (BOT.on || _ruchDev)) {               // DEV: bot / HORDA.ruch nadpisują wejście
+    if (BOT.on) {                                  // kierunek bota jest w świecie → na osie kamery
+      const b = botRuch(), sy = Math.sin(camYaw), cy = Math.cos(camYaw);
+      mx = b.x * cy - b.z * sy; mz = b.x * sy + b.z * cy;
+    } else { mx = _ruchDev.x; mz = _ruchDev.z; }
+  }
   const ml = Math.hypot(mx, mz);
   if (ml > 1) { mx /= ml; mz /= ml; }
   // przód = od kamery; prawo = prostopadle
@@ -8232,7 +8893,7 @@ function update(dt) {
       const wT = hasWeapon('tupniecie');
       const prog = 1.2 / fireMul();
       if (stompLvl() > 0 && (!wT || wT.t < prog)) {
-        nova(P.pos.x, P.pos.z, stompRad(stompLvl()), stompDmg(stompLvl()));
+        nova(P.pos.x, P.pos.z, stompRad(stompLvl()), stompDmg(stompLvl()), 'tupniecie');
         if (wT) wT.t = Math.max(wT.t, prog);
       }
       // BUFOR SKOKU: spacja z ostatnich 0.12 s lotu odpala skok od razu po lądowaniu
@@ -8263,50 +8924,9 @@ function update(dt) {
   if (G.gluty.length) updateGluty(dt);
   if (G.kaluze.length) updateKaluze(dt);
 
-  // ---- spawner: krzywa trudności (1 min ~lekko, 4 min = ~4× więcej naraz) ----
-  const min = G.time / 60;
-  G.spawnT -= dt;
-  const interval = Math.max(0.11, 1.3 / (1 + min * 0.55) / (1 + 0.08 * klatwa()));   // 1.3 s → 0.28 s w 4. min
-  const CAP = 500;
-  if (!STRES && G.spawnT <= 0 && G.enemies.length < CAP) {           // STRES (DEV) = własny dosyp
-    G.spawnT = interval;
-    const batch = Math.round(1 + min * 1.6);                     // 4. min: ~7 na raz
-    // TIMELINE wg biblii: chipsetti od 0:00, marshmallini 1:00, gummini 2:00,
-    // friesetti 3:00, sodino 4:00, lollini 4:30
-    const pula = ['chipsetti'];
-    if (G.time > 60) pula.push('marshmallini');
-    if (G.time > 120) pula.push('gummini');
-    if (G.time > 180) pula.push('friesetti');
-    if (G.time > 240) pula.push('sodino');
-    if (G.time > 270) pula.push('lollini');
-    // Ketchupino wchodzi RZADKO i pojedynczo (elita wg biblii), nie do zwykłej puli
-    if (G.time > 180 && Math.random() < 0.035) spawnEnemy('ketchupino');
-    for (let b = 0; b < batch && G.enemies.length < CAP; b++) {
-      // chipsetti zawsze dominują (szeregowi), reszta doprawia hordę
-      const type = Math.random() < 0.45 ? 'chipsetti' : pula[Math.floor(Math.random() * pula.length)];
-      spawnEnemy(type);
-    }
-  }
-  // FALA OKRĄŻAJĄCA co 30 s od 1. minuty: pierścień wrogów ZE WSZYSTKICH STRON
-  if (!STRES && G.time > 60 && G.time > G.ringAt) {
-    G.ringAt = G.time + 30;
-    const n = Math.round(10 + min * 5);
-    const typy = G.time > 180 ? ['chipsetti', 'gummini', 'friesetti', 'marshmallini']
-                              : ['chipsetti', 'chipsetti', 'marshmallini'];
-    for (let k = 0; k < n && G.enemies.length < CAP; k++) {
-      spawnEnemy(typy[Math.floor(Math.random() * typy.length)], (k / n) * Math.PI * 2);
-    }
-    toastBuff(T('FALA OKRĄŻAJĄCA — biegną ze wszystkich stron!', 'ENCIRCLING WAVE — they come from every side!'));
-    setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 1600);
-  }
-  if (!STRES && G.time > G.bossAt) {                             // bossy co 2 min, coraz więcej
-    G.bossAt += 120;
-    const ile = 1 + Math.floor(G.time / 300);
-    for (let b = 0; b < ile; b++) spawnEnemy('boss');
-    wejscieBossa();
-    AUDIO.sfx('boss');                                           // niski róg = „coś dużego weszło"
-    AUDIO.bossOn();                                              // muzyka przełącza się na walkę z bossem
-  }
+  // ---- E1-bieg: SPAWNER WIECZORU (tabela fal, paczki, podłoga, recykling, zdarzenia) ----
+  // Zastępuje interwał + `batch`, fale okrążające co 30 s i bossów co 2 min (`bossAt` usunięte).
+  if (!STRES) spawnerWieczoru(dt);                 // STRES (DEV) = własny dosyp
 
   // ---- separacja wrogów ----
   const grid = new Map(), CELL = 1.4;
@@ -8381,11 +9001,19 @@ function update(dt) {
     }
     if (G.buff.key === 'slow') es *= 0.6;
     if (G.buff.key === 'mroz') es = 0;                  // MROŻONKI: horda staje na kilka sekund
+    // E1-bieg: ŚCIANA HORDY przez pierwsze 5 s idzie RAZEM — wspólny kierunek i prędkość najwolniejszego
+    // typu, bez szarż i podskoków; potem każdy wraca do swojego AI
+    const wSciane = e.sciana && e.sciana.t > 0;
+    if (wSciane) {
+      e.sciana.t -= dt;
+      to.copy(e.sciana.dir);
+      if (e.stun > 0 || G.buff.key === 'mroz') es = 0; else es = e.sciana.spd * (G.buff.key === 'slow' ? 0.6 : 1);
+    }
     // ---- SZARŻA FRIESETTIEGO: tell 0.6 s (przysiad + okrąg + „!"), potem ×3 po PROSTEJ, potem ogłuszenie ----
     // Do 03.09 „szarża" to było samo `speed: 4.0` — zero windupu, zero tellu, nic do uniknięcia.
     // Kierunek zamrażamy w chwili startu: krok w bok i frytka przelatuje obok, po czym leży
     // ogłuszona 1.2 s — to jest okno na cios, którego dotąd nie było.
-    if (e.T.szarzuje) {
+    if (e.T.szarzuje && !wSciane) {
       e.szarzaCd = (e.szarzaCd == null ? 1.5 : e.szarzaCd) - dt;
       if (!e.faz && e.szarzaCd <= 0 && es > 0 && d > FRIES_MIN && d < FRIES_MAX && P.y - e.ty < 1.2) {
         e.faz = 'tell'; e.fazT = FRIES_TELEGRAF;
@@ -8454,10 +9082,8 @@ function update(dt) {
       e.bb.mesh.scale.setScalar(e.bb.h * (1 + Math.sin(G.time * 30) * 0.12));
       if (e.lont <= 0) {
         nova(e.pos.x, e.pos.z, 2.6, 0);                           // wybuch rani TYLKO gracza
-        if (e.pos.distanceTo(P.pos) < 2.6 && P.iframes <= 0 && P.y - e.ty < 1.2 && !ciosPochloniety()) {
-          P.hp -= 1; P.iframes = 0.9; drawHearts(); G.shake = 0.4; AUDIO.sfx('hurt');
-          if (P.hp <= 0) { startDeath(); }
-        }
+        if (e.pos.distanceTo(P.pos) < 2.6 && P.y - e.ty < 1.2)
+          ranGracza(obrazeniaWroga(1.2), 'sodino', { shake: 0.4 });   // baza 1,2 (spec §4.2)
         dmgPop(e.pos.x, e.ty + 0.8, e.pos.z, T('BUM!', 'BOOM!'), '#ff9d3f', 1.6);
         killEnemy(e, i);
         continue;
@@ -8480,14 +9106,14 @@ function update(dt) {
       // (dla nich mozolnym: 0.95 j./s wspinaczki), a nie ścianą na zawsze.
       if (blockTop - e.ty < 1.5 && e.jumpCd <= 0) { e.vy = 6.6; e.jumpCd = 1.6; }
       else { e.ty = Math.min(blockTop + 0.06, e.ty + 0.95 * dt); e.climbing = true; }
-    } else if (e.T.skacze) {
+    } else if (e.T.skacze && !wSciane) {
       e.climbing = false;
       const podskok = Math.abs(Math.sin(G.time * 4.5 + e.faza)) * 0.75;   // ciągłe odbijanie
       e.ty = eGround + podskok;
     } else {
       e.climbing = false;
       // co jakiś czas podskakują z radości (i przeskakują drobne nierówności)
-      if (e.jumpCd <= 0 && d < 22 && Math.random() < 0.35 * dt) { e.vy = 5.4; e.jumpCd = 2.5 + Math.random() * 3; }
+      if (!wSciane && e.jumpCd <= 0 && d < 22 && Math.random() < 0.35 * dt) { e.vy = 5.4; e.jumpCd = 2.5 + Math.random() * 3; }
       if (eGround < e.ty - 0.05) e.ty = Math.max(eGround, e.ty - 9 * dt);  // schodzenie/spadanie
       else e.ty = eGround;
     }
@@ -8498,35 +9124,21 @@ function update(dt) {
     // Lollini w fazie wirowania sięga o LOLLINI_TARCZA dalej — „wolny, ale nie właź pod tarczę"
     // było dotąd tylko podpowiedzią na ekranie ładowania, w kodzie kręcił się wyłącznie sprite.
     const tarcza = e.wirujeTeraz ? LOLLINI_TARCZA : 0;
-    if (d < 0.9 + (e.T.boss ? 0.8 : 0) + tarcza && P.iframes <= 0 && P.y - e.ty < 1.0 && !ciosPochloniety()) {
-      const tarczaLvl = P.passives.tarcza || 0;
-      if (tarczaLvl > 0 && P.shieldCd <= 0) {           // 🛡️ tarcza zjada cios
-        P.shieldCd = [30, 24, 18][tarczaLvl - 1];
-        P.iframes = 0.9;
-        AUDIO.sfx('tarcza');
-        toastBuff(T('TARCZA zablokowała cios!', 'The SHIELD took that hit!'));
-        setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 1500);
-        novaRing(P.pos.x, P.pos.z, 2);
-      } else {
-        P.hp -= e.T.dmg * dmgScale(); P.iframes = 0.9;      // boss tez bije mocniej z czasem
-        drawHearts();
-        AUDIO.sfx('hurt');
-        G.shake = 0.35;
-        if (tarcza) {                                       // TARCZA PILARSKA wyrzuca gracza z zasięgu
-          const kx = P.pos.x - e.pos.x, kz = P.pos.z - e.pos.z, kl = Math.hypot(kx, kz) || 1;
-          P.kbx = kx / kl * LOLLINI_ODRZUT; P.kbz = kz / kl * LOLLINI_ODRZUT;
-          G.shake = 0.5;
-        }
-        const v = document.getElementById('vign');
-        v.style.opacity = 1; setTimeout(() => v.style.opacity = 0, 180);
-        if (P.hp <= 0) return startDeath();
+    if (d < 0.9 + (e.T.boss ? 0.8 : 0) + tarcza && P.iframes <= 0 && P.y - e.ty < 1.0) {
+      // E1-bieg K3: kontakt = T.dmg × HP_SERCA × dmgMul (Chipsetti 0:00 = 100, 10:00 = 200)
+      if (ranGracza(obrazeniaWroga(e.T.dmg), e.type) && tarcza) {   // TARCZA PILARSKA wyrzuca gracza z zasięgu
+        const kx = P.pos.x - e.pos.x, kz = P.pos.z - e.pos.z, kl = Math.hypot(kx, kz) || 1;
+        P.kbx = kx / kl * LOLLINI_ODRZUT; P.kbz = kz / kl * LOLLINI_ODRZUT;
+        G.shake = 0.5;
       }
+      if (G.dying) return;
     }
   }
 
   // ---- BRONIE: tick każdej posiadanej ----
   for (const w of P.weapons) WEAPONS[w.key].tick(w, dt);
   odswiezStawBtn();                      // PO tickach — inaczej licznik ładunków jest o klatkę wstecz
+  odswiezSmrodBtn();
 
   // ---- pociski kul ----
   const boomQ = [];                      // wybuchy meteorów PO pętli (bezpieczne indeksy)
@@ -8554,7 +9166,7 @@ function update(dt) {
       if (dx * dx + dz * dz < rr * rr) {
         s.hit.add(e);
         spark(e.pos.x, e.ty + 1.1, e.pos.z);
-        const c = zadajDmg(e, (s.dmg || 1) * dmgAll(), { col: '#ffe066', sfx: 'traf', kb: s.dir, kbSila: 1.6 });
+        const c = zadajDmg(e, (s.dmg || 1) * dmgAll(), { col: '#ffe066', sfx: 'traf', kb: s.dir, kbSila: 1.6, zr: s.zr || 'kule' });
         // obrażenia BAZOWE (bez krytyka pocisku) — nova rzuca krytyk sama; z `c.dmg`
         // wybuch mógł wyjść ×9 (recenzja 03.09)
         if (P.evo.meteor) boomQ.push({ x: e.pos.x, z: e.pos.z, dmg: (s.dmg || 1) * dmgAll() * 0.6 });
@@ -8563,7 +9175,7 @@ function update(dt) {
     }
     if (dead) { scene.remove(s.mesh); G.shots.splice(i, 1); }
   }
-  for (const b of boomQ) nova(b.x, b.z, 1.8, b.dmg);
+  for (const b of boomQ) nova(b.x, b.z, 1.8, b.dmg, 'kule');
 
   // ---- butelki żula (lot łukiem → wybuch) ----
   for (let i = G.lobs.length - 1; i >= 0; i--) {
@@ -8576,7 +9188,7 @@ function update(dt) {
       scene.remove(L.mesh); G.lobs.splice(i, 1);
       // `r`/`dmg` sa OPCJONALNE — butelka zula liczy je po staremu ze swojego poziomu,
       // krzak pomidorowy podaje wlasne, bo to inna bron o innej krzywej
-      nova(x, z, L.r || (2 + 0.3 * L.lvl), (L.dmg || (2 + 0.6 * L.lvl)) * dmgAll());
+      nova(x, z, L.r || (2 + 0.3 * L.lvl), (L.dmg || (2 + 0.6 * L.lvl)) * dmgAll(), L.zr || 'butelka');
       G.shake = Math.max(G.shake, L.dmg ? 0.05 : 0.1);
     }
   }
@@ -8598,7 +9210,7 @@ function update(dt) {
       if (dx * dx + dz * dz < 1.1) {
         B.hit.add(e);
         spark(e.pos.x, e.ty + 1.0, e.pos.z);
-        zadajDmg(e, (2 + 0.5 * B.lvl) * dmgAll(), { col: '#d9b3ff', kb: _kbV.set(-dx, 0, -dz), kbSila: 2.4 });
+        zadajDmg(e, (2 + 0.5 * B.lvl) * dmgAll(), { col: '#d9b3ff', kb: _kbV.set(-dx, 0, -dz), kbSila: 2.4, zr: B.zr || 'bumerang' });
       }
     }
   }
@@ -8621,7 +9233,7 @@ function update(dt) {
     if ((near && nd < 1.0) || K.t > (K.mini ? 1.1 : 4)) {  // BUM! (mini mają krótszy lont)
       const promien = (K.mini ? 1.5 : 2.5 + 0.3 * K.lvl);
       const sila = (K.mini ? 1.6 : 3 + 0.7 * K.lvl) * dmgAll();
-      nova(K.pos.x, K.pos.z, promien, sila);
+      nova(K.pos.x, K.pos.z, promien, sila, 'kura');
       dmgPop(K.pos.x, terrainH(K.pos.x, K.pos.z) + 0.6, K.pos.z,
              K.mini ? 'POP!' : T('POP-POP-BUM!', 'POP-POP-BOOM!'), '#ffd75e', K.mini ? 1.0 : 1.6);
       okruchy(K.pos.x, terrainH(K.pos.x, K.pos.z) + 0.5, K.pos.z, 0xf6e27a, K.mini ? 3 : 7);
@@ -8728,7 +9340,7 @@ function update(dt) {
       const sx = Math.sin(a) * Math.cos(camYaw) - Math.cos(a) * Math.sin(camYaw);
       G.shots.push({ mesh: m, dir: new THREE.Vector3(Math.sin(a), 0, Math.cos(a)),
                      life: 1.2, pierce: 2 + r.lvl, hit: new Set(), y: P.y + 1.0,
-                     dmg: 2.2 + 0.5 * r.lvl, wiruje: sx >= 0 ? -1 : 1 });
+                     dmg: 2.2 + 0.5 * r.lvl, wiruje: sx >= 0 ? -1 : 1, zr: 'scyzoryk' });
     }
     AUDIO.sfx('kryt');
   }
@@ -8786,7 +9398,7 @@ function update(dt) {
     // zostawione za plecami zostaje na zawsze (zmierzone: 299 pigulek po 4:43)
     if (g.t > 45 && d > mag * 3) { scene.remove(g.mesh); G.gems.splice(i, 1); continue; }
     if (d < 0.7) {
-      P.xp += g.val;
+      P.xp += g.val * CFG_BIEG.xpPigulki;
       AUDIO.sfx('xp');
       scene.remove(g.mesh); G.gems.splice(i, 1);
       // WHILE, nie IF: jedna pigulka moze dac wiecej niz jeden poziom, a przy
@@ -8828,7 +9440,7 @@ function update(dt) {
     h.mesh.position.set(h.pos.x, terrainH(h.pos.x, h.pos.z) + 0.35 + Math.sin(h.t * 4) * 0.15, h.pos.z);
     h.mesh.rotation.y = camYaw;
     if (d < 0.8 && P.hp < P.maxHp) {
-      P.hp++; drawHearts();
+      P.hp = Math.min(P.maxHp, P.hp + HP_SERCA); drawHearts();
       AUDIO.sfx('serce');
       dmgPop(P.pos.x, pTy + 0.6, P.pos.z, T('+SERCE', '+HEART'), '#ff8080', 1.4);
       scene.remove(h.mesh); G.hps.splice(i, 1);
@@ -8905,7 +9517,7 @@ function startDeath() {
   if (G.dying) return;
   endKarabin('smierc');                              // inaczej kamera FPP walczy z kamerą śmierci
   G.dying = true; G.deathT = 0;
-  odswiezKarabinBtn();
+  odswiezKarabinBtn(); odswiezStawBtn(); odswiezSmrodBtn();   // przyciski akcji znikają w animacji śmierci
   G.shake = 0.9;
   AUDIO.sfx('koniec');
   document.getElementById('vign').style.opacity = 1;
@@ -9051,6 +9663,7 @@ function togglePause(on) {
   if (on) puscMysz();                              // na pauzie gracz musi widziec kursor
   document.getElementById('pauseOv').style.display = on ? 'flex' : 'none';
   odswiezKarabinBtn();                             // przycisk karabinu nie może wisieć nad pauzą
+  odswiezStawBtn(); odswiezSmrodBtn();             // Sokowirówka i aura też (update() na pauzie stoi)
   if (on) {
     document.getElementById('pauseStats').innerHTML =
       `<p>${T('Czas', 'Time')}: <b>${fmtTime(G.time)}</b> · ${T('Zabici', 'Kills')}: <b>${G.kills}</b> · ${T('Poziom', 'Level')}: <b>${P.lvl}</b> · ${ico('moneta',15)} <b>${G.runCoins}</b></p>` +
@@ -9060,22 +9673,26 @@ function togglePause(on) {
   }
 }
 // „JAK GRAĆ" W PAUZIE (życzenie właściciela 18.09 zamiast podpowiedzi na dole ekranu):
-// wiersz na akcję, kapsel z przyciskiem pada gdy pad jest w użyciu, inaczej klawisz.
+// wiersz na akcję, plakietka wg TRYBU WEJŚCIA (pad → glif pada, klawiatura → klawisz,
+// dotyk → opis miejsca albo ikona przycisku z HUD-u, bez liter).
 // Pokazuje tylko to, co gracz ma w tym biegu (karabin, wieżyczka, smród).
 function jakGracHTML() {
-  // pad = aktywny ALBO fizycznie podłączony (PAD.rodzina ma domyślną wartość, więc nie jest dowodem)
-  const pad = PAD.on || [...(navigator.getGamepads ? navigator.getGamepads() : [])].some(p => p && p.connected !== false);
-  const kl = t => `<b class="gpk sh">${t}</b>`;
+  const pad = WEJ.tryb === 'pad', dot = WEJ.tryb === 'dotyk';
+  const kl = glKl, opis = t => `<i class="jgOpis">${t}</i>`, ik = (n, h = 22) => `<span class="jgIko">${ico(n, h)}</span>`;
   const w = [
-    [T('Ruch', 'Move'), pad ? kl('L') + ' ' + T('drążek', 'stick') : kl('WASD')],
-    [T('Kamera', 'Camera'), pad ? kl('R') + ' ' + T('drążek', 'stick') : kl(T('MYSZ', 'MOUSE')) + ' ' + kl('Q') + kl('E')],
-    [T('Skok', 'Jump') + (hasGlide() ? T(' (trzymaj = szybowanie)', ' (hold = glide)') : ''), pad ? padGlyph('skok') : kl(T('SPACJA', 'SPACE'))],
+    [T('Ruch', 'Move'), pad ? glDrazek('L') : dot ? opis(T('lewa połowa ekranu', 'left half of the screen')) : kl('WASD')],
+    [T('Kamera', 'Camera'), pad ? glDrazek('R') : dot ? opis(T('prawa połowa ekranu', 'right half of the screen'))
+      : kl(T('MYSZ', 'MOUSE')) + kl('Q') + kl('E')],
+    [T('Skok', 'Jump') + (hasGlide() ? T(' (trzymaj = szybowanie)', ' (hold = glide)') : ''),
+      pad ? padGlyph('skok') : dot ? opis(T('przycisk SKOK', 'JUMP button')) : kl(T('SPACJA', 'SPACE'))],
   ];
-  if (P.karabinMa || G.fps.on) w.push([T('Karabin', 'Rifle'), pad ? padGlyph('karabin') : kl('R')]);
-  if (hasWeapon('sokowirowka')) w.push([T('Postaw Sokowirówkę', 'Place the Juicer'), pad ? padGlyph('wieza') : kl('F')]);
-  if (charKey === 'garlicino') w.push([T('Smrodliwa aura', 'Stink aura'), pad ? padGlyph('smrod') : kl('G')]);
+  if (P.karabinMa || G.fps.on) w.push([T('Karabin', 'Rifle'), pad ? padGlyph('karabin') : dot ? ik('celownik') : kl('R')]);
+  if (hasWeapon('sokowirowka')) w.push([T('Postaw Sokowirówkę', 'Place the Juicer'), pad ? padGlyph('wieza') : dot ? ik('sokowirowka') : kl('F')]);
+  // przycisk aury istnieje tylko na ekranie dotykowym (CSS pointer:coarse) — ikona tylko tam, gdzie on jest
+  if (charKey === 'garlicino') w.push([T('Smrodliwa aura', 'Stink aura'), pad ? padGlyph('smrod')
+    : dot && matchMedia('(pointer:coarse)').matches ? ik('skarpeta') : kl('G')]);
   if (pad) w.push([T('Kamera za plecy', 'Camera behind'), padGlyph('kamera')]);
-  w.push([T('Pauza', 'Pause'), pad ? padGlyph('pauza') : kl('ESC')]);
+  w.push([T('Pauza', 'Pause'), pad ? padGlyph('pauza') : dot ? ik('pauza', 16) : kl('ESC')]);
   return `<div class="jakGrac"><h3>${T('JAK GRAĆ', 'HOW TO PLAY')}</h3>` +
     w.map(([a, b]) => `<div><span>${a}</span><span>${b}</span></div>`).join('') + `</div>`;
 }
@@ -9138,6 +9755,7 @@ function clearWorld() {
   document.getElementById('fpsView').classList.remove('on');
   document.getElementById('fpsFlash').style.opacity = 0;
   document.getElementById('stawBtn').classList.remove('on');
+  document.getElementById('smrodBtn').classList.remove('on'); _smrodStan = '';
   _stawStan = '';
   document.getElementById('buff').style.opacity = 0;
   for (const c of chests) placeChest(c);
@@ -9147,7 +9765,10 @@ function clearWorld() {
 function newGame() {
   clearWorld();
   resetStats();
-  Object.assign(G, { running: true, over: false, paused: false, dying: false, deathT: 0, time: 0, kills: 0, runCoins: 0, zebrane: 0, ranga: 0, rangaKille: 0, spawnT: 0.5, bossAt: 120, ringAt: 60, tier: 0, shake: 0, tlok: 0, kino: 0 });
+  Object.assign(G, { running: true, over: false, paused: false, dying: false, deathT: 0, time: 0, kills: 0, runCoins: 0, zebrane: 0, ranga: 0, rangaKille: 0, shake: 0, tlok: 0, kino: 0,
+    spawnAkum: 0, podlogaT: 0, recyklT: 0, ketchT: 0, wiecIdx: 0, kolejkaFal: [], kolejkaSpawnu: [], falaNr: 0,
+    dmgBron: {}, maxHit: { dmg: 0, zr: '', crit: false }, zdarzenia: [], probki: [],
+    obrazeniaOd: {}, ostatniCios: null });
   winieta(true);
   STATY.zdarzenie('run-start/' + charKey + '/' + mapKey, 'Bieg: ' + CHARS[charKey].nm + ' / ' + MAPS[mapKey].nm);
   P.sok = 0; P.leczT = 0;                           // licznik wysysania życia Beetina + blokada leczenia
@@ -9167,7 +9788,7 @@ function newGame() {
   if (wchest.mesh) wchest.mesh.visible = wchest.ring.visible = false;
   document.getElementById('lvl').textContent = T('POZIOM 1', 'LEVEL 1');
   document.getElementById('kills').innerHTML = ico('czaszka', 15) + ' 0';
-  document.getElementById('tier').innerHTML = ico('ostrzezenie', 14) + T(' ZAGROŻENIE 1', ' THREAT 1');
+  pasekWieczoru();
   document.getElementById('xpbar').style.width = '0%';
   drawHearts(); drawCoins(); renderWpns();
   AUDIO.startRun(charKey);                         // losowy utwór na bieg + kwestia na start
@@ -9180,7 +9801,8 @@ function loop() {
   const dt = Math.min(clock.getDelta(), 0.05);
   const t0 = DEV ? performance.now() : 0;
   pollPads(dt);                                   // pady odpytujemy co klatkę
-  if (G.running && !G.paused) {
+  if (BOT.naZywo && G.paused) botOverlay();       // DEV: bot na żywo (pomiar FPS na telefonie)
+  if (G.running && !G.paused && (!BOT.on || BOT.naZywo)) {   // bot (DEV) krokuje sam, porcjami
     try { if (STRES) stresTick(); update(dt); } catch (err) { console.error(err); }
   }
   const t1 = DEV ? performance.now() : 0;
@@ -9334,9 +9956,193 @@ let vramLicz = 1;                                 // znacznik przejścia w HORDA
 function stresTick() {
   let zywi = 0;
   for (const e of G.enemies) if (!e.dying) zywi++;
-  for (let s = 0; zywi < STRES && s < 40; s++, zywi++) spawnEnemy(STRES_TYPY[_stresK++ % STRES_TYPY.length]);
+  for (let s = 0; zywi < STRES && s < 40; s++, zywi++) spawnEnemy(STRES_TYPY[_stresK++ % STRES_TYPY.length], null, null, { r: [34, 44] });
   P.xp = 0;
   P.iframes = 0.5;          // ciosy w ogóle nie wchodzą (bez startDeath co 0.9 s, który ucinał update)
+}
+
+// ============================== DEV: BOT I POMIAR (E1-bieg K0, spec 07 §10.2) ==============================
+// Prosty bot do liczb przed/po — celowo NIE jest stanowiskiem testowym (decyzja właściciela).
+//   nowicjusz: ucieka od środka ciężkości wrogów w 12 j. + błądzi; skrzynie tylko < 8 j.; pierwsza karta.
+//   średni: odpych od wrogów w 10 j. + krążenie (składowa styczna 0,7); złota skrzynia, gdy w 8 j. < 5 wrogów;
+//           schodzi z kręgów ketchupu; karty wg priorytetu; wymiennik: nowa broń tylko do pustego slotu.
+// Oba nie skaczą i nie używają karabinu/aury/Sokowirówki. Rusza wyłącznie w DEV (HORDA.botBieg).
+function mulberry32(a) {                          // PRNG z seedem (algorytm domeny publicznej, patrz 06-gotowce §5)
+  return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+const BOT = { on: false, naZywo: false, tryb: 'sredni', karty: 'priorytet', ka: 0, kier: 1 };
+let _ruchDev = null;                              // HORDA.ruch(vx, vz): nadpisanie wejścia jak touch.vx/vy
+const BOT_PRIO = ['evo', 'bron', 'pas:moc', 'pas:tempo', 'pas:krytyk', 'pas:serce', 'pas:zasieg', 'pas:magnes', 'pas:buty'];
+function botRuch() {                              // zwraca kierunek w ŚWIECIE {x, z}
+  const now = BOT.tryb === 'nowicjusz', R = now ? 12 : 10;
+  let ux = 0, uz = 0, cx = 0, cz = 0, n = 0, blisko8 = 0, blisko3 = 0, najD = 1e9, nx = 0, nz = 0;
+  for (const e of G.enemies) {
+    if (e.dying) continue;
+    const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z, d2 = dx * dx + dz * dz;
+    if (d2 < 64) blisko8++;
+    if (d2 < 9) blisko3++;
+    if (d2 < najD) { najD = d2; nx = dx; nz = dz; }
+    if (d2 > R * R || d2 < 1e-4) continue;
+    const d = Math.sqrt(d2), s = (1 - d / R) * (1 - d / R);   // odpych rośnie z bliskością
+    n++; cx += dx; cz += dz; ux -= dx / d * s; uz -= dz / d * s;
+  }
+  let wx = 0, wz = 0;
+  if (now) {
+    BOT.ka += (Math.random() - 0.5) * 0.25;
+    wx = Math.sin(BOT.ka) * 0.5; wz = Math.cos(BOT.ka) * 0.5;
+    if (n) { const l = Math.hypot(cx, cz) || 1; wx -= cx / l; wz -= cz / l; }
+  } else {
+    // Decyzja K0: sama ucieczka + krążenie odbiegało od hordy na zawsze (bieg 9:34, 94 zabójstwa,
+    // poziom 5 — horda nie nadąża za 7 j./s). Gdy nikt nie jest groźnie blisko (odpych < 0,05,
+    // czyli najbliższy dalej niż ~7,8 j.), średni PODCHODZI do najbliższego — tak gra człowiek.
+    const ul = Math.hypot(ux, uz);
+    if (ul > 0.05) { ux /= ul; uz /= ul; }
+    else if (najD < 1e8) { const l = Math.sqrt(najD) || 1; ux = nx / l; uz = nz / l; }
+    else { ux = Math.sin(G.time * 0.25); uz = Math.cos(G.time * 0.25); }
+    if (Math.random() < 0.002) BOT.kier = -BOT.kier;
+    const st = ul > 0.05 ? 0.7 : 0.3;
+    wx = ux - uz * st * BOT.kier; wz = uz + ux * st * BOT.kier;
+    for (const gl of G.gluty) {                   // krąg ketchupu = telegraf: wyjdź prostopadle
+      const dx = P.pos.x - gl.to.x, dz = P.pos.z - gl.to.z, d = Math.hypot(dx, dz) || 1;
+      if (d < KETCH_R + 1) { wx += dx / d * 3; wz += dz / d * 3; }
+    }
+  }
+  let cel = null, dc = now ? 8 : 12;
+  if (wchest.active) { const d = wchest.pos.distanceTo(P.pos); if (now ? d < 8 : blisko8 < 5) { cel = wchest.pos; dc = d; } }
+  if (!cel) for (const c of chests) if (!c.opened) { const d = c.pos.distanceTo(P.pos); if (d < dc) { dc = d; cel = c.pos; } }
+  if (cel && !now && blisko8 >= 8) cel = null;    // średni: do skrzyni tylko przy luzie
+  // pigułki XP: bez zbierania η byłoby bliskie zera. Pomiar K5: przy warunku „w 8 j. < 8 wrogów"
+  // bot zbierał ~0,3 XP na zabójstwo (horda 470 nigdy nie jest „luźna") — teraz średni idzie po
+  // pigułki (9 j.), gdy tuż przy nim (3 j.) są najwyżej 2 wrogowie; nowicjusz tylko po te w 4 j.
+  if (!cel && (now || blisko3 <= 2)) {
+    dc = now ? 4 : 9;
+    for (const g of G.gems) { const d = g.pos.distanceTo(P.pos); if (d < dc) { dc = d; cel = g.pos; } }
+    if (!cel && P.hp < P.maxHp) for (const h of G.hps) { const d = h.pos.distanceTo(P.pos); if (d < (now ? 4 : 10)) cel = h.pos; }
+  }
+  if (cel) {
+    const dx = cel.x - P.pos.x, dz = cel.z - P.pos.z, d = Math.hypot(dx, dz) || 1;
+    const k = now ? 1.5 : 1.2;
+    wx = wx * 0.5 + dx / d * k; wz = wz * 0.5 + dz / d * k;
+  }
+  const l = Math.hypot(wx, wz) || 1;
+  return { x: wx / l, z: wz / l };
+}
+function botOverlay() {                           // zamyka karty/wymiennik; false = nic do kliknięcia
+  if (document.getElementById('cardsOv').style.display === 'flex') {
+    const karty = [...document.getElementById('cards').children];
+    if (!karty.length) return false;
+    let wyb = karty[0], naj = 1e9;
+    if (BOT.karty === 'priorytet') for (const k of karty) {
+      const kl = k._klucz || '';
+      let p = BOT_PRIO.findIndex(x => kl === x || kl.startsWith(x + ':'));
+      if (p < 0) p = kl.startsWith('pas') ? 20 : 40;
+      if (p < naj) { naj = p; wyb = k; }
+    }
+    wyb.onclick(); return true;
+  }
+  if (document.getElementById('swapOv').style.display === 'flex') {
+    const k = [...document.getElementById('swapList').children];
+    if (!k.length) return false;
+    (k.find(x => x.classList.contains('gold')) || k[k.length - 1]).onclick(); return true;
+  }
+  return false;
+}
+// próbka co 10 s czasu gry (wołana z update w DEV) — HORDA.pomiar()
+function devProbka() {
+  const t = Math.floor(G.time / 10) * 10;
+  if (G.probki.length && G.probki[G.probki.length - 1].t >= t) return;
+  let zywi = 0, w15 = 0;
+  for (const e of G.enemies) { if (e.dying) continue; zywi++;
+    const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z; if (dx * dx + dz * dz < 225) w15++; }
+  const suma = Object.values(G.dmgBron).reduce((a, b) => a + b, 0);
+  const pop = G.probki[G.probki.length - 1];
+  G.probki.push({ t, zywi, w15, hp: P.hp, lvl: P.lvl, kills: G.kills, suma: Math.round(suma),
+    dps10s: pop ? Math.round((suma - pop.suma) / Math.max(1, t - pop.t)) : 0,
+    dmgBron: Object.fromEntries(Object.entries(G.dmgBron).map(([k, v]) => [k, Math.round(v)])),
+    kaprale: G.kaprale || 0, ostatniCios: G.ostatniCios || null });
+}
+// PRESETY BUILDU do HORDA.skok(t, preset): poziomy broni/pasywów, ranga i poziom z modelu (spec §6, dodatek A)
+const BOT_PRESETY = {
+  'sredni-5':  { bronie: [5, 4, 2], evo: 0, pas: { moc: 3, tempo: 3, krytyk: 2, serce: 1, zasieg: 1 }, ranga: 14, lvl: 22 },
+  'sredni-10': { bronie: [5, 5, 3], evo: 2, pas: { moc: 5, tempo: 5, krytyk: 4, serce: 3, zasieg: 3, magnes: 2 }, ranga: 36, lvl: 37 },
+};
+function devSkok(t, preset) {
+  bezZapisu = true;                                // DEV: bieg „przewinięty" nie trafia do META (rekord, statystyki)
+  G.time = t;
+  G.probki = G.probki.filter(p => p.t < t);
+  if (typeof przewinWieczor === 'function') przewinWieczor(t);   // K1: zdarzenia przed t oznaczone
+  const B = BOT_PRESETY[preset];
+  if (B) {
+    const dod = ['kule', 'kosc', 'tupniecie'].filter(k => k !== P.weapons[0].key && broniDostepna(k));
+    while (P.weapons.length < 3 && dod.length) P.weapons.push({ key: dod.shift(), lvl: 1, t: 0, t0: t });
+    P.weapons.forEach((w, i) => { w.lvl = Math.min(WEAPONS[w.key].max, B.bronie[i] || 1); });
+    for (let i = 0; i < B.evo && i < P.weapons.length; i++) { const W = WEAPONS[P.weapons[i].key]; if (W.evoKey) P.evo[W.evoKey] = true; }
+    const serceByly = P.passives.serce || 0;
+    Object.assign(P.passives, B.pas);
+    P.maxHp += ((B.pas.serce || 0) - serceByly) * HP_SERCA; P.hp = P.maxHp;
+    G.ranga = B.ranga; P.lvl = B.lvl; P.xp = 0; P.xpNeed = xpDoNast(P.lvl);
+    renderWpns(); drawHearts(); sprawdzRange();
+    document.getElementById('lvl').textContent = T('POZIOM ', 'LEVEL ') + P.lvl;
+  }
+  return { t: G.time, lvl: P.lvl, bronie: P.weapons.map(w => w.key + ':' + w.lvl) };
+}
+// PEŁNY BIEG BOTA (asynchronicznie, porcjami po 300 kroków — karta podglądu nie zamiera).
+// META podmieniona na „weterana bez zakupów" (piorun odblokowany, pierwsze skrzynie za nim),
+// Math.random z seedem, zapis wyłączony do przeładowania. Pętla rAF w tym czasie nie symuluje.
+async function botBieg(o = {}) {
+  const { tryb = 'sredni', postac = 'carrotello', mapa = 'laki', maxT = 600, seed = 1, dt = 1 / 30 } = o;
+  const metaKopia = JSON.stringify(META), mr = Math.random;
+  bezZapisu = true;
+  Object.assign(META.up, { serce: 0, dmg: 0, szyb: 0, magnes: 0, klatwa: 0, karabin: 0 });
+  META.unlocked = { piorun: 1 }; META.st.runs = 5; META.st.skrzynki = 99;
+  Math.random = mulberry32(seed);
+  Object.assign(BOT, { on: true, tryb, karty: o.karty || (tryb === 'nowicjusz' ? 'pierwsza' : 'priorytet'), ka: 0, kier: 1 });
+  const w = { tryb, postac, seed, czas: 0, lvlAt: {}, killsAt: {}, pierwszyKill: null, pierwszyAwans: null,
+              maxZywi: 0, maxUpd: 0, maxUpdT: 0 };
+  try {
+    if (charKey !== postac) setPlayerChar(postac);
+    if (mapKey !== mapa) setMap(mapa);
+    document.getElementById('startOv').style.display = 'none';
+    document.getElementById('overOv').style.display = 'none';
+    newGame();
+    const t0 = performance.now();
+    while (G.running && G.time < maxT) {
+      for (let i = 0; i < 300 && G.running && G.time < maxT; i++) {
+        if (G.paused) { if (!botOverlay()) G.paused = false; continue; }
+        if (o.niesmiertelny) P.hp = P.maxHp;         // pomiar krzywej poziomu/gęstości bez śmierci bota
+        const tu = performance.now();
+        update(dt);
+        const du = performance.now() - tu;
+        if (du > w.maxUpd) { w.maxUpd = +du.toFixed(1); w.maxUpdT = +G.time.toFixed(1); }
+        const zw = liczZywych();
+        if (zw > w.maxZywi) w.maxZywi = zw;
+        if (w.pierwszyKill === null && G.kills > 0) w.pierwszyKill = +G.time.toFixed(1);
+        if (w.pierwszyAwans === null && P.lvl > 1) w.pierwszyAwans = +G.time.toFixed(1);
+        for (const m of [60, 180, 300, 600]) if (G.time >= m && w.lvlAt[m] == null) { w.lvlAt[m] = P.lvl; w.killsAt[m] = G.kills; }
+      }
+      await new Promise(r => setTimeout(r, 0));
+    }
+    w.czas = +G.time.toFixed(1); w.lvl = P.lvl; w.kills = G.kills; w.przezyl = G.time >= maxT;
+    w.dps = {};
+    for (const [k, v] of Object.entries(G.dmgBron)) {
+      const bron = P.weapons.find(x => x.key === k);
+      w.dps[k] = Math.round(v / Math.max(1, G.time - (bron ? bron.t0 || 0 : 0)));
+    }
+    w.dmgBron = Object.fromEntries(Object.entries(G.dmgBron).map(([k, v]) => [k, Math.round(v)]));
+    w.bronie = P.weapons.map(x => x.key + ':' + x.lvl);
+    w.obrazeniaOd = Object.fromEntries(Object.entries(G.obrazeniaOd || {}).map(([k, v]) => [k, Math.round(v)]));
+    w.probki = G.probki.map(p => ({ t: p.t, zywi: p.zywi, w15: p.w15, hp: Math.round(p.hp), lvl: p.lvl, kills: p.kills, dps10s: p.dps10s }));
+    w.zdarzenia = G.zdarzenia.slice();
+    w.msKrok = +((performance.now() - t0) / Math.max(1, G.time / dt)).toFixed(2);
+    if (G.running) { G.running = false; clearWorld(); }
+    document.getElementById('overOv').style.display = 'none';
+  } finally {
+    Math.random = mr; BOT.on = false;
+    const m = JSON.parse(metaKopia);
+    for (const k of Object.keys(m)) META[k] = m[k];
+  }
+  return w;
 }
 
 // ============================== START ==============================
@@ -9409,7 +10215,8 @@ if (loadTip) {
   czosnekMat = czo.mat; czosnekAspect = czo.w / czo.h;
   coinMat = new THREE.MeshBasicMaterial({ map: coinTexture(), transparent: true, depthWrite: false });
   ringMat = new THREE.MeshBasicMaterial({ map: ringTexture('rgba(255,235,150,0.95)'), transparent: true, depthWrite: false });
-  eliteRingMat = new THREE.MeshBasicMaterial({ map: ringTexture('rgba(255,200,40,0.9)'), transparent: true, depthWrite: false });
+  // E1-bieg K6: FIOLET = ELITA (wzór DRG: Survivor); złoto zostaje dla skrzyń i monet
+  eliteRingMat = new THREE.MeshBasicMaterial({ map: ringTexture('rgba(170,90,255,0.95)'), transparent: true, depthWrite: false });
   chestMats = [];
   for (let i = 0; i < 4; i++) chestMats.push((await flatMat('assets/chest' + i + '.png')).mat);
   // złota skrzynia z bronią (ta sama grafika, złota poświata + pierścień)
@@ -9584,7 +10391,7 @@ if (loadTip) {
     if (STRES) bezZapisu = true;
     // wyłączenie w trakcie biegu: zegary bossów/fal stały podczas stresu, bez tego
     // po 10 min stresu wpadało naraz ~12 bossów
-    if (!STRES && G.running) { G.bossAt = G.time + 120; G.ringAt = G.time + 30; G.spawnT = 0; }
+    if (!STRES && G.running) przewinWieczor(G.time);   // kalendarz Wieczoru od bieżącej chwili
     if (STRES && !G.running && META.ui.komiks) {
       document.getElementById('overOv').style.display = 'none';
       menu.style.display = 'none';
@@ -9645,7 +10452,9 @@ if (loadTip) {
   // ikonki w zakładkach + przycisku pauzy
   document.querySelectorAll('.tab[data-ico]').forEach(t =>
     t.insertAdjacentHTML('afterbegin', ico(t.dataset.ico, 16) + ' '));
-  document.getElementById('pauseBtn').innerHTML = ico('pauza', 16);
+  document.getElementById('pauseBtn').innerHTML = ico('pauza', 16) + '<span class="glRog" data-glif="pauza"></span>';
+  // podpowiedzi klawiszy/pada: tryb startowy wg urządzenia, dalej przełącza OSTATNIE wejście
+  if (!WEJ.tryb) ustawWej(wejDomyslny()); else glifyOdswiez();
   // zakładki menu
   document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
     document.querySelectorAll('.tab').forEach(x => x.classList.remove('sel'));
@@ -9764,6 +10573,22 @@ if (loadTip) {
       Object.assign(DYM_PAL, o);
       if (dymMat) { dymMat.uniforms.uMap.value.dispose(); dymMat.uniforms.uMap.value = dymAtlas(); }
       return { ...DYM_PAL };
+    },
+    // ---- E1-bieg (spec 07 §10.2): pomiar, bot, skok ----
+    get log() { return G.zdarzenia; },
+    cfg: CFG_BIEG, WIECZOR, falaTeraz, liczZywych, zadajDmg, dmgNum, chestReward, startKarabin, odpalSmrod,
+    get trudnosc() { return { t: G.time, hpScale: +hpScale().toFixed(3), spdScale: +spdScale().toFixed(3), dmgMul: +dmgMul().toFixed(3), elita: +szansaElity().toFixed(3) }; },
+    pomiar() { return G.probki; },
+    ruch(vx, vz) { _ruchDev = vx == null ? null : { x: vx, z: vz }; return _ruchDev; },
+    bot: BOT, botBieg, skok: devSkok, BOT_PRESETY,
+    // bot steruje w czasie rzeczywistym (pętla rAF): HORDA.botNaZywo('sredni') / HORDA.botNaZywo(null)
+    botNaZywo(tryb = 'sredni') { if (tryb) bezZapisu = true; Object.assign(BOT, { on: !!tryb, naZywo: !!tryb, tryb: tryb || BOT.tryb, karty: 'priorytet' }); return BOT; },
+    // seria biegów: HORDA.botSeria([{tryb:'sredni',postac:'carrotello'}], 5) → tablica wyników
+    async botSeria(konf, n = 5, o = {}) {
+      const wyn = [];
+      for (const k of konf) for (let i = 0; i < n; i++) wyn.push(await botBieg({ ...o, ...k, seed: (o.seed || 1) + i }));
+      window.__botWyniki = wyn;
+      return wyn;
     },
     step(n = 1, dt = 1 / 60) {
       for (let i = 0; i < n; i++) { pollPads(dt); if (G.running && !G.paused) { if (STRES) stresTick(); update(dt); } }
