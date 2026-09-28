@@ -326,8 +326,14 @@ const DEV = location.search.includes('dev=1')
 const STATY = {
   kod: 'veggiefaniglia',                           // konto właściciela (18.09) → https://veggiefaniglia.goatcounter.com
   kolejka: [],
+  log: [],                                         // E1-bieg K9: DEV — log wywołań zamiast wysyłki (HORDA.gc)
   zdarzenie(sciezka, tytul = '') {
-    if (!STATY.kod || DEV) return;
+    if (DEV) {
+      let t = 0; try { t = +G.time.toFixed(1); } catch { /* G jeszcze nie istnieje (start) */ }
+      STATY.log.push({ t, path: sciezka, title: tytul }); if (STATY.log.length > 200) STATY.log.shift();
+      return;
+    }
+    if (!STATY.kod) return;
     STATY.kolejka.push({ path: sciezka, title: tytul, event: true });
     STATY.wyslij();
   },
@@ -2645,29 +2651,59 @@ async function buildChar(name, anims) {
   // pustego miejsca, ile arkusz ma pod stopami (Carrotello mial 23 wpisane
   // recznie, przepakowany Beetino dostal 0 i zaczal lewitowac).
   LIB[name] = { size, footOff: dolnaKrawedz(img, size), anims: {}, img, atlas: [] };
-  // 1. alfa całego arkusza raz (bufor tymczasowy, oddany po zbudowaniu)
-  const sc = document.createElement('canvas'); sc.width = img.width; sc.height = img.height;
+  // 1–2. prostokąt niepustych pikseli każdej używanej klatki. Alfa czytana PASAMI po rzędach animacji (≤ 4096 px
+  // wysokości i ≤ 8 Mpx na pas), nie całym arkuszem naraz: arkusz Dona HD to ~2288×7920 ≈ 18 Mpx, a iOS Safari nie
+  // tworzy płótna > 16,7 Mpx (getImageData dawało wtedy pustkę/wyjątek). Jeden bufor na pasy, oddany po zbudowaniu.
+  const IW = img.width, IH = img.height;
+  const potrzebne = new Map();                     // rząd arkusza → największa liczba klatek w nim
+  for (const an of anims) {
+    const a = def.anims[an]; if (!a) continue;
+    for (const dir of Object.keys(a.rows)) {
+      const row = a.rows[dir];
+      potrzebne.set(row, Math.max(potrzebne.get(row) || 0, a.frames[dir]));
+    }
+  }
+  const prost = new Map();                         // `sx,sy` → { x0, y0, x1, y1 } (x1/y1 wyłączne)
+  const rzedyNaPas = Math.max(1, Math.min(Math.floor(ATLAS_MAX / S), Math.floor(8e6 / (IW * S))));
+  const sc = document.createElement('canvas');
   const sg = sc.getContext('2d', { willReadFrequently: true });
-  sg.drawImage(img, 0, 0);
-  const alfa = sg.getImageData(0, 0, img.width, img.height).data, IW = img.width;
+  const rzedy = [...potrzebne.keys()].sort((a, b) => a - b);
+  for (let i = 0; i < rzedy.length;) {
+    const r0 = rzedy[i];                           // pas: rzędy r0 … r0 + rzedyNaPas − 1 (tylko potrzebne)
+    let j = i; while (j < rzedy.length && rzedy[j] < r0 + rzedyNaPas) j++;
+    const rN = rzedy[j - 1];
+    const y0p = r0 * S, hp = Math.min(IH, (rN + 1) * S) - y0p;
+    let wp = 0;
+    for (let k = i; k < j; k++) wp = Math.max(wp, potrzebne.get(rzedy[k]) * S);
+    wp = Math.min(IW, wp);
+    if (sc.width !== wp || sc.height !== hp) { sc.width = wp; sc.height = hp; } else sg.clearRect(0, 0, wp, hp);
+    let alfa = null;
+    if (wp > 0 && hp > 0) { sg.drawImage(img, 0, y0p, wp, hp, 0, 0, wp, hp); alfa = sg.getImageData(0, 0, wp, hp).data; }
+    for (let k = i; k < j; k++) {
+      const row = rzedy[k], n = potrzebne.get(row), ly = row * S - y0p;
+      for (let f = 0; f < n; f++) {
+        const sx = f * S;
+        let x0 = S, y0 = S, x1 = -1, y1 = -1;
+        if (alfa) for (let y = 0; y < S && ly + y < hp; y++) {
+          const o = ((ly + y) * wp + sx) * 4 + 3;
+          for (let x = 0; x < S && sx + x < wp; x++) if (alfa[o + x * 4] > 0) {
+            if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+          }
+        }
+        if (x1 < 0) { x0 = y0 = 0; x1 = y1 = 0; }        // pusta klatka → 1 przezroczysty piksel
+        prost.set(sx + ',' + row * S, { x0, y0, x1: x1 + 1, y1: y1 + 1 });
+      }
+    }
+    i = j;
+  }
   sc.width = sc.height = 0;                       // oddaj bufor od razu (iOS: limit pamięci canvasów)
-  // 2. prostokąt niepustych pikseli każdej używanej klatki
   const klatki = [];
   for (const an of anims) {
     const a = def.anims[an]; if (!a) continue;
     for (const dir of Object.keys(a.rows)) {
       const row = a.rows[dir], n = a.frames[dir];
       for (let f = 0; f < n; f++) {
-        const sx = f * S, sy = row * S;
-        let x0 = S, y0 = S, x1 = -1, y1 = -1;
-        for (let y = 0; y < S; y++) {
-          const o = ((sy + y) * IW + sx) * 4 + 3;
-          for (let x = 0; x < S; x++) if (alfa[o + x * 4] > 0) {
-            if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
-          }
-        }
-        if (x1 < 0) { x0 = y0 = 0; x1 = y1 = 0; }        // pusta klatka → 1 przezroczysty piksel
-        x1++; y1++;
+        const sx = f * S, sy = row * S, { x0, y0, x1, y1 } = prost.get(sx + ',' + sy);
         klatki.push({ an, dir, f, sx, sy, x0, y0, x1, y1,
                       w: x1 - x0 + 2 * ATLAS_PAD, h: y1 - y0 + 2 * ATLAS_PAD });
       }
@@ -3464,7 +3500,11 @@ function loadMeta() {
     // `chests` = złote skrzynie z bronią, `skrzynki` = zwykłe (od nich zależy
     // wyreżyserowana sekwencja pierwszych sześciu nagród)
     st: { kills: 0, runs: 0, time: 0, best: 0, bestKills: 0, bosses: 0, coins: 0, chests: 0, skrzynki: 0, lvl: 0,
-          kaprale: 0, wins: 0, donReached: 0 },     // E1-bieg K7/K8 (spec §9.5)
+          kaprale: 0, wins: 0, donReached: 0,       // E1-bieg K7/K8 (spec §9.5)
+          // przegląd K9–K11: `pelne` = biegi zakończone śmiercią/wygraną albo wyjściem do menu po ≥ 60 s (od nich
+          // zależy łagodny pierwszy bieg — szybkie „Do menu" go nie zużywa); `smierci` = porażki (prezent Piorun
+          // za pierwszą porażkę/wygraną); `bestDon` = najszybsza walka z Donem w s (0 = brak wygranej)
+          pelne: 0, smierci: 0, bestDon: 0 },
     bestiary: {},                                  // typ wroga -> ile razy zabity (bestiariusz)
     audio: { muz: 0.15, glos: 0.9, efe: 0.7, mute: 0 },   // głośności i wyciszenie (zakładka Dźwięk)
     // KONTROLER (zakładka Sterowanie). `map` trzyma INDEKSY przycisków w układzie
@@ -3489,7 +3529,10 @@ function loadMeta() {
       unlocked: Object.assign(d.unlocked, m.unlocked),
       chars: Object.assign(d.chars, m.chars),
       lastChar: m.lastChar || 'carrotello', lastMap: m.lastMap || 'laki',
-      st: Object.assign(d.st, m.st),
+      // stare zapisy (sprzed liczników `pelne`/`smierci`): każdy dawny bieg liczy się jak pełny, a dawne
+      // nie-wygrane jak porażki — weteran nie dostanie drugi raz łagodnego biegu ani „pierwszej porażki"
+      st: Object.assign(d.st, m.st, m.st && m.st.pelne == null
+        ? { pelne: m.st.runs || 0, smierci: Math.max(0, (m.st.runs || 0) - (m.st.wins || 0)) } : {}),
       // stare zapisy nie mają bestiariusza — domyślnie pusty, nic nie psujemy
       bestiary: Object.assign(d.bestiary, m.bestiary),
       // stare zapisy nie mają ustawień dźwięku — biorą domyślne
@@ -3741,6 +3784,9 @@ function renderStats() {
     ['play', s.runs, T('Rozegranych biegów', 'Runs played')],
     ['zegar', fmtTime(s.best), T('Najdłuższy bieg', 'Longest run')],
     ['puchar', s.bestKills, T('Rekord zabitych', 'Most kills in a run')],
+    ['korona', s.wins || 0, T('Wygranych Wieczorów', 'Evenings won')],
+    ['zegar', s.bestDon ? fmtTime(s.bestDon) : '—', T('Najszybszy Don', 'Fastest Don')],
+    ['gwiazda', s.kaprale || 0, T('Pokonanych kaprali', 'Corporals beaten')],
     ['korona', s.bosses, T('Pokonanych bossów', 'Bosses beaten')],
     ['skrzynia', s.chests, T('Skrzyń z bronią', 'Weapon crates')],
     ['gwiazda', s.lvl, T('Zdobytych poziomów', 'Levels gained')],
@@ -3766,7 +3812,7 @@ function renderBestiary() {
     if (znany) odkryte++;
     const eTempo = T('TEMPO', 'SPEED'), eCios = T('CIOS', 'HIT');
     const staty = znany
-      ? `HP ${W.hp * SKALA_WROGA} · ${eTempo} ${W.speed} · ${eCios} ${W.dmg * HP_SERCA} · XP ${W.xp}`
+      ? `HP ${W.hp * SKALA_WROGA} · ${eTempo} ${W.speed} · ${eCios} ${ico('serce', 12)} · XP ${W.xp}`
       : `HP ? · ${eTempo} ? · ${eCios} ? · XP ?`;
     const d = document.createElement('div');
     // .dark = zablokowany wpis: sylwetka na czarno (CSS brightness(0)) i „NIEODKRYTY"
@@ -3851,8 +3897,10 @@ const G = {
 };
 const P = {};
 
-// E1-bieg K3: HP GRACZA ×100 — serce = HP_SERCA (decyzja właściciela). Zapis i sklep dalej liczą SERCA.
-const HP_SERCA = 100;
+// ŻYCIE GRACZA W CAŁYCH SERCACH (decyzja właściciela 25.09: „1 uderzenie = 1 życie = 1 serce"; zastępuje
+// K3 „HP ×100 z ćwiartkami"). P.hp / P.maxHp liczą serca, każdy cios przez `ranGracza` zabiera dokładnie 1.
+// Stała zostaje (= 1), bo wiszą na niej leczenie, Serducho, sklep i wytrzymałość Sokowirówki.
+const HP_SERCA = 1;
 // E1-bieg K4: HP WROGÓW I OBRAŻENIA BRONI ×100 (osobna para od HP_SERCA — nigdy nie mnożyć jednej
 // przez drugą). Definicje broni zostają w jednostkach bazowych; skalę dokłada `zadajDmg` na wejściu.
 const SKALA_WROGA = 100;
@@ -3893,7 +3941,7 @@ function sprawdzRange() {
     G.rangaKille -= rangaProg(G.ranga);
     G.ranga++;
     AUDIO.sfx('awans');
-    dmgPop(P.pos.x, P.y + 2.0, P.pos.z, T('RANGA ', 'RANK ') + G.ranga, '#ffd75e', 1.8);
+    dmgPop(P.pos.x, P.y + 2.0, P.pos.z, T('RANGA ', 'RANK ') + G.ranga, '#ffd75e', 1.8, 'wazny');
     if (G.ranga % 4 === 0) toastBuff(T('RANGA ', 'RANK ') + G.ranga
       + T(' — obrażenia +', ' — damage +') + Math.round((rangaDmg() - 1) * 100)
       + T('%, tempo +', '%, fire rate +') + Math.round((rangaFire() - 1) * 100) + '%');
@@ -3916,7 +3964,10 @@ function sprawdzRange() {
 // starej krzywej, a bieg ma koniec o 10:00 — cel: ~22. poziom w 5:00 i ~37. przy Donie, czyli pula
 // kart (~49 znaczących + 6 skrzyń kaprali) wysycha dokładnie na finał. Wczesne progi prawie bez zmian
 // (l=2: 13 jak dawniej), późne dużo wyżej (l=30: 1385 zamiast 371).
-const xpDoNast = l => Math.round(5 + 2.5 * l + 0.70 * l * l + 0.025 * l * l * l);
+// E1-bieg K5/K11: krzywa XP (spec §6). K11: sześcian 0,025 → XP_KRZ.d, bo piniaty 6 kaprali (+1 poziom każda)
+// dawały botowi-średniemu 44 w 10:00 zamiast 35–40. Strojenie na żywo: HORDA.cfg.xpKrzywa.
+const XP_KRZ = { a: 5, b: 2.5, c: 0.70, d: 0.055 };   // K11: d 0.025 → 0.055
+const xpDoNast = l => Math.round(XP_KRZ.a + XP_KRZ.b * l + XP_KRZ.c * l * l + XP_KRZ.d * l * l * l);
 
 // BURACZANE CIŚNIENIE (pasyw Beetina z biblii, wdrożony 18.09 na zgłoszenie właściciela
 // „burak prawie nieużywalny"): poniżej połowy serc wysysanie życia (10% zadanych obrażeń →
@@ -3933,7 +3984,7 @@ const rangeF  = () => 14 * Math.pow(1.2, P.passives.zasieg || 0) * (1 + 0.04 * (
 // `rangeF()` jest ABSOLUTNY (14 j. bez pasywu) — do promieni innych niż zasięg Kul
 // używaj TEGO mnożnika (1.0 bez pasywu). Do 03.09 „Sokoli wzrok" czytały 4 bronie z 14.
 const rangeM  = () => rangeF() / 14;
-const magnetF = () => CHARS[charKey].mag * 2.6 * (1 + 0.20 * META.up.magnes) * Math.pow(1.35, P.passives.magnes || 0);
+const magnetF = () => CHARS[charKey].mag * 2.6 * (1 + 0.20 * META.up.magnes) * Math.pow(1.35, P.passives.magnes || 0) * lag('magnes');   // K10: łagodny szerzej
 const speedF  = () => CHARS[charKey].spd * 6.2 * (1 + 0.08 * META.up.szyb) * Math.pow(1.10, P.passives.buty || 0);
 const hasWeapon = k => P.weapons.find(w => w.key === k);
 
@@ -4978,16 +5029,19 @@ const monetyMul = () => (1 + 0.20 * klatwa()) * (G.buff.key === 'kasa' ? 2 : 1);
 // hpScale: 1:00 1,47 · 5:00 3,88 · 10:00 8,00 (dawniej 1,61 / 5,25 / 12,5) — niżej późno, bo nowa
 // krzywa XP daje mniej poziomów; resztę trudności niosą skład, ściany i obrażenia (dmgMul).
 const L_BIEG = { hp: 1, spd: 0.035, dmgA: 0.06, dmgB: 0.004, elita: 1, tempo: 1 };
+const L_NORMALNY = { ...L_BIEG };                  // E1-bieg K10: newGame przywraca te wartości w normalnym biegu
+// K10: mnożnik łagodnego biegu dla pola `k` z CFG_BIEG.trybLagodny (1 w normalnym biegu)
+const lag = k => G.lagodny ? CFG_BIEG.trybLagodny[k] : 1;
 const hpScale = (t = G.time) => { const m = t / 60; return (1 + 0.45 * m + 0.025 * m * m) * (1 + 0.10 * klatwa()) * L_BIEG.hp * rozgrz('hp', t); };
 const spdScale = () => Math.min(1.5, 1 + L_BIEG.spd * G.time / 60);
-// mnożnik obrażeń wrogów: 5:00 ×1,40 · 10:00 ×2,00 (ciągle, bez skoków)
+// mnożnik obrażeń wrogów: 5:00 ×1,40 · 10:00 ×2,00 — od 25.09 TYLKO w ciosach w Sokowirówkę (gracz: 1 cios = 1 serce)
 const dmgMul = () => { const m = G.time / 60; return (1 + L_BIEG.dmgA * m + L_BIEG.dmgB * m * m) * rozgrz('dmg'); };
 // szansa elity: 1:00 6,2% · 5:00 11% · 10:00 17% (dawniej 7,5 / 13,5 / 21%)
 const szansaElity = () => G.time < 60 ? 0 : (0.05 + 0.012 * G.time / 60) * L_BIEG.elita * rozgrz('elita');
 // E1-bieg ROZGRZEWKA (24.09, szybkie złagodzenie — decyzja właściciela; pełne strojenie w K10/K11):
 // mnożnik rośnie liniowo od CFG_BIEG.rozgrzewka[k] w 0:00 do 1 w `do` (3:00) — po nim formuły §5 bez zmian.
 function rozgrz(k, t = G.time) {
-  const R = CFG_BIEG.rozgrzewka;
+  const R = G.rozgrzR || CFG_BIEG.rozgrzewka;      // K10: łagodny bieg ma własną (dłuższą) rozgrzewkę — newGame
   if (!R || R[k] == null || t >= R.do) return 1;
   return R[k] + (1 - R[k]) * Math.pow(Math.max(0, t) / R.do, R.wykl || 1);   // wykl > 1 = dłużej nisko
 }
@@ -5073,7 +5127,7 @@ function killEnemy(e, i) {
   // KILL + combo (kille w oknie 1.3 s nabijają serię)
   G.streak = (G.time - G.streakT < 1.3) ? G.streak + 1 : 1;
   G.streakT = G.time;
-  if (G.streak === 12 || G.streak === 30) toastBuff(T('SERIA x', 'STREAK x') + G.streak + T(' — MONETY ×', ' — COINS ×') + (G.streak >= 30 ? 3 : 2));
+  if (G.streak === 12 || G.streak === 30) toastBuff(T('SERIA x', 'STREAK x') + G.streak + '!');   // B8: seria już nie mnoży monet (plan §6.2)
   // ZGLOSZENIE WLASCICIELA: „ekran czasem sie za mocno trzesie". To bylo TU —
   // trzesienie odpalalo sie przy KAZDYM zabojstwie i rosło z seria do 0.5, a przy
   // 500 wrogach zabojstwa sa co klatke, wiec kamera nigdy nie wracala do spokoju.
@@ -5081,7 +5135,7 @@ function killEnemy(e, i) {
   G.shake = Math.max(G.shake, Math.min(0.18, 0.05 + G.streak * 0.008));
   AUDIO.sfx(e.T.boss ? 'bossdown' : 'kill', { seria: G.streak });   // ton rośnie z serią
   AUDIO.seria(G.streak);                           // przy dużej serii postać się odezwie (rzadko)
-  if (e.T.boss) { dmgPop(e.pos.x, e.ty + 1.2, e.pos.z, 'BOSS DOWN!', '#ff5555', 2.6); META.st.bosses++; saveMeta();
+  if (e.T.boss) { dmgPop(e.pos.x, e.ty + 1.2, e.pos.z, 'BOSS DOWN!', '#ff5555', 2.6, 'wazny'); META.st.bosses++; saveMeta();
     // muzyka bossa wraca do utworu z biegu dopiero, gdy padnie OSTATNI boss (Don: cisza zwycięstwa, patrz zwyciestwo)
     if (!e.don && !G.enemies.some(o => o !== e && o.T.boss && !o.dying)) AUDIO.bossOff();
   }
@@ -5089,7 +5143,7 @@ function killEnemy(e, i) {
   else if (e.elite) { dmgPop(e.pos.x, e.ty + 0.8, e.pos.z, T('ELITA!', 'ELITE!'), '#c07bff', 1.9); padWibruj(0.55, 90); }
   // przy serii sam mnożnik wystarcza — słowo „KILL" tylko rozciągało napis na pół ekranu
   else dmgPop(e.pos.x, e.ty + 0.5, e.pos.z, G.streak > 1 ? 'x' + G.streak : 'KILL',
-    '#ff6a5e', Math.min(1.0 + G.streak * 0.08, 1.6));
+    '#ff6a5e', Math.min(1.0 + G.streak * 0.08, 1.6), 'kill');   // w tłoku jak drobny — nie wypycha ważnych
   // E1-bieg K7/K8: kapral = PINIATA (własna nagroda), Don = ZWYCIĘSTWO — bez zwykłych dropów i podziału
   if (e.kapral) nagrodaKaprala(e);
   else if (e.don) zwyciestwo(e);
@@ -5102,6 +5156,7 @@ function killEnemy(e, i) {
     startRozpad(e);                                // brak arkusza `death` → śmierć z kodu
   }
 }
+const monetyHordy = () => { const M = CFG_BIEG.monety; return G.time <= M.od ? 1 : Math.pow(M.od / G.time, M.wykl); };
 function killEnemyDropy(e) {
   // XP: nie każdy dropi — duzi zawsze, mali 65% (za to szybciej ich kosisz)
   const dropXp = e.T.boss || e.elite || e.T.bigXp || Math.random() < 0.65;
@@ -5116,17 +5171,20 @@ function killEnemyDropy(e) {
   // dochodu (elity 34%, skrzynie 20%) — czyli najmniej płaciła czynność, którą
   // gracz faktycznie wykonuje. Stawki w górę, a elita/boss dostają JEDNĄ monetę
   // o dużej wartości zamiast garści (mniej śmieci na ekranie przy 500 wrogach).
-  // MNOŻNIK ZA SERIĘ nagradza stanie w hordzie, a nie kitowanie w pustce.
-  const mnoznikSerii = G.streak >= 30 ? 3 : (G.streak >= 12 ? 2 : 1);
+  // (Dawny mnożnik serii ×2/×3 na monetach usunięty w B8 — patrz niżej.)
+  // B8 (28.09, przed demo): seria NIE mnoży już monet (plan §6.2 — tylko napis), elita 4 → 1, a od 4:00 szansa
+  // monety z hordy maleje (monetyHordy) — przy 400 żywych zabójstwa idą setkami na minutę i to one dawały 20–34 tys.
+  // za wygraną. Główne monety biegu: kaprale, Don, wygrana ×1,5. Pomiar: INFO-PROJEKT (tabela przed/po B8).
+  const M = CFG_BIEG.monety, szansa = monetyHordy();
   const wyplac = (n, val, rozrzut = 0) => {
     for (let k = 0; k < n; k++)
       G.coins.push(makeCoin(e.pos.x + (Math.random() - .5) * rozrzut,
-                            e.pos.z + (Math.random() - .5) * rozrzut, val * mnoznikSerii));
+                            e.pos.z + (Math.random() - .5) * rozrzut, val));
   };
   if (e.T.boss) wyplac(3, 10, 2.5);
   else if (e.rodzina) { /* E1-bieg: „RODZINA" (7:00) daje XP, nie daje monet (plan §6.2) */ }
-  else if (e.elite) wyplac(1, 4);
-  else if (Math.random() < 0.16) wyplac(1, 1);
+  else if (e.elite) { if (Math.random() < szansa) wyplac(1, M.elita); }
+  else if (Math.random() < M.zwykly * szansa) wyplac(1, 1);
   // serca: elity 30%, boss zawsze 2
   // SERCA SA RZADKIE (zyczenie wlasciciela). Bylo: boss zawsze 2, elita 30%.
   // Przy udziale elit rosnacym o 1.5%/min (14% w 5. min, 21% w 10.) leczenie sypalo
@@ -5138,8 +5196,8 @@ function killEnemyDropy(e) {
     // najtwardszego przeciwnika w grze bylo slabsza nagroda niz podejscie do pudelka.
     wchest.wait = Math.min(wchest.wait, 0.4);      // zlota skrzynia (bron) prawie natychmiast
     G.hps.push(makeHeart(e.pos.x, e.pos.z));
-    if (P.hp <= P.maxHp * 0.34) G.hps.push(makeHeart(e.pos.x + 0.8, e.pos.z));   // litosc przy 1/3 zycia
-  } else if (e.elite && Math.random() < 0.08) G.hps.push(makeHeart(e.pos.x, e.pos.z));
+    if (P.hp <= P.maxHp * (G.lagodny ? CFG_BIEG.trybLagodny.litosc : CFG_BIEG.litosc)) G.hps.push(makeHeart(e.pos.x + 0.8, e.pos.z));   // litosc przy 1/3 zycia (łagodny: 1/2)
+  } else if (e.elite && Math.random() < (G.lagodny ? CFG_BIEG.trybLagodny.serceElity : CFG_BIEG.serceElity)) G.hps.push(makeHeart(e.pos.x, e.pos.z));
   // Marshmallini po śmierci DZIELI SIĘ na dwa mniejsze (wg biblii)
   // E1-bieg: podział może wejść w rezerwę skryptu (do MAX_WROGOW), nigdy wyżej — wtedy zamiast
   // potomków 2 pigułki XP po 2 (twardy warunek: żywych nigdy > MAX_WROGOW)
@@ -5186,12 +5244,13 @@ function rZaKadrem(a, r) {
 }
 // WSZYSTKIE LICZBY WIECZORU W JEDNYM OBIEKCIE (DEV: HORDA.cfg — strojenie bez przeładowania)
 const CFG_BIEG = {
-  // [start okna s, tempo wr/s, paczka, podłoga żywych] — tempo interpolowane liniowo między oknami
+  // [start okna s, tempo wr/s, paczka, podłoga żywych] — tempo i podłoga interpolowane liniowo między oknami
   fale: [[0, 1.2, 3, 10], [30, 2.0, 5, 15], [60, 3.0, 5, 20], [90, 3.8, 5, 25], [120, 5.0, 6, 35],
          [150, 6.0, 6, 40], [180, 7.5, 7, 50], [210, 9.5, 8, 65], [240, 13.0, 10, 85], [270, 14.5, 10, 95],
          [300, 17.0, 11, 110], [330, 19.0, 12, 125], [360, 21.0, 12, 140], [390, 23.0, 13, 150],
-         [420, 25.0, 14, 165], [450, 27.0, 14, 180], [480, 29.0, 15, 190], [510, 31.0, 15, 205],
-         [540, 34.0, 16, 225], [570, 37.0, 16, 245]],
+         [420, 25.0, 14, 165], [450, 27.0, 14, 180], [480, 29.0, 15, 190], [510, 31.0, 15, 320],
+         [540, 34.0, 16, 420], [570, 37.0, 16, 440]],  // K11: podłoga w 8:30/9:00/9:30 205/225/245 → 320/420/440 (kryt. 1: ≥ 85%
+                                                       // limitu); liniowo między oknami, więc rośnie już od 8:00 (190 → 320 w 8:30)
   naplyw: { od: 240, do: 260, mn: 1.35 },          // 4:00 NAPŁYW
   szturm: { od: 570, do: CISZA_OD, mn: 1.5 },      // 9:30 OSTATNI SZTURM
   // udziały w spawnie (%): [od s, chipsetti, marshmallini, gummini, friesetti (porcje 5), sodino, lollini]
@@ -5207,7 +5266,33 @@ const CFG_BIEG = {
   obreczR: 22, pierscienR: 16, scianaR: 18,        // promienie fal w kadrze (telefon poziomo)
   scianaCzas: 5,                                   // s marszu ściany „razem"
   falaNaKlatke: 20,                                // wrogów fali na klatkę (ściana 80 = 4 klatki)
-  lagodny: L_BIEG,                                 // mnożniki L (łagodny bieg = K10); tempo mnoży też fale
+  lagodny: L_BIEG,                                 // AKTYWNE mnożniki L (newGame wpisuje normalne albo łagodne); tempo mnoży też fale
+  // E1-bieg K10: ŁAGODNY PIERWSZY BIEG (spec §7). Włącza się, gdy META.st.pelne === 0 albo (pelne === 1 i best < 300)
+  // (`pelne` = biegi zakończone śmiercią/wygraną albo wyjściem do menu po ≥ 60 s — patrz czyLagodny);
+  // DEV: ?lagodny=1 / HORDA.botBieg({ czysty: true }). Gracz nie widzi żadnego tekstu o trybie (poza Ręką Nonny).
+  trybLagodny: {
+    // Liczby spec §7 (tempo 0,75, HP 0,8, kaprale 0,7, Don 0,65, XP ×1,25) dawały botowi-nowicjuszowi 0/10 do 10:00
+    // (mediana śmierci ~3:50); strojenie K10 botem (N = 20, czysty zapis, INFO-PROJEKT) → wartości niżej:
+    // 7/10 do 10:00 i 4/10 wygranych na seed 201–210 (15/20 i 11/20 na 40 seedach). Spec: też dmgA/dmgB
+    // i obrażenia kaprali/Dona ×0,8/×0,75 — od 25.09 bez znaczenia (1 cios = 1 serce).
+    L: { hp: 0.50, spd: 0, elita: 0.2, tempo: 0.35 },   // HP wrogów, bez przyspieszania, elity, liczebność
+    rozgrzewka: { do: 600 },                       // rozgrzewka trwa cały Wieczór (normalny: do 5:00)
+    serceElity: 0.16, litosc: 0.50,                // serce z elity 16%; drugie serce z bossa/kaprala przy ≤ 50%
+    kapHp: 0.30, kapCd: 2, kapCzas: 45, kapMax: 1, // kaprale: HP ×0,3, przerwy sztuczek ×2, po 45 s odchodzą, 1 naraz
+    donHp: 0.12, donCd: 1.25, lawinaN: 2,          // Don 288 tys., cooldowny ×1,25, lawina 2 kręgi
+    xp: 3, magnes: 4,                              // XP z pigułki ×3, zasięg magnesu ×4 (bot-nowicjusz ucieka od pigułek)
+    nietyk: 2.0,                                   // s nietykalności po trafieniu (normalny 0,9)
+    ketchupCo: 3, ketchupOd: 360,                  // Ketchupino od 6:00 i 3× rzadziej
+    podlogaMax: 245,                               // podłoga z tabeli najwyżej 245 (K11 podniósł 8:30–9:52 do 440 tylko w normalnym)
+    reka: { hp: 0.5, r: 10, sila: 9, niet: 3 },    // Ręka Nonny: raz na bieg, śmiertelny cios → 50% serc + fala + 3 s
+  },
+  nietyk: 0.9,                                     // s nietykalności po trafieniu (1 cios = 1 serce)
+  // B8 (28.09): monety z hordy — zwykły wróg `zwykly` szansy na 1 monetę, elita 1 moneta; od `od` s szansa ×(od/t)^`wykl`
+  // (4:00 ×1, 6:00 ×0,36, 8:00 ×0,18, 10:00 ×0,11). Kapral 50, Don 10×20 + 100, wygrana ×1,5 (don.mnozWygranej).
+  // Cel: wygrana ~1,5–2,5 tys., śmierć w 5:00 ~0,4–0,8 tys. (sklep z postaciami ~39 tys. = ~20 biegów).
+  monety: { zwykly: 0.16, elita: 1, kapral: 50, od: 240, wykl: 2.5 },
+  xpKrzywa: XP_KRZ,                                // K11: współczynniki xpDoNast
+  litosc: 0.34, serceElity: 0.08,                  // normalny bieg: drugie serce z bossa/kaprala przy HP ≤ 34%, serce z elity 8%
   // ROZGRZEWKA (24.09, szybkie złagodzenie; pełne strojenie K10/K11): mnożnik w 0:00 rośnie do 1 w `do`
   // jak (t/do)^wykl — długo nisko, domyka się w 4:00–5:00. Od 5:00 formuły §5 i tabela fal bez zmian.
   // Stan przy 3:00: tempo ×0,35 (2,6 wr/s zamiast 7,5), zdarzenia ×0,57, HP ×0,64, obrażenia ×0,50.
@@ -5236,7 +5321,7 @@ const CFG_BIEG = {
   // 5 postaci = Beetino ~28 tys./s (Carrotello 118, Razoretta 105, Granny 22, Garlicino 11 tys./s);
   // ×45 s (12 800) dawało walkę-medianę 41 s; przy 23 000 mediana 5 postaci 58 s (N=4/postać) → 24 000
   // = 2,4 mln na ekranie (walka: Carrotello ~23 s, Razoretta ~29 s, Beetino ~60 s, Granny ~83 s, Garlicino ~105 s).
-  // Obrażenia Dona STAŁE (bez dmgMul).
+  // Obrażenia (`dmg`, `kontakt`) kaprali i Dona od 25.09 NIE działają na gracza: 1 cios = 1 serce (ranGracza).
   don: {
     hp: 24000, tempo: 3.8, f2Tempo: 1.25, kontakt: 200, laska: 2, odpoczynek: 0.8,
     shur: { tel: 0.5, n: 3, kat: 18, v: 12, zasieg: 26, r: 0.7, omega: 0.6, dmg: 120, cd: 3.0, maxD: 24 },
@@ -5248,7 +5333,7 @@ const CFG_BIEG = {
     przejscie: 1.5,
     lawina: { co: 2.0, n: 3, r: 2.2, tel: 1.2, spad: 0.25, wys: 8, wyprz: 0.6, los: [3, 7], dmg: 200, tlum: 0.3 },
     wscieklosc: { po: 150, cd: 0.6, tempo: 1.2, lawinaN: 4 },
-    monety: { n: 10, val: 10, duza: 100 }, mnozWygranej: 1.5, pierwszaWygrana: 200,
+    monety: { n: 10, val: 20, duza: 100 }, mnozWygranej: 1.5, pierwszaWygrana: 200,   // B8: fontanna 200 → 300
   },
 };
 const TYPY_PULI = ['chipsetti', 'marshmallini', 'gummini', 'friesetti', 'sodino', 'lollini'];
@@ -5264,7 +5349,8 @@ function falaTeraz(t) {                           // { tempo, paczka, podloga } 
   if (t >= N.od && t < N.do) tempo *= N.mn;
   if (t >= S.od && t < S.do) tempo *= S.mn;
   return { tempo: tempo * SKALA_GESTOSCI * mnFali(t), paczka: a[2],
-           podloga: Math.round(lerp(a[3], b ? b[3] : a[3], k) * SKALA_GESTOSCI * mnFali(t, 'podloga')) };
+           podloga: Math.round(Math.min(lerp(a[3], b ? b[3] : a[3], k), G.lagodny ? CFG_BIEG.trybLagodny.podlogaMax : 1e9)
+                               * SKALA_GESTOSCI * mnFali(t, 'podloga')) };
 }
 function pulaTeraz(t) {
   const P_ = CFG_BIEG.pula;
@@ -5496,6 +5582,7 @@ function odpalZdarzenie(z) {
       break;
     }
     case 'sodowa': {                               // 16 Sodino w pierścieniu r 18 — wybiegnij z kręgu
+      if (G.lagodny) { malaObrecz(true); break; }  // K10: łagodny bieg — zwykła mała obręcz
       for (let k = 0; k < 16; k++) {
         const a = k / 16 * Math.PI * 2;
         wrogFali('sodino', P.pos.x + Math.sin(a) * 18, P.pos.z + Math.cos(a) * 18, { elita: 'nie' }, { puff: k % 2 === 0 ? 1.2 : 0 });
@@ -5581,8 +5668,8 @@ function spawnerWieczoru(dt) {
   }
   // Ketchupino na własnym zegarze (poza pulą)
   const K = CFG_BIEG.ketchup;
-  if (t >= K[0][0]) {
-    const co = t >= K[1][0] ? K[1][1] : K[0][1];
+  if (t >= Math.max(K[0][0], G.lagodny ? CFG_BIEG.trybLagodny.ketchupOd : 0)) {   // K10: łagodny później
+    const co = (t >= K[1][0] ? K[1][1] : K[0][1]) * lag('ketchupCo');   // K10: łagodny rzadziej
     if (t >= G.ketchT && (_ileTyp.ketchupino || 0) < CFG_BIEG.limity.ketchupino && zywi < LIMIT_SPAWNERA) {
       spawnEnemy('ketchupino');
       G.ketchT = t + co;
@@ -5687,7 +5774,7 @@ const liczKaprali = () => { let n = 0; for (const e of G.enemies) if (e.kapral &
 function spawnKapral(nr, natychmiast = false) {
   const KC = CFG_BIEG.kaprale, K = KC.lista[nr];
   if (!K || G.cisza || G.dying || !G.running) return null;
-  if (liczKaprali() >= KC.maxZywych) {             // najwyżej 2 naraz — kolejny czeka co 15 s
+  if (liczKaprali() >= (G.lagodny ? CFG_BIEG.trybLagodny.kapMax : KC.maxZywych)) {             // najwyżej 2 naraz — kolejny czeka co 15 s
     G.kolejkaFal.push({ t: G.time + KC.czekaj, f: () => spawnKapral(nr) });
     return null;
   }
@@ -5705,7 +5792,7 @@ function zrodzKaprala(nr, x, z) {
   const KC = CFG_BIEG.kaprale, K = KC.lista[nr];
   const e = spawnEnemy(K.typ, null, { x, z }, { elita: 'nie', skala: KC.skala });
   e.kapral = nr; e.kDef = K; e.tempo = K.tempo; e.kbMn = KC.kb; e.kStart = G.time;
-  e.hp = e.maxHp = K.hp * SKALA_WROGA;
+  e.hp = e.maxHp = K.hp * SKALA_WROGA * lag('kapHp');   // K10: łagodny ×0,3 (trybLagodny.kapHp)
   // PODWÓJNY FIOLETOWY KRĄG (zwykła elita: pojedynczy 1,8) — instancje w pulaKrag, puls 2 Hz w pętli wrogów
   e.ring = new THREE.Object3D(); e.ring.scale.set(3.0, 1, 3.0);
   e.ring2 = new THREE.Object3D(); e.ring2.scale.set(2.3, 1, 2.3);
@@ -5725,6 +5812,16 @@ function aiKaprala(e, dt, d, to, es) {
   // Mrożonki zatrzymują też kaprala (to on ma być nagrodą), ale NIE przerywają rozpoczętej sztuczki: jej
   // telegraf ma własny zegar i gasłby w trakcie mrozu → cios bez ostrzeżenia. Nowa sztuczka nie ruszy (es = 0).
   if (G.buff.key === 'mroz' && !(e.kS && e.kS.faz && e.kS.faz !== 'marsz')) return 0;
+  // K10: łagodny bieg — niepokonany kapral po `kapCzas` s odchodzi (jak horda w ciszy: od gracza, bez ciosów,
+  // > 40 j. znika bez piniaty), ale nie w środku sztuczki. Nowy gracz nie ciągnie dwóch kaprali do końca biegu.
+  // Girandola czeka w stanie 'marsz' (nie null) — bez tego wyjątku nigdy nie odchodziła i blokowała Botta (1 naraz).
+  if (G.lagodny && G.time - e.kStart > CFG_BIEG.trybLagodny.kapCzas && !(e.kS && e.kS.faz && e.kS.faz !== 'marsz')) {
+    e.bb.mesh.scale.set(e.bb.h, e.bb.h, 1);
+    e.odwrot = true; e.kS = null; e.lot = false; e.zapalony = false;
+    toastWieczoru(e.kDef.nm + ' — odpuszcza… na razie!', e.kDef.nm + ' gives up… for now!', 2000);
+    G.zdarzenia.push({ t: +G.time.toFixed(1), typ: 'kapral' + e.kapral + '-odchodzi' });
+    return 0;
+  }
   const K = e.kDef;
   switch (e.kapral) {
     case 2: {                                        // SALSA TRIPLA: okienko 10–16 j., salwa 3 globów w poprzek drogi
@@ -5734,7 +5831,7 @@ function aiKaprala(e, dt, d, to, es) {
       else if (d <= K.okno[1]) v = 0;               // w okienku stoi i celuje
       if (e.bb.anim === 'punch' && e.bb.done) e.bb.play(e.T.walk);
       e.kCd = (e.kCd == null ? 2.0 : e.kCd) - dt;
-      if (e.kCd <= 0 && d <= K.okno[1] + 4) { e.kCd = K.co; salwaSalsy(e, K); }
+      if (e.kCd <= 0 && d <= K.okno[1] + 4) { e.kCd = K.co * lag('kapCd'); salwaSalsy(e, K); }
       return v;
     }
     case 3: {                                        // FRITTONE: potrójna szarża po pasach, potem długie ogłuszenie
@@ -5745,7 +5842,7 @@ function aiKaprala(e, dt, d, to, es) {
         if (S.cd <= 0 && es > 0 && d > K.okno[0] && d < K.okno[1] && P.y - e.ty < 1.2) {
           S.faz = 'tel'; S.t = K.tel; S.n = 0;
           pasFrittone(e, S, K, K.tel);
-          dmgPop(e.pos.x, e.ty + 1.2, e.pos.z, '!', '#f6cd51', 1.8);
+          dmgPop(e.pos.x, e.ty + 1.2, e.pos.z, '!', '#f6cd51', 1.8, 'wazny');
         }
         return es;
       }
@@ -5773,7 +5870,7 @@ function aiKaprala(e, dt, d, to, es) {
       if (S.faz === 'ogl') {                           // OGŁUSZENIE 2,5 s — okno na obrażenia
         S.popT -= dt;
         if (S.popT <= 0) { S.popT = 0.8; dmgPop(e.pos.x, e.ty + 1.0, e.pos.z, '@', '#ffe066', 1.6); }
-        if (S.t <= 0) { S.faz = null; S.cd = K.cd; }
+        if (S.t <= 0) { S.faz = null; S.cd = K.cd * lag('kapCd'); }
         return 0;
       }
       return es;
@@ -5798,7 +5895,7 @@ function aiKaprala(e, dt, d, to, es) {
       e.pos.x = S.x0 + (S.x1 - S.x0) * k; e.pos.z = S.z0 + (S.z1 - S.z0) * k;
       e.ty = S.y0 + (g1 - S.y0) * k + Math.sin(k * Math.PI) * K.wys;
       to.set(S.x1 - S.x0, 0, S.z1 - S.z0).normalize();
-      if (k >= 1) { e.lot = false; e.ty = g1; S.faz = null; S.cd = K.co; ladowanieGommone(e, K); }
+      if (k >= 1) { e.lot = false; e.ty = g1; S.faz = null; S.cd = K.co * lag('kapCd'); ladowanieGommone(e, K); }
       return 0;
     }
     case 5: {                                        // GIRANDOLA: telegraf → wir 3 s z tarczą r 3,2 → zawroty 3 s
@@ -5851,7 +5948,7 @@ function aiKaprala(e, dt, d, to, es) {
           S.faz = 'lont'; S.t = K.lont; S.x = e.pos.x; S.z = e.pos.z;
           telegraf('krag', S.x, S.z, { r: K.r, kolor: 0xff2a2a, dur: K.lont, puls: true, a: 0.95 });
           telegraf('dysk', S.x, S.z, { r: K.r, kolor: 0xff2a2a, dur: K.lont, rosnie: true, a: 0.3, strefa: false });
-          dmgPop(e.pos.x, e.ty + 1.6, e.pos.z, T('SSS!', 'HSSS!'), '#ff9d3f', 1.4);
+          dmgPop(e.pos.x, e.ty + 1.6, e.pos.z, T('SSS!', 'HSSS!'), '#ff9d3f', 1.4, 'wazny');
         }
         return es;
       }
@@ -5864,7 +5961,7 @@ function aiKaprala(e, dt, d, to, es) {
         }
         return 0;
       }
-      if (S.faz === 'zadyszka') { if (S.t <= 0) { S.faz = null; S.cd = K.cd; } return 0; }
+      if (S.faz === 'zadyszka') { if (S.t <= 0) { S.faz = null; S.cd = K.cd * lag('kapCd'); } return 0; }
       return es;
     }
     default: return es;                              // 1 Pianissimo: sztuczka dopiero przy śmierci (nagrodaKaprala)
@@ -5930,20 +6027,20 @@ function nagrodaKaprala(e) {
   const K = e.kDef, x = e.pos.x, z = e.pos.z;
   G.hitstop = Math.max(G.hitstop, 0.12);
   G.kino = Math.max(G.kino, 0.6);
-  dmgPop(x, e.ty + 1.6, z, T('PINIATA!', 'PINATA!'), '#c07bff', 2.4);
+  dmgPop(x, e.ty + 1.6, z, T('PINIATA!', 'PINATA!'), '#c07bff', 2.4, 'wazny');
   for (const kol of [0xc07bff, 0xffd75e, 0xff6fa5, 0x7ee7ff, 0x9be15d]) okruchy(x, e.ty + 1.2, z, kol, 6);
   AUDIO.sfx('zlota');
   padWibruj(0.6, 160);
   // fontanna XP: 12 pigułek o łącznej wartości xpDoNast(P.lvl) = P.xpNeed (pickup mnoży przez xpPigulki)
-  const val = P.xpNeed / (CFG_BIEG.xpPigulki || 1) / 12;
+  const val = P.xpNeed / ((CFG_BIEG.xpPigulki || 1) * lag('xp')) / 12;
   for (let k = 0; k < 12; k++) {
     const a = k / 12 * Math.PI * 2 + Math.random() * 0.4, r = 2 + Math.random() * 2;
     G.gems.push(makeGem(x + Math.sin(a) * r, z + Math.cos(a) * r, val));
   }
   postawSkrzynieKaprala(x, z);
-  const mnoznikSerii = G.streak >= 30 ? 3 : (G.streak >= 12 ? 2 : 1);
-  G.coins.push(makeCoin(x + 0.9, z + 0.4, 15 * mnoznikSerii));
-  G.hps.push(makeHeart(x - 0.9, z + 0.4));        // 1 gwarantowane (łagodny bieg: 2 — K10)
+  G.coins.push(makeCoin(x + 0.9, z + 0.4, CFG_BIEG.monety.kapral));   // B8: stała nagroda (bez mnożnika serii)
+  G.hps.push(makeHeart(x - 0.9, z + 0.4));        // 1 gwarantowane + litość: drugie przy HP ≤ 34% (łagodny ≤ 50%)
+  if (P.hp <= P.maxHp * (G.lagodny ? CFG_BIEG.trybLagodny.litosc : CFG_BIEG.litosc)) G.hps.push(makeHeart(x - 0.9, z - 0.6));
   G.kaprale = (G.kaprale || 0) + 1;
   META.st.kaprale = (META.st.kaprale || 0) + 1; saveMetaSoon();
   const tt = 90 * e.kapral;
@@ -6050,7 +6147,7 @@ function wejscieDona(dev = false) {
   const D = CFG_BIEG.don;
   const e = spawnEnemy('boss', katKamery(), null, { r: [15, 17], elita: 'nie' });
   e.don = true; e.bezKb = true; e.tempo = D.tempo;
-  e.hp = e.maxHp = D.hp * SKALA_WROGA;             // stała godzina = stałe HP (bez hpScale), jedno dla wszystkich postaci
+  e.hp = e.maxHp = D.hp * SKALA_WROGA * lag('donHp');   // stała godzina = stałe HP (bez hpScale), jedno dla wszystkich postaci; K10: łagodny ×0,12 (trybLagodny.donHp)
   e.donS = { stan: 'spada', t: 0, dl: 0.6, faza: 1, walkaT: 0, cdShur: 0, cdSalt: 0, cdChiam: D.chiam.pierwsza, lawinaT: 0, wsc: false };
   e.ty += 12; e.lot = true;
   e.bb.play('jump', false);
@@ -6079,7 +6176,7 @@ const liczChiamate = () => { let n = 0; for (const o of G.enemies) if (o.chiamat
 // Don ignoruje Mrożonki i spowolnienie (sam liczy tempo), zwraca prędkość marszu.
 function aiDona(e, dt, d, to) {
   const D = CFG_BIEG.don, S = e.donS;
-  const f2 = S.faza === 2, mnCd = S.wsc ? D.wscieklosc.cd : 1;
+  const f2 = S.faza === 2, mnCd = (S.wsc ? D.wscieklosc.cd : 1) * lag('donCd');   // K10: łagodny ×1,25
   S.t += dt;
   if (S.stan !== 'spada') {
     S.walkaT += dt;
@@ -6093,7 +6190,7 @@ function aiDona(e, dt, d, to) {
     }
     if (f2 && S.stan !== 'przejscie') {
       S.lawinaT -= dt;
-      if (S.lawinaT <= 0) { S.lawinaT = D.lawina.co * mnCd; lawinaDona(S.wsc ? D.wscieklosc.lawinaN : D.lawina.n); }
+      if (S.lawinaT <= 0) { S.lawinaT = D.lawina.co * mnCd; lawinaDona(S.wsc ? D.wscieklosc.lawinaN : (G.lagodny ? CFG_BIEG.trybLagodny.lawinaN : D.lawina.n)); }
     }
   }
   const tempo = D.tempo * (f2 ? D.f2Tempo : 1) * (S.wsc ? D.wscieklosc.tempo : 1) * (d > 26 ? 1.35 : 1);
@@ -6348,12 +6445,21 @@ function updateZwyciestwa(dtR) {
     blysk('#ffd75e', 0.35);
     AUDIO.sfx('zlota');
   }
-  if (W.krok < 4 && W.t >= 3.0) {                  // ekran końca (K9 zrobi porządny ekran wygranej)
-    W.krok = 4;
-    for (const c of G.coins) G.runCoins += Math.round((c.val || 1) * monetyMul());   // niezebrane monety z fontanny
-    G.coins = [];
-    gameOver('wygrana');
+  if (W.krok < 4 && W.t >= 3.0) {                  // ekran końca (K9: koniecBiegu)
+    domknijWygrana();
+    koniecBiegu('wygrana');
   }
+}
+// Dokończenie ceremonii wygranej: monety z fontanny (jeśli jeszcze nie wypadły) i wszystkie niezebrane z ziemi
+// idą do biegu. Woła ją ceremonia po 3 s i koniecBiegu('menu') w trakcie ceremonii (przegląd K9–K11: „Do menu"
+// z pauzy w tych 3 s kasowało wygraną).
+function domknijWygrana() {
+  const W = G.wygrana, D = CFG_BIEG.don;
+  if (!W || W.krok >= 4) return;
+  if (W.krok < 2) G.runCoins += Math.round((D.monety.n * D.monety.val + D.monety.duza) * monetyMul());
+  for (const c of G.coins) G.runCoins += Math.round((c.val || 1) * monetyMul());   // niezebrane monety z fontanny
+  G.coins = [];
+  W.krok = 4;
 }
 function updateDon(dt, dtR) {
   if (G.donPoc.length) updateDonPoc(dt);
@@ -6789,15 +6895,30 @@ function popMat(str, color) {
   popCache.set(key, m);
   return m;
 }
-function dmgPop(x, ty, z, str, color = '#ffe066', scale = 1) {
-  if (G.pops.length > 70) return;                 // bezpiecznik przy hordach
+// `rodzaj`: 'wazny' — napis, który gracz MUSI zobaczyć (czerwone „-1", „+SERCE", „RANGA", „PINIATA!", „KONIEC!",
+// telegrafy „!"/„SSS!"): omija limity, a przy pełnym limicie wypiera najstarszy zwykły napis (liczba draw calli
+// się nie zmienia); 'kill' — napis zabójstwa („x34"/„KILL"): w tłoku liczony jak drobny.
+function dmgPop(x, ty, z, str, color = '#ffe066', scale = 1, rodzaj) {
+  // K11 (wydajność, telefon: kapral 6 + ~300 wrogów = 32–48 FPS): każdy napis to osobny Mesh z klonem
+  // materiału = osobny draw call (nie są instancjonowane), a w późnej grze bronie trzymały ich stale ~70.
+  // W tłoku (> 200 wrogów) limit 36, drobne (scale < 1 i zabójstwa) od 12 — krytyki i elity zostają.
+  const tlok = G.enemies.length > 200, limit = tlok ? 36 : 70;
+  if (rodzaj === 'wazny') {
+    if (G.pops.length > limit) {                   // zrób miejsce: najstarszy zwykły napis (początek tablicy) znika
+      const i = G.pops.findIndex(p => !p.wazny);
+      if (i >= 0) { const p = G.pops[i]; scene.remove(p.mesh); p.mesh.material.dispose(); G.pops.splice(i, 1); }
+      else if (G.pops.length > 100) return;        // same ważne — twardy bezpiecznik
+    }
+  } else {
+    if (G.pops.length > limit) return;             // bezpiecznik przy hordach
+    if ((scale < 1 || (tlok && rodzaj === 'kill')) && G.pops.length > (tlok ? 12 : 24)) return;
+  }
   // ZATŁOCZONY KADR. Napis rósł WPROST ze skali, a szerokość dodatkowo z długości
   // tekstu: „KILL X34" przy serii 34 miało 1.87 j. wysokości i **7.6 j. szerokości**,
   // czyli zasłaniało pół ekranu razem z postacią (zrzut z 13.08). Teraz:
   //  • drobne liczby ustępują, gdy w kadrze i tak jest tłok (krytyki, elity i boss
-  //    mają scale >= 1, więc zostają),
+  //    mają scale >= 1, więc zostają) — warunek wyżej, razem z limitem,
   //  • szerokość jest ograniczona, a długie napisy zjeżdżają z wysokością.
-  if (scale < 1 && G.pops.length > 24) return;
   const mat = popMat(str, color);
   const mesh = new THREE.Mesh(unitGeo, mat.clone());
   const asp = mat.userData.aspect || 2.9;
@@ -6807,7 +6928,7 @@ function dmgPop(x, ty, z, str, color = '#ffe066', scale = 1) {
   mesh.scale.set(wys * asp, wys, 1);
   mesh.position.set(x + (Math.random() - .5) * 0.7, ty + 1.7, z);
   scene.add(mesh);
-  G.pops.push({ mesh, t: 0 });
+  G.pops.push({ mesh, t: 0, wazny: rodzaj === 'wazny' });
 }
 // E1-bieg K4: liczba na ekranie = PRAWDZIWE obrażenia (skala ×100 w HP wrogów), 2 cyfry znaczące:
 // 327 → 330, 1234 → 1200, 14 321 → 14K, 4,2 mln → 4.2M. Dawniej kosmetyczne ×250 bez związku z HP.
@@ -6867,7 +6988,7 @@ function zadajDmg(e, dmg, o = {}) {
     P.sok = Math.min(4, (P.sok || 0) + dmg / SKALA_WROGA * 0.10);   // sok w jednostkach bazowych (próg 4 bez zmian)
     if (P.sok >= 4 && P.hp < P.maxHp && G.time >= (P.leczT || 0)) {
       P.sok = 0; P.leczT = G.time + BEET_LECZ_CD; P.hp = Math.min(P.maxHp, P.hp + HP_SERCA); drawHearts();
-      dmgPop(P.pos.x, P.y + 0.7, P.pos.z, T('+SERCE', '+HEART'), '#ff6fa5', 1.2);
+      dmgPop(P.pos.x, P.y + 0.7, P.pos.z, T('+SERCE', '+HEART'), '#ff6fa5', 1.2, 'wazny');
       AUDIO.sfx('serce');
     }
   }
@@ -8115,8 +8236,7 @@ function drawHearts(drgnij = false) {
   // cala klatke, a wystarczy jedno leczenie ponad max (albo hak debugowy), zeby to
   // wywolac. Prog licznika nizszy na waskich ekranach — rzad 11 serc wchodzil
   // w licznik ZAGROZENIA.
-  // E1-bieg K3: HP w skali ×100 — reszta serca rysuje się ĆWIARTKAMI (pełne serce przycięte
-  // clip-path na pustym, bez nowej grafiki), obok mała liczba prawdziwego HP.
+  // 25.09 (decyzja właściciela „1 uderzenie = 1 serce"): serca CAŁE — ćwiartki z K3 usunięte.
   // 24.09 (decyzja właściciela): ŻYCIE TYLKO JAKO SERDUSZKA — bez liczby HP obok i bez licznika
   // „1200 / 1500" przy wielu sercach; przy wielu sercach rząd rysuje się mniejszymi ikonami.
   // 25.09 (przegląd K7–K8): przy 11+ sercach (Beetino 8 + 3 Serducha) rząd na telefonie wchodził pod pauzę
@@ -8134,36 +8254,33 @@ function drawHearts(drgnij = false) {
   }
   const el = document.getElementById('hearts');
   el.style.maxWidth = Math.min(W, wRzedzie * krokSerca(R)) + 'px';
-  const pelne = Math.min(serc, Math.floor(hp / HP_SERCA)), r = pelne < serc ? hp - pelne * HP_SERCA : 0;
-  const q = r > 0 ? Math.max(1, Math.round(r / (HP_SERCA / 4))) : 0;
-  let h = ico('serce', R).repeat(pelne), puste = serc - pelne;
-  if (q >= 4) { h += ico('serce', R); puste--; }
-  else if (q > 0) {
-    h += `<span class="sc">${ico('sercePuste', R)}<span class="scq" style="clip-path:inset(0 ${100 - 25 * q}% 0 0)">${ico('serce', R)}</span></span>`;
-    puste--;
-  }
-  el.innerHTML = h + ico('sercePuste', R).repeat(Math.max(0, puste));
+  const pelne = Math.min(serc, Math.ceil(hp / HP_SERCA - 1e-6));   // całe serca (25.09: bez ćwiartek)
+  el.innerHTML = ico('serce', R).repeat(pelne) + ico('sercePuste', R).repeat(Math.max(0, serc - pelne));
   if (drgnij) {                                    // trafienie: serca drgają 200 ms
     el.classList.remove('drgnij'); void el.offsetWidth; el.classList.add('drgnij');
     clearTimeout(_drgT); _drgT = setTimeout(() => el.classList.remove('drgnij'), 200);
   }
 }
-// E1-bieg K3: JEDEN helper obrażeń gracza — zastępuje każde „P.hp -= …" (kontakt, Sodino, ketchup,
-// regał; K7/K8: kaprale i Don). Sprawdza nietykalność (chyba że `o.dot`), garnek/karabin
-// (`ciosPochloniety`), tarczę brainrota; ustawia nietykalność, winietę, wstrząs, dźwięk, czerwony pop
-// nad graczem, źródło ostatniego ciosu (ekran porażki, K9) i licznik obrażeń per źródło.
-//   o.nietyk — s nietykalności (domyślnie 0,9), o.shake — wstrząs, o.dot — obrażenia ciągłe.
+// JEDEN helper obrażeń gracza — każde trafienie (kontakt, Sodino, ketchup, regał, sztuczki kaprali, ataki
+// Dona, lawina) idzie tędy. **1 cios = 1 serce** (decyzja właściciela 25.09): pierwszy argument jest
+// IGNOROWANY (zostaje w wywołaniach jako opis siły ataku z CFG_BIEG), bez skalowania w czasie — trudność
+// rośnie liczbą, HP i tempem wrogów, nie siłą ciosu. Obrażenia ciągłe (`o.dot`, Salt Storm): pierwsze
+// wejście zabiera 1 serce, potem zwykła nietykalność 0,9 s. Sprawdza nietykalność, garnek/karabin
+// (`ciosPochloniety`), tarczę; ustawia nietykalność, winietę, wstrząs, dźwięk, pop „-1", źródło ostatniego
+// ciosu (ekran porażki) i licznik trafień per źródło (`G.obrazeniaOd`, w sercach).
+//   o.nietyk — dłuższa nietykalność w s (domyślnie 0,9, łagodny 2,0; krótszej nie da), o.shake — wstrząs, o.dot — obrażenia ciągłe.
 // Zwraca true, gdy cios wszedł.
-const obrazeniaWroga = baza => baza * HP_SERCA * dmgMul();   // baza = dawne T.dmg w sercach
-function ranGracza(ile, zr = 'inne', o = {}) {
+// `obrazeniaWroga` — już TYLKO wytrzymałość Sokowirówki (wrogowie biją wieżyczkę: T.dmg × dmgMul).
+const obrazeniaWroga = baza => baza * HP_SERCA * dmgMul();
+function ranGracza(_sila, zr = 'inne', o = {}) {
   if (G.dying || !G.running || G.wygrana) return false;   // K8: po śmierci Dona gracz nietykalny do końca
-  if (!o.dot && P.iframes > 0) return false;
-  // DoT (tiki co klatkę) przy garnku albo w trybie karabinu: pochłonięte BEZ kosztu — inaczej każdy
-  // tik zabierałby życie trybu karabinu (karabinZjadlCios) i 3 tiki kończyłyby tryb (pułapka na K8)
+  if (P.iframes > 0 || G.time < G.nonnaDo) return false;   // K10: 3 s po Ręce Nonny
+  // DoT przy garnku albo w trybie karabinu: pochłonięte BEZ kosztu — inaczej sól zabierałaby życie trybu
+  // karabinu (karabinZjadlCios) co 0,9 s
   if (o.dot && (G.buff.key === 'niet' || G.fps.on)) return false;
   if (ciosPochloniety()) return false;
   const tarczaLvl = P.passives.tarcza || 0;
-  if (!o.dot && tarczaLvl > 0 && P.shieldCd <= 0) {  // 🛡️ tarcza zjada cios
+  if (tarczaLvl > 0 && P.shieldCd <= 0) {          // 🛡️ tarcza zjada cios
     P.shieldCd = [30, 24, 18][tarczaLvl - 1];
     P.iframes = 0.9;
     AUDIO.sfx('tarcza');
@@ -8172,18 +8289,48 @@ function ranGracza(ile, zr = 'inne', o = {}) {
     novaRing(P.pos.x, P.pos.z, 2);
     return false;
   }
+  const ile = HP_SERCA;                            // zawsze dokładnie 1 serce
   P.hp -= ile;
-  if (!o.dot) P.iframes = o.nietyk != null ? o.nietyk : 0.9;
+  // `o.nietyk` (regał 1,1 s) może nietykalność tylko WYDŁUŻYĆ — w łagodnym biegu (2 s) nie skraca jej trybowi
+  P.iframes = Math.max(o.nietyk || 0, G.lagodny ? CFG_BIEG.trybLagodny.nietyk : CFG_BIEG.nietyk);
   G.shake = Math.max(G.shake, o.shake != null ? o.shake : 0.35);
   AUDIO.sfx('hurt');
   const v = document.getElementById('vign');
   v.style.opacity = 1; setTimeout(() => { if (!G.dying) v.style.opacity = 0; }, 180);
-  dmgPop(P.pos.x, P.y + 0.4, P.pos.z, '-' + Math.round(ile), '#ff4a4a', 1.1);   // ≥ 1: nie ginie w tłumie
+  dmgPop(P.pos.x, P.y + 0.4, P.pos.z, '-1', '#ff4a4a', 1.1, 'wazny');   // ważny: limit napisów w tłoku go nie zjada
   G.ostatniCios = zr;
   G.obrazeniaOd[zr] = (G.obrazeniaOd[zr] || 0) + ile;
+  if (P.hp <= 0 && G.lagodny && !G.rekaNonny && !STRES) rekaNonny();   // K10: raz na bieg zamiast śmierci
   drawHearts(true);
   if (P.hp <= 0) startDeath();
   return true;
+}
+// E1-bieg K10: RĘKA NONNY (spec §7) — tylko łagodny bieg, raz: śmiertelny cios → 50% serc (całe, w górę),
+// fala odpychająca r 10 (siła 9, bez obrażeń — pozycja wprost, jak fala karabinu, bo Gummini mają bezKb),
+// 3 s nietykalności (także na DoT soli), napis „NONNA: Jeszcze nie, skarbie!". W normalnym biegu tę rolę przejmie
+// wskrzeszenie z reklamy (E5).
+function rekaNonny() {
+  const R = CFG_BIEG.trybLagodny.reka;
+  G.rekaNonny = true;
+  P.hp = Math.max(HP_SERCA, Math.round(P.maxHp * R.hp / HP_SERCA) * HP_SERCA);
+  P.iframes = R.niet; G.nonnaDo = G.time + R.niet;
+  for (const e of G.enemies) {
+    if (e.dying) continue;
+    const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z, d = Math.hypot(dx, dz);
+    if (d > R.r) continue;
+    const nd = Math.min(R.r, d + R.sila), inv = 1 / Math.max(d, 0.001);
+    e.pos.x = P.pos.x + dx * inv * nd; e.pos.z = P.pos.z + dz * inv * nd;
+    if (!e.don) e.stun = Math.max(e.stun || 0, 0.5);
+  }
+  novaRing(P.pos.x, P.pos.z, R.r * 0.5);
+  puff(P.pos.x, P.y + 1, P.pos.z, 0xffd75e, 2.4);
+  okruchy(P.pos.x, P.y + 1.4, P.pos.z, 0xffd75e, 16);
+  blysk('#ffd75e', 0.3);
+  G.hitstop = Math.max(G.hitstop, 0.15); G.shake = Math.max(G.shake, 0.5);
+  AUDIO.sfx('zlota');
+  napis(T('NONNA: Jeszcze nie, skarbie!', 'NONNA: Not yet, sweetheart!'), 2200, '#ffd75e');
+  G.zdarzenia.push({ t: +G.time.toFixed(1), typ: 'reka-nonny' });
+  STATY.zdarzenie('reka-nonny/min-' + kubelekMinut(G.time), 'Ręka Nonny: ' + fmtTime(G.time));
 }
 const fmtTime = t => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
 const drawCoins = () => document.getElementById('coins').innerHTML = ico('moneta', 15) + ' ' + G.runCoins;
@@ -9904,7 +10051,7 @@ function update(dt) {
       if (!e.faz && e.szarzaCd <= 0 && es > 0 && d > FRIES_MIN && d < FRIES_MAX && P.y - e.ty < 1.2) {
         e.faz = 'tell'; e.fazT = FRIES_TELEGRAF;
         novaRing(e.pos.x, e.pos.z, 1.1);                                   // okrąg pod stopami
-        dmgPop(e.pos.x, e.ty + 0.6, e.pos.z, '!', '#f6cd51', 1.4);
+        dmgPop(e.pos.x, e.ty + 0.6, e.pos.z, '!', '#f6cd51', 1.4, 'wazny');
       }
       if (e.faz === 'tell') {
         e.fazT -= dt; es = 0;
@@ -10020,10 +10167,10 @@ function update(dt) {
     const tarcza = e.wirujeTeraz ? LOLLINI_TARCZA : 0;
     // K7/K8: kapral (×1,9) i Don sięgają dalej; w odwrocie (cisza) nikt nie bije
     if (!e.odwrot && d < 0.9 + (e.T.boss ? 0.8 : e.kapral ? 0.5 : 0) + tarcza && P.iframes <= 0 && P.y - e.ty < 1.0) {
-      // E1-bieg K3: kontakt = T.dmg × HP_SERCA × dmgMul (Chipsetti 0:00 = 100, 10:00 = 200);
-      // kapral 150 × dmgMul, Don 200 stałe (spec §2.1, §3.3)
-      const ile = e.don ? CFG_BIEG.don.kontakt : obrazeniaWroga(e.kapral ? CFG_BIEG.kaprale.kontakt : e.T.dmg);
-      if (ranGracza(ile, e.don ? 'don' : e.kapral ? 'kapral' + e.kapral : e.type) && tarcza) {   // TARCZA PILARSKA wyrzuca gracza z zasięgu
+      // kontakt = 1 serce (ranGracza ignoruje siłę; decyzja 25.09 „1 uderzenie = 1 serce")
+      const ile = HP_SERCA;
+      // kontakt kaprala ma własny klucz ('kapral3-dotyk'): 'kapral3' to jego sztuczka (szarża) — „Zabił cię" je rozróżnia
+      if (ranGracza(ile, e.don ? 'don' : e.kapral ? 'kapral' + e.kapral + '-dotyk' : e.type) && tarcza) {   // TARCZA PILARSKA wyrzuca gracza z zasięgu
         const kx = P.pos.x - e.pos.x, kz = P.pos.z - e.pos.z, kl = Math.hypot(kx, kz) || 1;
         P.kbx = kx / kl * LOLLINI_ODRZUT; P.kbz = kz / kl * LOLLINI_ODRZUT;
         G.shake = 0.5;
@@ -10295,7 +10442,7 @@ function update(dt) {
     // zostawione za plecami zostaje na zawsze (zmierzone: 299 pigulek po 4:43)
     if (g.t > 45 && d > mag * 3) { scene.remove(g.mesh); G.gems.splice(i, 1); continue; }
     if (d < 0.7) {
-      P.xp += g.val * CFG_BIEG.xpPigulki;
+      P.xp += g.val * CFG_BIEG.xpPigulki * lag('xp');
       AUDIO.sfx('xp');
       scene.remove(g.mesh); G.gems.splice(i, 1);
       // WHILE, nie IF: jedna pigulka moze dac wiecej niz jeden poziom, a przy
@@ -10339,7 +10486,7 @@ function update(dt) {
     if (d < 0.8 && P.hp < P.maxHp) {
       P.hp = Math.min(P.maxHp, P.hp + HP_SERCA); drawHearts();
       AUDIO.sfx('serce');
-      dmgPop(P.pos.x, pTy + 0.6, P.pos.z, T('+SERCE', '+HEART'), '#ff8080', 1.4);
+      dmgPop(P.pos.x, pTy + 0.6, P.pos.z, T('+SERCE', '+HEART'), '#ff8080', 1.4, 'wazny');
       scene.remove(h.mesh); G.hps.splice(i, 1);
     }
   }
@@ -10418,7 +10565,7 @@ function startDeath() {
   G.shake = 0.9;
   AUDIO.sfx('koniec');
   document.getElementById('vign').style.opacity = 1;
-  dmgPop(P.pos.x, P.y + 1.2, P.pos.z, T('KONIEC!', 'GAME OVER!'), '#ff4a4a', 2.4);
+  dmgPop(P.pos.x, P.y + 1.2, P.pos.z, T('KONIEC!', 'GAME OVER!'), '#ff4a4a', 2.4, 'wazny');
   novaRing(P.pos.x, P.pos.z, 6);
   if (hitFlash) hitFlash.visible = false;
   AUDIO.event('smierc');                           // ostatnia kwestia postaci
@@ -10454,13 +10601,15 @@ function updateDeath(dt) {
     p.mesh.material.opacity = Math.max(0, 1 - p.t / 1.4);
     if (p.t > 1.4) { scene.remove(p.mesh); p.mesh.material.dispose(); G.pops.splice(i, 1); }
   }
-  if (t > 1.8) { G.dying = false; gameOver(); }
+  if (t > 1.8) { G.dying = false; koniecBiegu('smierc'); }
 }
 
 // Rozliczenie biegu w JEDNYM miejscu. Wcześniej monety dopisywał tylko
 // `gameOver()`, więc wyjście do menu z pauzy po długim biegu kasowało cały
 // zarobek — i to prawdopodobnie stąd brało się część odczucia „monet jest za mało".
-function rozliczBieg() {
+// E1-bieg K9: `mnoznik` (wygrana ×1,5) i `bonus` (nagroda Nonny) doliczane TUTAJ — jedyne miejsce dopisania monet.
+function rozliczBieg(mnoznik = 1, bonus = 0) {
+  G.runCoins = Math.round(G.runCoins * mnoznik) + bonus;
   G.zebrane = G.runCoins;                          // do pokazania na ekranie końca
   if (!G.runCoins) return;
   META.coins += G.runCoins;
@@ -10491,7 +10640,7 @@ function tickerLiczb(root) {
   setTimeout(domknij, T + 400);
   const krok = (teraz) => {
     if (gotowe) return;
-    const k = Math.min(1, (teraz - start) / T);
+    const k = Math.max(0, Math.min(1, (teraz - start) / T));   // K9: znacznik rAF bywa sprzed `start` → k < 0 dawało ujemne liczby
     const e = 1 - Math.pow(1 - k, 3);              // szybko rośnie, miękko wyhamowuje
     for (const p of pola) {
       const cel = +p.dataset.licz, czas = p.dataset.czas;
@@ -10517,67 +10666,202 @@ function deszczMonet(ile) {
     setTimeout(() => d.remove(), 3200);
   }
 }
-// E1-bieg K8: `powod` = 'smierc' | 'wygrana'. Wygrana: monety biegu ×1,5 (+200 za pierwszy Wieczór w historii
-// zapisu), tytuł „WIECZÓR WYGRANY!", czas walki z Donem. Porządny ekran końca i koniecBiegu() — K9.
-function gameOver(powod = 'smierc') {
-  const wygrana = powod === 'wygrana', D = CFG_BIEG.don;
+// E1-bieg K9 (spec §8.1): JEDNA ścieżka końca biegu — `koniecBiegu(powod)`, powod ∈ 'smierc' | 'wygrana' | 'menu'.
+// Kolejność: zamrożenie → rozliczBieg(mnożnik) → liczniki META.st → GoatCounter → ekran (poza 'menu').
+// Dane ekranu liczone PRZED clearWorld (Don/kapral żywy, bronie gracza) — `daneKonca()`.
+const ZR_BRONI_EXTRA = {                           // źródła obrażeń gracza, które nie są kluczem WEAPONS
+  smrod: ['skarpeta', 'Smrodliwa aura', 'Stink aura'], karabin: ['celownik', 'Karabin', 'Rifle'],
+  glaz: ['ostrzezenie', 'Głazy', 'Boulders'], regal: ['ostrzezenie', 'Regały', 'Shelves'],
+  kapral6: ['ostrzezenie', 'Wybuch Botta', "Botto's blast"],
+};
+function opisZrodla(zr) {                          // { nm, ico, bron } — broń gracza albo inne źródło
+  const W = WEAPONS[zr];
+  if (W) { const evo = W.evoKey && P.evo[W.evoKey]; return { nm: evo && W.evoNm ? W.evoNm.charAt(0) + W.evoNm.slice(1).toLowerCase() : W.nm, ico: evo && W.evoIco ? W.evoIco : W.ico, bron: true }; }
+  const x = ZR_BRONI_EXTRA[zr];
+  // karabin i Smrodliwa aura (Garlicino) to broń gracza spoza WEAPONS — na ekranie końca mają własny wiersz, nie „Inne"
+  return x ? { nm: T(x[1], x[2]), ico: x[0], bron: false, wlasna: zr === 'karabin' || zr === 'smrod' }
+           : { nm: T('Inne', 'Other'), ico: 'ostrzezenie', bron: false };
+}
+function nazwaSprawcy(zr) {                        // „Zabił cię: …" z klucza `G.ostatniCios` (ranGracza)
+  if (!zr) return '';
+  // 'kapralN' = sztuczka kaprala, 'kapralN-dotyk' = zwykły kontakt (samo imię)
+  const KL = CFG_BIEG.kaprale.lista, m = /^kapral(\d)(-dotyk)?$/.exec(zr);
+  const sztuczka = { kapral2: T('salwa ketchupu', 'ketchup volley'), kapral3: T('szarża', 'charge'), kapral4: T('skok', 'slam'),
+                     kapral5: T('wir', 'spin'), kapral6: T('wybuch', 'blast') };
+  if (m && KL[+m[1]]) return KL[+m[1]].nm + (!m[2] && sztuczka[zr] ? ' (' + sztuczka[zr] + ')' : '');
+  const don = { don: '', 'don-sol': 'Salt Storm', 'don-shuriken': 'Chip Shuriken', 'don-lawina': T('lawina chipsów', 'chip avalanche') };
+  if (zr in don) return 'Don Chipso' + (don[zr] ? ' (' + don[zr] + ')' : '');
+  if (zr === 'regal') return T('Przewrócony regał', 'A falling shelf');
+  if (zr === 'sodino') return ENEMY_TYPES.sodino.nm + ' (' + T('wybuch', 'blast') + ')';
+  if (zr === 'ketchupino') return ENEMY_TYPES.ketchupino.nm + ' (' + T('ketchup', 'ketchup') + ')';
+  return ENEMY_TYPES[zr] ? ENEMY_TYPES[zr].nm : zr;
+}
+// Następny cel (spec §8.2): najtańsza niekupiona rzecz ze sklepu (odblokowania, ulepszenia, postacie za monety)
+// + najbliższa postać za zabójstwa. Liczone PO rozliczeniu (META.coins już z monetami biegu).
+function nastepnyCel() {
+  const c = [];
+  for (const it of SHOP_UNLOCKS) if (!META.unlocked[it.key]) c.push({ nm: it.nm, ico: it.ico, cena: it.price });
+  for (const it of SHOP) if (META.up[it.key] < it.max && it.key !== 'klatwa') c.push({ nm: it.nm, ico: it.ico, cena: shopPrice(it) });
+  for (const k of Object.keys(CHARS)) if (CHARS[k].price && !maszPostac(k)) c.push({ nm: CHARS[k].nm.split(' ')[0], ico: 'serce', cena: CHARS[k].price });
+  c.sort((a, b) => a.cena - b.cena);
+  const out = [];
+  if (c.length) {
+    const tanie = c.filter(x => x.cena <= META.coins).pop();       // najdroższa, na którą już stać
+    out.push(tanie ? `${T('Stać Cię na', 'You can afford')}: <b>${tanie.nm}</b> (${ico('moneta', 13)} ${tanie.cena})`
+                   : `${T('Brakuje', 'You need')} ${ico('moneta', 13)} <b>${c[0].cena - META.coins}</b> ${T('do', 'more for')}: <b>${c[0].nm}</b>`);
+  }
+  const kg = Object.keys(CHARS).filter(k => CHARS[k].killGoal && !maszPostac(k)).sort((a, b) => CHARS[a].killGoal - CHARS[b].killGoal)[0];
+  if (kg) out.push(`${CHARS[kg].nm.split(' ')[0]}: <b>${META.st.kills}/${CHARS[kg].killGoal}</b> ${T('pokonanych', 'defeated')}`);
+  return out;
+}
+// „Prawie" (spec §8.2): pierwszy pasujący. Wołane PRZED clearWorld (żywy Don / kapral).
+function prawie() {
+  const don = G.enemies.find(e => e.don && !e.dying);
+  if (G.donStart != null && don) return T('Don miał jeszcze', 'The Don had only') + ` <b>${Math.max(1, Math.round(don.hp / don.maxHp * 100))}%</b> HP!`;
+  const kap = G.enemies.find(e => e.kapral && !e.dying && !e.odwrot && e.hp < e.maxHp);   // odchodzący (łagodny) się nie liczy
+  if (kap) return `${kap.kDef.nm} ${T('miał jeszcze', 'had only')} <b>${Math.max(1, Math.round(kap.hp / kap.maxHp * 100))}%</b> HP!`;
+  // w górę do pełnej sekundy: przy 9:59,4 fmtTime (w dół) pokazywało „brakowało 0:00"
+  if (G.time >= 480 && G.time < CZAS_WIECZORU) return T('Do Dona brakowało', 'The Don was only') + ` <b>${fmtTime(Math.ceil(CZAS_WIECZORU - G.time))}</b>` + T('!', ' away!');
+  const nk = WIECZOR.find(z => z.typ === 'kapral' && z.t > G.time);
+  if (nk) return `${T('Do kaprala', 'Corporal')} ${nk.nr} ${T('brakowało', 'was only')} <b>${fmtTime(Math.ceil(nk.t - G.time))}</b>` + T('!', ' away!');
+  return '';
+}
+function daneKonca(wygrana) {
+  const bronie = new Map();                        // zr → { dmg, t0, lvl }
+  for (const [zr, dmg] of Object.entries(G.dmgBron)) if (dmg > 0) bronie.set(zr, { zr, dmg, t0: 0, lvl: 0 });
+  for (const w of P.weapons) { const b = bronie.get(w.key) || { zr: w.key, dmg: 0 }; b.t0 = w.t0 || 0; b.lvl = w.lvl; bronie.set(w.key, b); }
+  const suma = [...bronie.values()].reduce((a, b) => a + b.dmg, 0) || 1;
+  const lista = [...bronie.values()].map(b => ({ ...b, ...opisZrodla(b.zr), dps: b.dmg / Math.max(1, G.time - b.t0) }))
+    .sort((a, b) => b.dmg - a.dmg);
+  const glowne = lista.filter(b => b.bron).slice(0, 3);
+  const wlasne = lista.filter(b => b.wlasna && b.dmg > 0);   // karabin, aura Garlicina (DPS liczony na cały bieg)
+  const inne = lista.filter(b => !glowne.includes(b) && !wlasne.includes(b));
+  const wiersze = [...glowne, ...wlasne].sort((a, b) => b.dmg - a.dmg).map(b => ({ ...b, udz: b.dmg / suma }));
+  const dmgInne = inne.reduce((a, b) => a + b.dmg, 0);
+  if (dmgInne > 0) wiersze.push({ nm: T('Inne', 'Other'), ico: 'ostrzezenie', dmg: dmgInne, dps: dmgInne / Math.max(1, G.time), udz: dmgInne / suma, lvl: 0, inne: inne.map(b => b.nm) });
+  return { wiersze, prawie: wygrana ? '' : prawie(), sprawca: wygrana ? '' : nazwaSprawcy(G.ostatniCios),
+           maxHit: G.maxHit && G.maxHit.dmg > 0 ? { dmg: G.maxHit.dmg, crit: G.maxHit.crit, nm: opisZrodla(G.maxHit.zr).nm } : null };
+}
+// E1-bieg K10: czy ten bieg ma być łagodny. DEV: ?lagodny=1 wymusza, ?lagodny=0 wyłącza.
+function czyLagodny() {
+  if (DEV) { const m = location.search.match(/[?&]lagodny=([01])/); if (m) return m[1] === '1'; }
+  if (BOT.on && BOT.lagodny != null) return BOT.lagodny;
+  const s = META.st;
+  return s.pelne === 0 || (s.pelne === 1 && s.best < 300);   // `pelne`, nie `runs`: szybkie „Do menu" nie zużywa trybu
+}
+// n-ty bieg w historii zapisu → kubełek GoatCounter (spec §8.3): 1–10 dokładnie, potem przedziały
+const kubelekBiegu = n => n <= 10 ? String(n) : n <= 20 ? '11-20' : n <= 50 ? '21-50' : '51+';
+function koniecBiegu(powod = 'smierc') {
+  if (!G.running) return;                          // podwójne wywołanie (wygrana + śmierć, dwuklik „Do menu”)
+  if (powod === 'menu') {
+    togglePause(false);
+    // „Do menu" w trakcie ceremonii wygranej (3 s) albo animacji śmierci (1,8 s) nie kasuje wyniku —
+    // togglePause już nie pauzuje w tych chwilach, to druga linia obrony
+    if (G.wygrana) { domknijWygrana(); powod = 'wygrana'; }
+    else if (G.dying) { G.dying = false; powod = 'smierc'; }
+  }
+  const wygrana = powod === 'wygrana', doMenu = powod === 'menu', D = CFG_BIEG.don, s = META.st;
+  const dane = doMenu ? null : daneKonca(wygrana);
   winieta(false); pasy(false);
-  G.over = true; G.running = false;
+  G.over = !doMenu; G.running = false;
   AUDIO.endRun();                                  // koniec biegu = powrót do motywu głównego
   document.getElementById('vign').style.opacity = 0;
-  playerBB.mesh.rotation.z = 0;
-  const s = META.st;
-  const monetyPrzed = G.runCoins;
-  let bonusWin = 0;
-  if (wygrana) {
-    G.runCoins = Math.round(G.runCoins * D.mnozWygranej);
-    if (!s.wins) { bonusWin = D.pierwszaWygrana; G.runCoins += bonusWin; }   // „Nagroda Nonny za pierwszy Wieczór"
-    s.wins = (s.wins || 0) + 1;
-  }
-  rozliczBieg();
-  // PIERWSZA PRZEGRANA MA COŚ DAWAĆ. Brotato odblokowuje za nią postać („Chunky"),
-  // u nas nie ma jeszcze wolnego arkusza, więc idzie broń: pierwsza śmierć =
-  // Piorun za darmo. Puste „KONIEC" po pierwszym biegu to najgorszy moment,
-  // żeby gracz nie miał po co kliknąć „JESZCZE RAZ".
-  let prezent = '';
-  if (!s.runs && !META.unlocked.piorun) {
-    META.unlocked.piorun = 1;
-    prezent = `<br><b style="color:#7ee7ff">${ico('pioruny', 18)} ${wygrana
-      ? T('PIERWSZY WIECZÓR — PIORUN ODBLOKOWANY NA STAŁE!', 'FIRST EVENING — THUNDERBOLT UNLOCKED FOR GOOD!')
-      : T('PIERWSZA PORAŻKA — PIORUN ODBLOKOWANY NA STAŁE!', 'FIRST DEFEAT — THUNDERBOLT UNLOCKED FOR GOOD!')}</b>`;
-  }
-  s.runs++; s.time += G.time; s.lvl += P.lvl - 1;
-  if (wygrana) STATY.zdarzenie('run-end/wygrana/' + mapKey, 'Wieczór wygrany: Don w ' + fmtTime(G.donKoniec - G.donStart) + ', poziom ' + P.lvl);
-  else if (G.donStart != null) STATY.zdarzenie('run-end/smierc-don/' + mapKey, 'Śmierć przy Donie: ' + fmtTime(G.time - G.donStart));
-  else STATY.zdarzenie('run-end/smierc/min-' + kubelekMinut(G.time),
-    'Koniec biegu (śmierć): ' + fmtTime(G.time) + ', poziom ' + P.lvl + ', ' + G.kills + ' zabójstw');
-  const rekordCzasu = G.time > s.best;          // PRZED aktualizacja! inaczej zawsze true
-  if (rekordCzasu) s.best = G.time;
-  if (G.kills > s.bestKills) s.bestKills = G.kills;
-  saveMeta(); renderShop(); renderStats(); renderBestiary();
-  const rekord = rekordCzasu;                   // było `G.time >= s.best` PO aktualizacji = zawsze true
-  const h1 = document.querySelector('#overOv h1');
-  if (h1) { h1.textContent = wygrana ? T('WIECZÓR WYGRANY!', 'EVENING WON!') : T('KONIEC', 'GAME OVER'); h1.style.color = wygrana ? '#ffd75e' : ''; }
-  const zebrano = wygrana
-    ? `<i data-licz="${monetyPrzed}">0</i> × 1,5${bonusWin ? ' + ' + bonusWin : ''} = <i data-licz="${G.zebrane}">0</i>`
-    : `<i data-licz="${G.zebrane}">0</i>`;
-  document.getElementById('overStats').innerHTML =
-    (wygrana ? `<b style="color:#ffd75e">${T('Don pokonany w', 'Don defeated in')} ${fmtTime(G.donKoniec - G.donStart)}</b><br>` : '') +
-    `${T('Przetrwano', 'Survived')}: <b><i data-licz="0" data-czas="${G.time.toFixed(1)}">0:00</i></b> · ` +
-    `${T('Pokonano', 'Defeated')}: <b><i data-licz="${G.kills}">0</i></b> · ${T('Poziom', 'Level')}: <b><i data-licz="${P.lvl}">0</i></b>` +
-    ` · ${T('Kaprale', 'Corporals')}: <b>${G.kaprale || 0}/6</b><br>` +
-    `${T('Zebrano', 'Collected')}: <b>${ico('moneta',15)} ${zebrano}</b> (${T('łącznie', 'total')} ${ico('moneta',15)} ${META.coins})` +
-    (bonusWin ? `<br><b style="color:#ffd75e">${T('Nagroda Nonny za pierwszy Wieczór', "Nonna's reward for the first Evening")}: +${bonusWin}</b>` : '') +
-    prezent +
-    (rekord ? '<br><b class="pieczatka" style="color:#ffd75e">' + ico('puchar',18) + T(' NOWY REKORD CZASU!', ' NEW TIME RECORD!') + '</b>' : '');
-  document.getElementById('overOv').style.display = 'flex';
-  tickerLiczb(document.getElementById('overStats'));
-  if (rekord) deszczMonet(28);
   document.getElementById('wArrow').style.display = 'none';
+  playerBB.mesh.rotation.z = 0;
+  // ---- rozliczenie: monety × mnożnik (wygrana 1,5, reszta 1) + nagroda Nonny za pierwszy Wieczór ----
+  const monetyPrzed = G.runCoins, mnoznik = wygrana ? D.mnozWygranej : 1;
+  const bonusWin = wygrana && !s.wins ? D.pierwszaWygrana : 0;
+  rozliczBieg(mnoznik, bonusWin);
+  // PIERWSZY BIEG MA COŚ DAWAĆ (Brotato: postać za pierwszą przegraną) — Piorun za darmo, także po wygranej.
+  // Warunek z porażek i wygranych, nie z `runs`: wyjście do menu w 1. biegu kasowało prezent na zawsze (przegląd K9–K11).
+  let prezent = '';
+  if (!doMenu && !s.smierci && !s.wins && !META.unlocked.piorun) {
+    META.unlocked.piorun = 1;
+    prezent = `${ico('pioruny', 16)} ${wygrana
+      ? T('PIERWSZY WIECZÓR — PIORUN ODBLOKOWANY NA STAŁE!', 'FIRST EVENING — THUNDERBOLT UNLOCKED FOR GOOD!')
+      : T('PIERWSZA PORAŻKA — PIORUN ODBLOKOWANY NA STAŁE!', 'FIRST DEFEAT — THUNDERBOLT UNLOCKED FOR GOOD!')}`;
+  }
+  // ---- liczniki ----
+  // Rekord CZASU PRZEŻYCIA liczony najwyżej do 10:00 — dalej trwa walka z Donem, a wolniejsze zabicie Dona nie może
+  // dawać „rekordu". Wygrana ma własny rekord: najszybszy Don (`bestDon`, pieczątka tylko przy pobiciu poprzedniego).
+  const czasRek = Math.min(G.time, CZAS_WIECZORU);
+  const rekordCzasu = !wygrana && czasRek > s.best; // PRZED aktualizacją (inaczej zawsze true)
+  const walkaDona = wygrana ? G.donKoniec - G.donStart : 0;
+  const rekordDona = wygrana && s.bestDon > 0 && walkaDona < s.bestDon;
+  s.runs++; s.time += G.time; s.lvl += Math.max(0, P.lvl - 1);
+  if (!doMenu || G.time >= 60) s.pelne = (s.pelne || 0) + 1;   // szybkie „Do menu" nie zużywa łagodnego biegu
+  if (wygrana) { s.wins = (s.wins || 0) + 1; if (!s.bestDon || walkaDona < s.bestDon) s.bestDon = +walkaDona.toFixed(1); }
+  else if (!doMenu) s.smierci = (s.smierci || 0) + 1;
+  if (czasRek > s.best) s.best = czasRek;
+  if (G.kills > s.bestKills) s.bestKills = G.kills;
+  if (G.maxHit && G.maxHit.dmg > (s.maxHit || 0)) s.maxHit = Math.round(G.maxHit.dmg);
+  // ---- GoatCounter (spec §8.3; w DEV tylko STATY.log) ----
+  const minK = kubelekMinut(G.time);
+  if (wygrana) STATY.zdarzenie('run-end/wygrana/' + mapKey, 'Wieczór wygrany: Don w ' + fmtTime(G.donKoniec - G.donStart) + ', poziom ' + P.lvl);
+  else if (doMenu) STATY.zdarzenie('run-end/menu/' + mapKey + '/min-' + minK, 'Koniec biegu (wyjście do menu): ' + fmtTime(G.time) + ', poziom ' + P.lvl);
+  else if (G.donStart != null) STATY.zdarzenie('run-end/smierc-don/' + mapKey, 'Śmierć przy Donie: ' + fmtTime(G.time - G.donStart));
+  else STATY.zdarzenie('run-end/smierc/' + mapKey + '/min-' + minK, 'Koniec biegu (śmierć): ' + fmtTime(G.time) + ', poziom ' + P.lvl + ', ' + G.kills + ' zabójstw');
+  if (G.lagodny) STATY.zdarzenie('pierwszy-bieg/' + (wygrana ? 'wygrana' : (doMenu ? 'menu-min-' : 'smierc-min-') + minK),
+    'Łagodny bieg: ' + powod + ' ' + fmtTime(G.time) + (G.rekaNonny ? ' (Ręka Nonny użyta)' : ''));
+  saveMeta(); renderShop(); renderStats(); renderBestiary();
+  if (doMenu) {
+    clearWorld();
+    document.getElementById('startOv').style.display = 'flex';
+    renderChars();
+    return;
+  }
+  pokazEkranKonca(wygrana, dane, { monetyPrzed, mnoznik, bonusWin, prezent, rekordCzasu, rekordDona, walkaDona });
+}
+// EKRAN KOŃCA (spec §8.2). Kredowa tablica w dwóch kolumnach (telefon poziomo 812×375 bez przewijania,
+// PC szerzej): lewa = czas, „prawie", sprawca, liczniki, monety z mnożnikiem, następny cel; prawa = bronie.
+// Liczby lecą tickerem (~0,9 s) — cały wynik widać w < 3 s (biblia).
+function pokazEkranKonca(wygrana, d, o) {
+  const h1 = document.querySelector('#overOv h1');
+  h1.textContent = wygrana ? T('WIECZÓR WYGRANY!', 'EVENING WON!') : T('KONIEC', 'GAME OVER');
+  h1.classList.toggle('wygrana', wygrana);
+  const licz = (v, cls = '') => `<i data-licz="${Math.round(v)}"${cls ? ` class="${cls}"` : ''}>0</i>`;
+  const przec = x => String(x).replace('.', JEZYK.cur === 'en' ? '.' : ',');
+  const L = [];
+  L.push(wygrana
+    ? `<div class="okCzas">${ico('puchar', 16)} <b>10:00</b> · ${T('Don pokonany w', 'Don defeated in')} <b>${fmtTime(G.donKoniec - G.donStart)}</b></div>`
+    : `<div class="okCzas">${T('Przetrwano', 'Survived')} <b><i data-licz="0" data-czas="${G.time.toFixed(1)}">0:00</i></b></div>`);
+  if (d.prawie) L.push(`<div class="okPrawie">${d.prawie}</div>`);
+  if (d.sprawca) L.push(`<div class="okZabil">${T('Zabił cię', 'Killed by')}: <b>${d.sprawca}</b></div>`);
+  L.push(`<div class="okStaty"><span>${ico('czaszka', 14)} <b>${licz(G.kills)}</b></span><span>${T('POZIOM', 'LEVEL')} <b>${licz(P.lvl)}</b></span>` +
+         `<span>${T('KAPRALE', 'CORPORALS')} <b>${G.kaprale || 0}/6</b></span></div>`);
+  const mn = o.mnoznik !== 1;
+  L.push(`<div class="okMonety">${ico('moneta', 16)} <b>${licz(o.monetyPrzed)}</b>` +
+         (mn ? ` <span class="okMn">×${przec(o.mnoznik)}</span>${o.bonusWin ? ` + <b>${o.bonusWin}</b>` : ''} = <b class="okSuma">${licz(G.zebrane)}</b>`
+             : ` <span class="okMn slaby" title="${T('wygrana = ×1,5', 'a win = ×1.5')}">×1</span>`) +
+         `<span class="okRazem">${T('razem', 'total')} ${ico('moneta', 12)} ${META.coins}</span></div>`);
+  if (o.bonusWin) L.push(`<div class="okZloty">${T('Nagroda Nonny za pierwszy Wieczór', "Nonna's reward for the first Evening")}: +${o.bonusWin}</div>`);
+  for (const c of nastepnyCel()) L.push(`<div class="okCel">${ico('strzalka', 12)} ${c}</div>`);
+  if (o.prezent) L.push(`<div class="okPrezent">${o.prezent}</div>`);
+  if (o.rekordCzasu) L.push(`<div class="okRekord pieczatka">${ico('puchar', 16)} ${T('NOWY REKORD CZASU!', 'NEW TIME RECORD!')}</div>`);
+  if (o.rekordDona) L.push(`<div class="okRekord pieczatka">${ico('puchar', 16)} ${T('NAJSZYBSZY DON', 'FASTEST DON')}: ${fmtTime(o.walkaDona)}!</div>`);
+  const B = [`<div class="okH">${T('OBRAŻENIA', 'DAMAGE')}<span>${T('na sek.', 'per sec')}</span></div>`];
+  for (const w of d.wiersze) {
+    B.push(`<div class="okBr${w.inne ? ' inne' : ''}"${w.inne ? ` title="${w.inne.join(', ')}"` : ''}>${ico(w.ico, 20)}` +
+      `<span class="okNm">${w.nm}${w.lvl ? ` <em>${w.lvl}</em>` : ''}</span>` +
+      `<span class="okDmg">${dmgNum(w.dmg)}</span><span class="okDps">${dmgNum(w.dps)}</span>` +
+      `<span class="okUdz"><i style="width:${Math.max(2, Math.round(w.udz * 100))}%"></i></span><span class="okPr">${Math.round(w.udz * 100)}%</span></div>`);
+  }
+  if (!d.wiersze.length) B.push(`<div class="okBr inne"><span class="okNm">—</span></div>`);
+  if (d.maxHit) B.push(`<div class="okCios">${T('Najmocniejszy cios', 'Biggest hit')}: <b>${dmgNum(d.maxHit.dmg)}</b> — ${d.maxHit.nm}${d.maxHit.crit ? `, <b class="kryt">${T('KRYTYK', 'CRIT')}</b>` : ''}</div>`);
+  const st = document.getElementById('overStats');
+  st.innerHTML = `<div class="okKol">${L.join('')}</div><div class="okKol okBronie">${B.join('')}</div>`;
+  const ov = document.getElementById('overOv');
+  ov.classList.toggle('wygrana', wygrana);
+  ov.style.display = 'flex';
+  tickerLiczb(st);
+  if (o.rekordCzasu || o.rekordDona || o.bonusWin) deszczMonet(28);   // rekord albo pierwsza wygrana
 }
 // ---- PAUZA ----
 function togglePause(on) {
   if (!G.running) return;
+  // Ceremonia wygranej i animacja śmierci biegną do ekranu końca — pauza tu dawała „Do menu", które kasowało wynik
+  // (przegląd K9–K11). Dotyczy wszystkich dróg: przycisk, ESC, Start na padzie, utrata blokady kursora.
+  if (on && (G.dying || G.wygrana)) return;
   G.paused = on;
   if (on) puscMysz();                              // na pauzie gracz musi widziec kursor
   document.getElementById('pauseOv').style.display = on ? 'flex' : 'none';
@@ -10697,6 +10981,11 @@ function newGame() {
   document.getElementById('bossNm').style.color = '';
   winieta(true);
   STATY.zdarzenie('run-start/' + charKey + '/' + mapKey, 'Bieg: ' + CHARS[charKey].nm + ' / ' + MAPS[mapKey].nm);
+  STATY.zdarzenie('bieg-nr/' + kubelekBiegu(META.st.runs + 1), 'Bieg nr ' + (META.st.runs + 1));   // E1-bieg K9: lejek powrotów
+  // E1-bieg K10: łagodny pierwszy bieg (spec §7) — pierwszy w historii zapisu albo druga szansa po śmierci przed 5:00
+  G.lagodny = czyLagodny(); G.rekaNonny = false; G.nonnaDo = -1;
+  Object.assign(L_BIEG, G.lagodny ? CFG_BIEG.trybLagodny.L : L_NORMALNY);
+  G.rozgrzR = G.lagodny ? { ...CFG_BIEG.rozgrzewka, ...CFG_BIEG.trybLagodny.rozgrzewka } : null;
   P.sok = 0; P.leczT = 0;                           // licznik wysysania życia Beetina + blokada leczenia
   // Wąwozy: (0,0) jest wypłaszczone z definicji, ale pytamy moduł — gdyby ktoś przestawił
   // parametry, gracz nie ma się budzić w rzece ani na ścianie kanionu.
@@ -11080,9 +11369,13 @@ async function botBieg(o = {}) {
   const metaKopia = JSON.stringify(META), mr = Math.random;
   bezZapisu = true;
   Object.assign(META.up, { serce: 0, dmg: 0, szyb: 0, magnes: 0, klatwa: 0, karabin: 0 });
-  META.unlocked = { piorun: 1 }; META.st.runs = 5; META.st.skrzynki = 99;
+  META.unlocked = { piorun: 1 }; META.st.runs = META.st.pelne = META.st.smierci = 5; META.st.skrzynki = 99;
+  // K10: `czysty: true` = zapis nowego gracza (0 biegów, nic nie odblokowane) → łagodny pierwszy bieg,
+  // wyreżyserowane pierwsze skrzynie; `lagodny: true|false` wymusza tryb niezależnie od zapisu
+  if (o.czysty) { META.unlocked = {}; Object.assign(META.st, { runs: 0, pelne: 0, smierci: 0, best: 0, skrzynki: 0, chests: 0, kills: 0, wins: 0, bestDon: 0 }); }
   Math.random = mulberry32(seed);
-  Object.assign(BOT, { on: true, tryb, karty: o.karty || (tryb === 'nowicjusz' ? 'pierwsza' : 'priorytet'), ka: 0, kier: 1 });
+  Object.assign(BOT, { on: true, tryb, karty: o.karty || (tryb === 'nowicjusz' ? 'pierwsza' : 'priorytet'), ka: 0, kier: 1,
+                       lagodny: o.lagodny != null ? o.lagodny : null });
   const w = { tryb, postac, seed, czas: 0, lvlAt: {}, killsAt: {}, pierwszyKill: null, pierwszyAwans: null,
               maxZywi: 0, maxUpd: 0, maxUpdT: 0 };
   try {
@@ -11117,11 +11410,13 @@ async function botBieg(o = {}) {
         if (zw > w.maxZywi) w.maxZywi = zw;
         if (w.pierwszyKill === null && G.kills > 0) w.pierwszyKill = +G.time.toFixed(1);
         if (w.pierwszyAwans === null && P.lvl > 1) w.pierwszyAwans = +G.time.toFixed(1);
+        if (w.pula37 == null && P.lvl >= 37) w.pula37 = cardPool().length;   // K11: kryterium 6
         for (const m of [60, 180, 300, 600]) if (G.time >= m && w.lvlAt[m] == null) { w.lvlAt[m] = P.lvl; w.killsAt[m] = G.kills; }
       }
       await new Promise(r => setTimeout(r, 0));
     }
     w.czas = +G.time.toFixed(1); w.lvl = P.lvl; w.kills = G.kills; w.przezyl = G.time >= maxT;
+    w.lagodny = !!G.lagodny; w.rekaNonny = G.zdarzenia.find(z => z.typ === 'reka-nonny')?.t ?? null;
     w.dps = {};
     for (const [k, v] of Object.entries(G.dmgBron)) {
       const bron = P.weapons.find(x => x.key === k);
@@ -11144,7 +11439,7 @@ async function botBieg(o = {}) {
     if (G.running) { G.running = false; clearWorld(); }
     document.getElementById('overOv').style.display = 'none';
   } finally {
-    Math.random = mr; BOT.on = false;
+    Math.random = mr; BOT.on = false; BOT.lagodny = null;
     const m = JSON.parse(metaKopia);
     for (const k of Object.keys(m)) META[k] = m[k];
   }
@@ -11483,22 +11778,8 @@ if (loadTip) {
   // pauza
   document.getElementById('pauseBtn').onclick = () => togglePause(!G.paused);
   document.getElementById('btnResume').onclick = () => togglePause(false);
-  document.getElementById('btnQuit').onclick = () => {
-    togglePause(false);
-    G.running = false;
-    rozliczBieg();                                // monety z przerwanego biegu też są nasze
-    STATY.zdarzenie('run-end/menu/min-' + kubelekMinut(G.time),
-      'Koniec biegu (wyjście do menu): ' + fmtTime(G.time) + ', poziom ' + P.lvl);
-    META.st.runs++; META.st.time += G.time; META.st.lvl += Math.max(0, P.lvl - 1);
-    if (G.time > META.st.best) META.st.best = G.time;
-    if (G.kills > META.st.bestKills) META.st.bestKills = G.kills;
-    clearWorld();
-    AUDIO.endRun();                               // z powrotem motyw główny
-    document.getElementById('wArrow').style.display = 'none';
-    menu.style.display = 'flex';
-    saveMeta();                                   // zapisz liczniki bestiariusza z przerwanego biegu
-    renderStats(); renderShop(); renderBestiary(); renderChars();
-  };
+  // E1-bieg K9: wyjście do menu = ta sama ścieżka końca co śmierć i wygrana (rozliczenie, liczniki, GoatCounter)
+  document.getElementById('btnQuit').onclick = () => koniecBiegu('menu');
   addEventListener('keydown', e => {
     // 400 ms po pauzie z `pointerlockchange`: gdyby przeglądarka jednak dostarczyła ESC,
     // nie odpauzuj tego, co właśnie zapauzowaliśmy (patrz komentarz przy pointerlockchange)
@@ -11516,6 +11797,7 @@ if (loadTip) {
     G, P, terrainH, chests, totems, openSwap, renderWpns, chunkMap, supportY, onSpill, setMap,
     wchest, META, CHARS, MAPS, ENEMY_TYPES, spawnEnemy, killEnemy, renderBestiary, saveMeta,
     setPlayerChar, togglePause, get charKey() { return charKey; }, AUDIO,
+    buildChar, SPRITEDATA,                                 // C: test arkuszy HD (pasy alfy) bez przeładowania
     setTilt(v) { SPRITE_TILT = v; refreshSpriteTilt(); },   // 0 = pionowe billboardy, 1 = do kamery
     przewrocRegaly, nova,
     get tilt() { return { SPRITE_TILT, kat: +(tiltKat * 180 / Math.PI).toFixed(1) }; },
@@ -11582,6 +11864,7 @@ if (loadTip) {
     },
     // ---- E1-bieg (spec 07 §10.2): pomiar, bot, skok ----
     get log() { return G.zdarzenia; },
+    get gc() { return STATY.log; }, koniecBiegu,   // K9: log wywołań GoatCounter (DEV nic nie wysyła)
     cfg: CFG_BIEG, WIECZOR, falaTeraz, liczZywych, zadajDmg, dmgNum, chestReward, startKarabin, odpalSmrod,
     get trudnosc() { return { t: G.time, hpScale: +hpScale().toFixed(3), spdScale: +spdScale().toFixed(3), dmgMul: +dmgMul().toFixed(3), elita: +szansaElity().toFixed(3) }; },
     pomiar() { return G.probki; },

@@ -694,7 +694,7 @@
      Kolejność między plikami: tokeny → menu → HUD (HUD dokłada drugi agent). -->
 <link rel="stylesheet" href="ui-base.css?v=1">
 <link rel="stylesheet" href="ui-menu.css?v=2">
-<link rel="stylesheet" href="ui-hud.css?v=12">
+<link rel="stylesheet" href="ui-hud.css?v=15">
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -946,11 +946,16 @@
   <button class="btn2" id="btnQuit" data-pl="Do menu (kończy bieg)" data-en="To menu (ends the run)">Do menu (kończy bieg)</button>
 </div>
 
+<!-- E1-bieg K9: ekran końca (wygrana i porażka) — treść #overStats buduje pokazEkranKonca() w main.js.
+     #overReklama = miejsce na „×2 za reklamę" (E5), dziś ukryte. -->
 <div id="overOv" class="ov">
   <h1 data-pl="KONIEC" data-en="GAME OVER">KONIEC</h1>
-  <p id="overStats"></p>
-  <button class="bigbtn" id="btnRetry" data-pl="JESZCZE RAZ" data-en="ONE MORE">JESZCZE RAZ</button>
-  <button class="btn2" id="btnMenu" data-pl="Menu" data-en="Menu">Menu</button>
+  <div id="overStats"></div>
+  <div id="overBtns">
+    <button class="bigbtn" id="btnRetry" data-pl="JESZCZE RAZ" data-en="ONE MORE">JESZCZE RAZ</button>
+    <button class="btn2" id="btnMenu" data-pl="Menu" data-en="Menu">Menu</button>
+    <button class="btn2" id="overReklama" hidden></button>
+  </div>
 </div>
 
 <!-- KOMIKS WPROWADZAJĄCY — treść (plansze, podpisy, kropki) wypełnia komiks.js.
@@ -985,6 +990,6 @@
     addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
   }
 </script>
-<script type="module" src="main.js?v=240"></script>
+<script type="module" src="main.js?v=251"></script>
 </body>
 </html>
