@@ -249,6 +249,132 @@
 .card.gold .nm{color:#ffe9a0}
 .card .ds{font-size:clamp(10px,2.9vw,12.5px);opacity:.88;line-height:1.32;color:var(--kreda)}
 
+/* ═══════════ E2 K2: RZADKOŚĆ KART (spec 08 §5.1) ═══════════
+   Kanał RAMKĄ (fiolet elity w świecie to krąg — inny kształt). Złoto zostaje dla skrzyń, przepisów i monet.
+   Jedna zmienna na kolor fioletu: w razie skarg na kolizję z elitą → `--rz-fiol:#ff6fd8`. */
+:root{--rz-nieb:#4aa3ff;--rz-fiol:#c07bff}
+.card.nieb{
+  box-shadow:inset 0 0 0 3px rgba(0,0,0,.45), 0 0 0 4px var(--rz-nieb), 0 0 0 7px var(--kontur),
+             0 8px 0 7px var(--cien), 0 0 20px rgba(74,163,255,.5);
+}
+.card.fiol{
+  box-shadow:inset 0 0 0 3px rgba(0,0,0,.45), 0 0 0 4px var(--rz-fiol), 0 0 0 7px var(--kontur),
+             0 8px 0 7px var(--cien), 0 0 24px rgba(192,123,255,.6);
+}
+/* powolny połysk fioletowej: przesuwany gradient na warstwie ::after (nie łapie kliknięć) */
+.card.fiol::after{
+  content:'';position:absolute;inset:0;pointer-events:none;z-index:1;
+  background:linear-gradient(115deg, transparent 30%, rgba(214,170,255,.28) 45%, transparent 60%) 0 0/300% 100% no-repeat;
+  animation:rzPolysk 2.6s linear infinite;
+}
+@keyframes rzPolysk{from{background-position:120% 0}to{background-position:-120% 0}}
+@media (prefers-reduced-motion:reduce){.card.fiol::after{animation:none}}
+.card .rzEt{
+  position:absolute;top:-9px;right:6px;z-index:3;padding:1px 5px;font-size:10px;font-weight:800;letter-spacing:.5px;
+  color:#fff;background:var(--rz-nieb);box-shadow:0 0 0 2px var(--kontur);text-shadow:0 1px 0 rgba(0,0,0,.5);
+}
+.card.fiol .rzEt{background:var(--rz-fiol)}
+.card.nieb .nm{color:#9fd0ff}
+.card.fiol .nm{color:#e3c2ff}
+/* „Nonna poleca → [broń] do przepisu" (jawne ważenie ×3, spec §5.4) */
+.card .podsun{
+  margin-top:6px;padding:2px 4px;font-size:clamp(9px,2.5vw,11px);font-weight:800;line-height:1.3;
+  color:#3a2a12;background:var(--zloto);box-shadow:0 0 0 2px var(--kontur);
+}
+.card .podsun img{vertical-align:-2px}
+#cardsSub{margin:-4px 0 10px;font-size:13px;font-weight:700;color:var(--zloto);text-shadow:0 2px 0 rgba(0,0,0,.6)}
+@media (max-height:520px){
+  #cardsSub{margin:-4px 0 6px;font-size:11px}
+  .card .rzEt{top:-7px;font-size:9px}
+}
+
+/* ═══════════ E2 K3: PRZELOSUJ / POMIŃ / WYKLUCZ ═══════════ */
+#cardsBtns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:16px}
+#cardsBtns .btn2{min-height:44px;margin:0;display:inline-flex;align-items:center;gap:6px}
+#cardsBtns .btn2.szary{filter:grayscale(1) brightness(.7);opacity:.75}
+#cardsSub.wyk{color:#ff7a6e}
+.card.wyk{outline:3px dashed #ff5a4e;outline-offset:3px}
+.card.nieWyk{filter:grayscale(.8) brightness(.6);cursor:not-allowed}
+.card .wykX{position:absolute;top:2px;left:6px;z-index:3;font-size:22px;font-weight:900;color:#ff5a4e;text-shadow:0 2px 0 #000}
+.card .wykDs{margin-top:5px;font-size:10px;font-weight:800;color:#ff9a8e}
+.card .glKarta{position:absolute;bottom:-12px;left:50%;transform:translateX(-50%);z-index:3}
+@media (max-height:520px){
+  #cardsBtns{margin-top:15px;gap:6px}
+  #cardsBtns .btn2{padding:4px 12px;font-size:12px}
+}
+
+/* ═══════════ E2 K4: JACKPOT ZŁOTEJ SKRZYNI (automat 1/3/5; spec 08 §1.5) ═══════════
+   Wszystko DOM/CSS, żadnych obiektów w scenie. Fazy: .faza0 skrzynia się trzęsie → .faza1 światło w kolorze wyniku
+   (.n1 białe / .n3 niebieskie / .n5 fioletowo-złote) + bębny → .faza4 lista + ZABIERAM!. --bb = wysokość okienka bębna. */
+#skrzyniaOv{--bb:64px;justify-content:center;cursor:pointer}
+#skrzTytul{margin-bottom:6px}
+#skrzyniaOv.kapral #skrzTytul{color:#e3c2ff}
+#skrzScena{position:relative;width:180px;height:130px;display:flex;align-items:center;justify-content:center}
+#skrzIko{position:relative;z-index:2}
+#skrzyniaOv.faza0 #skrzIko{animation:skrzTrzes .12s linear infinite}
+#skrzyniaOv.kapral #skrzIko img{filter:hue-rotate(230deg) saturate(1.3)}
+@keyframes skrzTrzes{0%{transform:translate(0,0) rotate(0)}25%{transform:translate(-3px,1px) rotate(-3deg)}
+  50%{transform:translate(2px,-1px) rotate(2deg)}75%{transform:translate(3px,1px) rotate(3deg)}100%{transform:translate(0,0)}}
+#skrzPromienie{position:absolute;left:50%;top:50%;width:240px;height:240px;margin:-120px 0 0 -120px;border-radius:50%;
+  opacity:0;transition:opacity .3s;pointer-events:none;
+  background:repeating-conic-gradient(var(--prom,#fff) 0 10deg, transparent 10deg 30deg);
+  -webkit-mask:radial-gradient(circle, #000 20%, transparent 70%);mask:radial-gradient(circle, #000 20%, transparent 70%);
+  animation:skrzObrot 6s linear infinite}
+#skrzyniaOv.faza1 #skrzPromienie,#skrzyniaOv.faza4 #skrzPromienie{opacity:.75}
+#skrzyniaOv.n1{--prom:#ffffff}
+#skrzyniaOv.n3{--prom:#4aa3ff}
+#skrzyniaOv.n5{--prom:#ffd75e}
+#skrzyniaOv.n5 #skrzPromienie{animation:skrzObrot 3s linear infinite, skrzHue 1.2s linear infinite}
+@keyframes skrzObrot{to{transform:rotate(360deg)}}
+@keyframes skrzHue{0%{filter:hue-rotate(0)}50%{filter:hue-rotate(-60deg)}100%{filter:hue-rotate(0)}}
+#skrzBebny{display:flex;gap:8px;justify-content:center;margin:6px 0;min-height:var(--bb)}
+#skrzBebny .beben{width:var(--bb);height:var(--bb);overflow:hidden;background:#111827;
+  box-shadow:inset 0 0 0 3px rgba(0,0,0,.6), 0 0 0 3px var(--kontur);transition:box-shadow .15s}
+#skrzBebny .pas>div{height:var(--bb);display:flex;align-items:center;justify-content:center}
+#skrzBebny .beben.przepis{background:#3a2a0a}
+#skrzBebny .beben.stoi.rz-zw{box-shadow:inset 0 0 0 3px rgba(0,0,0,.6), 0 0 0 3px #e8e0cc, 0 0 0 6px var(--kontur)}
+#skrzBebny .beben.stoi.rz-nieb{box-shadow:inset 0 0 0 3px rgba(0,0,0,.6), 0 0 0 3px var(--rz-nieb), 0 0 0 6px var(--kontur), 0 0 14px rgba(74,163,255,.6)}
+#skrzBebny .beben.stoi.rz-fiol{box-shadow:inset 0 0 0 3px rgba(0,0,0,.6), 0 0 0 3px var(--rz-fiol), 0 0 0 6px var(--kontur), 0 0 16px rgba(192,123,255,.7)}
+#skrzBebny .beben.stoi.rz-przepis{box-shadow:inset 0 0 0 3px rgba(0,0,0,.6), 0 0 0 4px var(--zloto), 0 0 0 7px var(--kontur), 0 0 20px rgba(255,215,94,.8)}
+#skrzPrzepis .gotuje{font-weight:900;font-size:16px;color:var(--zloto);text-shadow:0 2px 0 #000}
+#skrzPrzepis .ds{font-size:12px;color:var(--kreda);max-width:520px;margin:2px auto}
+#skrzPrzepis .pieczatka{display:inline-block;margin-top:4px;padding:2px 8px;font-weight:900;font-size:13px;color:#ff5a4e;
+  border:3px solid #ff5a4e;transform:rotate(-4deg);background:rgba(0,0,0,.35)}
+#skrzLista{display:none;flex-direction:column;align-items:center;gap:3px;margin:4px 0 2px}
+#skrzyniaOv.faza4 #skrzLista{display:flex}
+#skrzyniaOv.faza4 #skrzScena{height:64px}
+#skrzyniaOv.faza4 #skrzIko img{height:56px !important}
+#skrzLista .poz{font-size:13px;color:var(--kreda);text-shadow:0 2px 0 rgba(0,0,0,.6)}
+#skrzLista .poz img{vertical-align:-3px}
+#skrzLista .poz b{color:#f4ecd8}
+#skrzLista .poz span{opacity:.85}
+#skrzLista .poz.rz-nieb b{color:#9fd0ff}
+#skrzLista .poz.rz-fiol b{color:#e3c2ff}
+#skrzLista .poz.rz-przepis b{color:var(--zloto)}
+#skrzBtns{display:flex;flex-direction:column;align-items:center;gap:4px;margin-top:6px}
+#skrzWymien{min-height:44px;font-size:12px;padding:6px 12px}
+#skrzZab{min-height:48px}
+.card .przepisLn{margin-top:6px;font-size:clamp(9px,2.5vw,11px);font-weight:700;color:#ffe9a0;opacity:.9}
+.card .traci{color:#ff7a6e}
+#animBox{display:flex;flex-direction:column;align-items:center;gap:4px;margin-top:14px}
+#animBox .snd{gap:8px}
+#animBox .btn2{margin:0;padding:7px 16px;min-width:46px}
+#animBox .btn2.sel{background:#4a3a14;color:#ffd75e}
+@media (max-height:520px){
+  #skrzyniaOv{--bb:50px}
+  #skrzyniaOv #skrzTytul{margin-bottom:0}
+  #skrzScena{height:100px;width:150px}
+  #skrzIko img{height:72px !important}
+  #skrzyniaOv.faza4 #skrzScena{display:none}
+  #skrzBebny .pas img{height:32px !important}
+  #skrzPrzepis .gotuje{font-size:13px}
+  #skrzPrzepis .ds{font-size:10.5px}
+  #skrzLista{gap:1px}
+  #skrzLista .poz{font-size:11px}
+  #skrzZab{min-height:44px;padding:7px 26px}
+}
+@media (prefers-reduced-motion:reduce){#skrzPromienie,#skrzyniaOv.faza0 #skrzIko{animation:none}}
+
 /* ═══════════ .snd — WIERSZ USTAWIENIA (etykieta + suwak) ═══════════
    Listwa z deski, w niej wyżłobiony rowek, a w rowku mosiężne pokrętło. */
 .snd{

@@ -523,6 +523,15 @@ const ART = {
   // ---- GLIFY PADA PLAYSTATION (24.09) ----
   // Czcionka UI (Jersey 10) nie ma znaków ✕○□△, a systemowy fallback wstawiłby gładki glif
   // obok pixelowego UI. Rysujemy je tu i skalujemy ×2/×3 (patrz `.gl-pb>img` w ui-hud.css).
+  // ===== E2: SKŁADNIKI (spec 08 dodatek C) + Książka kucharska =====
+  ser:       ['........','......yk','....yyYk','..yyYYYk','yyYYyYYk','yYYYYYyk','yYyYYYYk','kkkkkkkk'],
+  filizanka: ['..w.w...','...w.w..','kwwwwwk.','kwooowkk','kwooowkk','.kwwwk..','wwwwwwww','.gggggg.'],
+  papryczka: ['......n.','.....n..','....rr..','...rRr..','..rRr...','.rRr....','rRr.....','rr......'],
+  rosol:     ['.w..w...','..w..w..','........','yyyyyyyy','kYYYYYYk','.kooook.','..kook..','...kk...'],
+  lornetka:  ['........','.kk..kk.','.kkkkkk.','kkk..kkk','kBbkkBbk','kbbkkbbk','.kk..kk.','........'],
+  pokrywka:  ['........','...kk...','...gg...','.gggggg.','gwwwwwwg','gggggggg','kkkkkkkk','........'],
+  ksiazka:   ['.oooooo.','oOOOOOOo','oOyyyyOo','oOOOOOOo','oOyyyyOo','oOOOOOOo','owwwwwwo','.oooooo.'],
+  klodka:    ['..kkkk..','.k....k.','.k....k.','yyyyyyyy','yYYkkYYy','yYYkkYYy','yYYYYYYy','yyyyyyyy'],
   psKrzyzyk: [
     'u......u',
     'uu....uu',

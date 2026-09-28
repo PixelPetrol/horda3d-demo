@@ -203,6 +203,43 @@
              0 0 12px rgba(255,215,94,.55);
 }
 
+/* ================= E2 K1: SKŁADNIKI = drugi rząd mniejszych skrzynek POD bronią =================
+   `renderWpns()` wypełnia też `#skl` (3 sloty, poziom cyfrą, puste „·"). Broń jedzie o rząd wyżej. */
+#skl{position:absolute;left:10px;bottom:12px;display:flex;gap:5px;font-size:0}
+#wpns{bottom:46px}
+#skl .wp{
+  position:relative;box-sizing:border-box;width:26px;height:26px;padding:0;
+  display:inline-flex;align-items:center;justify-content:center;
+  background:var(--hud-skrzynka-m) 0 0/26px 26px;image-rendering:pixelated;
+  box-shadow:var(--hud-rama2);
+}
+#skl .wp img{filter:drop-shadow(0 1px 0 rgba(0,0,0,.5))}
+#skl .wp b{
+  position:absolute;right:-3px;bottom:-4px;min-width:9px;padding:0 2px;
+  font-size:10px;line-height:11px;text-align:center;color:var(--hud-kontur);
+  background:var(--hud-papier-img) 0 0/64px 64px;image-rendering:pixelated;box-shadow:var(--hud-rama2);
+}
+#skl .wp.empty{opacity:.55;filter:saturate(.35) brightness(.75);font-size:12px;line-height:26px;color:var(--hud-drewno-j)}
+@media (max-height:520px){
+  #skl .wp{width:24px;height:24px;background-size:24px 24px}
+  #skl .wp.empty{line-height:24px}
+  #wpns{bottom:44px}
+}
+@media (max-width:520px){                          /* pion: oba rzędy nad przyciskiem skoku */
+  #skl{bottom:calc(150px + env(safe-area-inset-bottom,0px))}
+  #wpns{bottom:calc(184px + env(safe-area-inset-bottom,0px))}
+}
+
+/* E2 K5: PRZEPIS GOTOWY — złota obwódka pulsuje 2 Hz, ikona dania w lewym górnym rogu skrzynki */
+#wpns .wp.gotowy{animation:gotowyPuls .5s steps(2) infinite}
+@keyframes gotowyPuls{
+  0%{box-shadow:-3px 0 0 0 var(--hud-zloto), 3px 0 0 0 var(--hud-zloto), 0 -3px 0 0 var(--hud-zloto), 0 3px 0 0 var(--hud-zloto), 0 0 14px rgba(255,215,94,.8)}
+  100%{box-shadow:var(--hud-rama3)}
+}
+#wpns .wp .noze{position:absolute;right:-4px;top:-6px;font-style:normal;font-size:11px;font-weight:900;color:#ff9d3f;text-shadow:var(--hud-obrys)}   /* E2 K8 */
+#wpns .wp .danie{position:absolute;left:-4px;top:-5px;line-height:0;filter:drop-shadow(0 0 3px #ffd75e)}
+@media (prefers-reduced-motion:reduce){#wpns .wp.gotowy{animation:none;box-shadow:-3px 0 0 0 var(--hud-zloto), 3px 0 0 0 var(--hud-zloto), 0 -3px 0 0 var(--hud-zloto), 0 3px 0 0 var(--hud-zloto)}}
+
 /* ================= PASEK BOSSA = ciężka deska z pomidorem ================= */
 #bossHp .bn{color:var(--hud-zloto);text-shadow:var(--hud-obrys)}
 #bossHp .bw{
@@ -357,6 +394,62 @@
 #pauseStats p{margin:3px 0;font-size:clamp(11px,3vw,14px);line-height:1.45;opacity:1;
   color:var(--hud-kreda)}
 #pauseStats b{color:var(--hud-zloto)}
+/* ===== E2 K7: PAUZA Z ZAKŁADKAMI + KSIĄŻKA KUCHARSKA =====
+   Góra: zakładki (≥ 44 px) + PAUZA; środek: przewijana tablica (#pauseStats); dół: WRACAM + Do menu w jednym rzędzie. */
+#pauseOv{justify-content:center}
+#pauseTop{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+#pauseTop h2{margin:0}
+#pauseTabs{display:flex;gap:6px;align-items:center}
+#pauseTabs .ptab{min-height:44px;margin:0;position:relative}
+#pauseTabs .ptab.sel{background:#4a3a14;color:#ffd75e}
+#pauseTabs .kropka{position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;line-height:16px;border-radius:0;
+  font-style:normal;font-size:11px;font-weight:900;color:#fff;background:#e2404a;box-shadow:0 0 0 2px #1b1b22}
+#pauseStats{width:min(92vw,860px);max-width:none;box-sizing:border-box;max-height:calc(100vh - 170px);overflow-y:auto;text-align:left}
+#pauseStats.pz-bieg,#pauseStats.pz-ster{width:min(92vw,560px)}
+#pauseStats .dokl{color:#9fd0ff}
+#pauseBtns{display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;margin-top:8px}
+#pauseBtns .bigbtn,#pauseBtns .btn2{margin:0;min-height:44px}
+.ksiazka{display:grid;grid-template-columns:55% 45%;gap:10px}
+.ksiazka h3{margin:0 0 5px;font-size:12px;letter-spacing:1px;color:var(--hud-kreda)}
+.ksiazka h3 span{float:right;margin-right:4px;color:var(--hud-zloto)}
+.ksiazka .kw{display:flex;align-items:center;gap:4px;min-height:40px;padding:3px 4px;margin-bottom:4px;font-size:12px;
+  border:2px solid rgba(242,240,228,.2);background:rgba(0,0,0,.18)}
+.ksiazka .kw .kp{font-size:11px;color:var(--hud-zloto);min-width:24px}
+.ksiazka .kw .kq{display:inline-block;min-width:22px;text-align:center;font-weight:900;color:#9aa0a8}
+.ksiazka .kw .ok{color:#8ed26a;font-weight:900}
+.ksiazka .kw .nie{color:#ff7a6e;font-weight:900}
+.ksiazka .kw .kst{flex:1;margin-left:6px;font-size:11px;line-height:1.3}
+.ksiazka .kw .kst small{font-size:10.5px;opacity:.9}
+.ksiazka .kw.zlote{border-color:var(--hud-zloto);box-shadow:0 0 8px rgba(255,215,94,.45)}
+.ksiazka .kw.zlote .kst{color:var(--hud-zloto);font-weight:900}
+.ksiazka .kw.puls{border-color:var(--hud-zloto);animation:ksPuls .5s steps(2) infinite}
+.ksiazka .kw.puls .kst{color:var(--hud-zloto);font-weight:800}
+@keyframes ksPuls{0%{box-shadow:0 0 10px rgba(255,215,94,.8)}100%{box-shadow:none}}
+.ksiazka .kw.szary{opacity:.6}
+.ksiazka .kafle{display:grid;grid-template-columns:repeat(5,44px);gap:6px;justify-content:center}
+#pauseStats .kafel{width:44px;height:44px;min-width:0;padding:0;margin:0;display:flex;align-items:center;justify-content:center;position:relative;
+  filter:brightness(.55) grayscale(.6)}
+#pauseStats .kafel i{position:absolute;bottom:1px;left:0;right:0;font-style:normal;font-size:9px;font-weight:900;color:#f2f2f2;text-align:center}
+#pauseStats .kafel.odk{filter:none;box-shadow:0 0 0 3px var(--hud-zloto), 0 0 8px rgba(255,215,94,.5)}
+#pauseStats .kafel.wkrotce{filter:brightness(.5)}
+.ksiazka .kSzcz{margin-top:8px;font-size:11px;line-height:1.35;min-height:30px}
+.ksiazka .kSzcz b{color:var(--hud-zloto)}
+@media (min-width:900px){
+  .ksiazka{grid-template-columns:480px 1fr}
+  .ksiazka .kafle{grid-template-columns:repeat(5,56px)}
+  #pauseStats .kafel{width:56px;height:56px}
+  .ksiazka .kw{min-height:64px;font-size:13px}
+  .ksiazka .kw .kst{font-size:12px}
+}
+@media (orientation:landscape) and (max-height:430px){
+  #pauseTop{margin-bottom:3px;gap:8px}
+  #pauseTop h2{font-size:14px}
+  #pauseStats{max-height:calc(100vh - 118px);padding:6px 10px}
+  #pauseBtns{margin-top:4px}
+  #pauseBtns .bigbtn{padding:7px 24px;font-size:15px}
+}
+@media (max-width:520px){ .ksiazka{grid-template-columns:1fr} }   /* pion: kolumny jedna pod drugą */
+
 /* „JAK GRAĆ" w pauzie: dwie kolumny, kapsle przycisków jak w Ustawieniach */
 .jakGrac{margin:8px auto 2px;max-width:min(92vw,420px);text-align:left}
 .jakGrac h3{margin:0 0 4px;font-size:clamp(11px,3vw,13px);letter-spacing:1px;color:var(--hud-kreda);text-align:center}
@@ -578,3 +671,49 @@ body.pad-foot .glRog{display:none}
 #startFoot .gl{margin:0 2px}
 #startFoot:empty{display:none}
 @media (min-height:700px){#startFoot{font-size:15px}}
+
+/* ================= B12: PROŚBA O KAWĘ (nad ekranem końca) =================
+   Kartka z przepiśnika Nonny: papier w drewnianej ramie, garnek po lewej, tekst po prawej, przyciski pod spodem.
+   Telefon poziomo 812×375 bez przewijania, przyciski ≥ 44 px. „Może później" ma pasek odliczania 3 s. */
+#kawaOv{justify-content:center;background:rgba(8,12,20,.72)}
+#kawaKarta{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-areas:"g t" "b b";gap:6px 16px;align-items:center;
+  width:min(92vw,620px);box-sizing:border-box;padding:16px 20px 22px;text-align:left;
+  background:var(--hud-papier) var(--hud-papier-img) repeat 0 0/64px 64px;image-rendering:pixelated;color:#3a2a12;
+  box-shadow:inset 0 0 0 4px var(--hud-drewno), var(--hud-rama3), 0 12px 0 0 rgba(0,0,0,.35);
+  animation:kawaWjazd .28s cubic-bezier(.2,1.4,.5,1) both}
+@keyframes kawaWjazd{from{transform:translateY(24px) rotate(-2deg);opacity:0}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){#kawaKarta{animation:none}}
+#kawaGarnek{grid-area:g;width:110px;height:110px;object-fit:contain;filter:drop-shadow(0 4px 0 rgba(0,0,0,.3))}
+#kawaTresc{grid-area:t;min-width:0}
+#kawaOv #kawaTytul{margin:0 0 6px;font-size:22px;color:#8b2e16;text-shadow:none;letter-spacing:.5px}
+#kawaOv #kawaTekst{margin:0;max-width:none;opacity:1;font-size:16px;line-height:1.4;color:#3a2a12}
+#kawaTekst svg,#kawaTekst img,#kawaTak svg,#kawaTak img{vertical-align:-3px}
+#kawaBtns{grid-area:b;display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:0 10px;margin-top:4px}
+#kawaBtns .bigbtn,#kawaBtns .btn2{margin-bottom:6px;min-height:48px;min-width:150px;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+#kawaNie{position:relative;overflow:hidden}
+#kawaNie:disabled{cursor:default;color:#8e97ab;background:#2b3550}
+#kawaNie:disabled:hover{color:#8e97ab}
+.kawaPasek{position:absolute;left:0;bottom:0;height:4px;width:100%;background:var(--hud-zloto);transform-origin:left;transform:scaleX(1);opacity:0}
+#kawaNie.czeka .kawaPasek{opacity:1;animation:kawaOdlicz 3s linear both}
+@keyframes kawaOdlicz{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+#kawaBtns [hidden]{display:none}
+.kawaGl:empty{display:none}
+#kawaOv.dzieki #kawaTytul{color:#2f6b1f}
+@media (max-height:520px){
+  #kawaOv{padding-top:6px;padding-bottom:6px}
+  #kawaKarta{width:min(94vw,640px);padding:10px 16px 18px;gap:2px 14px}
+  #kawaGarnek{width:84px;height:84px}
+  #kawaOv #kawaTytul{font-size:19px;margin-bottom:4px}
+  #kawaOv #kawaTekst{font-size:14.5px;line-height:1.32}
+  #kawaBtns .bigbtn,#kawaBtns .btn2{min-height:44px;margin-top:8px;margin-bottom:4px}
+}
+@media (max-width:520px){
+  #kawaKarta{grid-template-columns:1fr;grid-template-areas:"g" "t" "b";text-align:center}
+  #kawaGarnek{justify-self:center;width:80px;height:80px}
+}
+@media (min-height:700px) and (min-width:900px){
+  #kawaKarta{width:min(92vw,720px);padding:22px 28px 28px}
+  #kawaGarnek{width:140px;height:140px}
+  #kawaOv #kawaTytul{font-size:28px}
+  #kawaOv #kawaTekst{font-size:19px}
+}

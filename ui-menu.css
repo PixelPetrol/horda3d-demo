@@ -493,3 +493,7 @@ body.pad-foot #startOv{padding-bottom:calc(58px + env(safe-area-inset-bottom,0px
 @media (min-width:521px) and (max-height:400px){
   #startOv.panel-open #panele{max-height:calc(90vh - 58px);overflow-y:auto}    /* logo 10vh, bez stopki */
 }
+
+/* E2 K8: REGUŁA POSTACI — kafelek w zakładce Postacie i scenka menu pod opisem */
+.tile .regula{margin-top:5px;font-size:clamp(9px,2.5vw,11px);font-weight:800;line-height:1.3;color:#ffd75e}
+#heroDs .regula{display:inline-block;margin-top:3px;color:#ffd75e;font-weight:800}
