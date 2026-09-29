@@ -611,6 +611,48 @@ export function icon(name, px = 4) {
   cache.set(key, url);
   return url;
 }
+// IKONA Z OBRYSEM (menu, 29.09 „ikonki muszą być bardziej czytelne"): ta sama siatka 8×8 w ramce — 1 piksel siatki
+// ciemnego konturu (kol) dookoła każdego zamalowanego piksela, opcjonalnie drugi, jasny (kol2) na zewnątrz („naklejka":
+// czytelna i na ciemnym drewnie, i na jasnym papierze). Siatka 10×10 (jeden obrys) albo 12×12 (dwa). Rozmiar CSS =
+// wielokrotność siatki (main.js: --ikN), image-rendering: pixelated — bez rozmycia.
+export function iconObrys(name, px = 4, kol = '#1b1b22', kol2 = null) {
+  const key = name + '@o' + px + kol + (kol2 || '');
+  if (cache.has(key)) return cache.get(key);
+  const art = ART[name];
+  if (!art) return '';
+  const m = kol2 ? 2 : 1;                             // margines siatki
+  const w = art[0].length + 2 * m, h = art.length + 2 * m;
+  const mapa = [];                                     // 0 pusto, 1 sztuka, 2 kontur, 3 obrys jasny
+  for (let y = 0; y < h; y++) { mapa.push(new Array(w).fill(0)); }
+  for (let y = 0; y < art.length; y++) for (let x = 0; x < art[y].length; x++) if (PAL[art[y][x]]) mapa[y + m][x + m] = 1;
+  const pierscien = (z, na) => {
+    const dod = [];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (mapa[y][x]) continue;
+      let obok = false;
+      for (let dy = -1; dy <= 1 && !obok; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const yy = y + dy, xx = x + dx;
+        if ((dx || dy) && yy >= 0 && yy < h && xx >= 0 && xx < w && z.includes(mapa[yy][xx])) { obok = true; break; }
+      }
+      if (obok) dod.push([x, y]);
+    }
+    for (const [x, y] of dod) mapa[y][x] = na;
+  };
+  pierscien([1], 2);
+  if (kol2) pierscien([1, 2], 3);
+  const c = document.createElement('canvas');
+  c.width = w * px; c.height = h * px;
+  const g = c.getContext('2d');
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const v = mapa[y][x];
+    if (!v) continue;
+    g.fillStyle = v === 2 ? kol : v === 3 ? kol2 : PAL[art[y - m][x - m]];
+    g.fillRect(x * px, y * px, px, px);
+  }
+  const url = c.toDataURL();
+  cache.set(key, url);
+  return url;
+}
 // gotowy tag <img> do wstawienia w innerHTML
 export function ico(name, size = 32) {
   return `<img class="pxi" src="${icon(name, 4)}" style="height:${size}px" alt="">`;

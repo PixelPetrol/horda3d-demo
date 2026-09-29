@@ -1,7 +1,7 @@
 // HORDA 3D v4 — teren 3D + kamera za plecami + meta-progresja (monety/sklep)
 import * as THREE from './lib/three.module.js';
 import { SPRITEDATA } from './spritedata.js?v=11';
-import { icon, ico } from './icons.js?v=8';
+import { icon, iconObrys, ico } from './icons.js?v=9';
 import { AUDIO } from './audio.js?v=8';            // muzyka wg fazy gry + kwestie głosowe + efekty
 import { initKomiks, pokazKomiks } from './komiks.js?v=1';   // komiks wprowadzający (Etap 2)
 import { generujSzkielet, siatkaGalezi, RNG } from './lib/drzewa-szkielet.js?v=2';
@@ -368,7 +368,7 @@ const kubelekMinut = t => t >= 600 ? '10+' : Math.floor(t / 60) + '-' + (Math.fl
 STATY.start();
 window.STATY = STATY;                              // PWA (`appinstalled`) woła STATY.zdarzenie z innego miejsca
 
-// ============================== „POSTAW MI KAWĘ" ==============================
+// ============================== „POSTAW KAWĘ AUTOROWI GRY" (dawniej „POSTAW MI KAWĘ") ==============================
 // Życzenie właściciela (18.09). Link WPISUJE WŁAŚCICIEL (buycoffee.to / Ko-fi / suppi);
 // pusty = przycisk schowany. Klik liczy się jako zdarzenie w statystykach.
 const KAWA_URL = 'https://buycoffee.to/piotr.korona';   // ten sam link co w K-OS (SPEC-K-OS.md)
@@ -3580,7 +3580,8 @@ function loadMeta() {
           jackpoty: 0, przepisy: 0,                 // E2: jackpoty w historii zapisu (scenariusz 1-1-3-1-5), ugotowane dania
           // E3 (spec 09 §8): kapliczki, wydarzenia, karabin; `karabinPierwszy` = gwarantowany karabin już był
           stolnice: 0, wyzwania: 0, wyzwaniaWyg: 0, wydarzenia: 0, zmyci: 0, przygnieceni: 0, karabiny: 0,
-          karabinPierwszy: false },
+          karabinPierwszy: false,
+          bestMapa: {} },                           // 29.09: najdłużej przeżyty czas per mapa (odblokowania map)
     bestiary: {},                                  // typ wroga -> ile razy zabity (bestiariusz)
     audio: { muz: 0.15, glos: 0.9, efe: 0.7, mute: 0 },   // głośności i wyciszenie (zakładka Dźwięk)
     // KONTROLER (zakładka Sterowanie). `map` trzyma INDEKSY przycisków w układzie
@@ -4091,10 +4092,10 @@ function renderTabliczkaNonny(id, zSklepu) {
   if (!el) return;
   const kawa = KAWA_URL && !JEST_APKA;
   el.innerHTML = `<div class="ntTekst">${mIk('postac')}<span>${kawa
-      ? T('Za drogo? Wyfarm monety albo postaw Nonnie kawę — napisz na buycoffee, a dostaniesz kod na monety.',
-          'Too pricey? Farm the coins or buy Nonna a coffee — drop a note on buycoffee and you will get a coin code.')
+      ? T('Za drogo? Wyfarm monety albo postaw kawę autorowi gry — napisz na buycoffee, a dostaniesz kod na monety.',
+          "Too pricey? Farm the coins or buy the game's author a coffee — drop a note on buycoffee and you will get a coin code.")
       : T('Za drogo? Każdy bieg dokłada monet — Nonna czeka cierpliwie.', 'Too pricey? Every run adds coins — Nonna is patient.')}</span></div>`
-    + `<div class="ntPrz">${kawa ? `<a class="btn2 ntKawa" href="${KAWA_URL}" target="_blank" rel="noopener">${T('POSTAW KAWĘ', 'BUY A COFFEE')}</a>` : ''}`
+    + `<div class="ntPrz">${kawa ? `<a class="btn2 ntKawa" href="${KAWA_URL}" target="_blank" rel="noopener">${T('POSTAW KAWĘ AUTOROWI GRY', "BUY THE GAME'S AUTHOR A COFFEE")}</a>` : ''}`
     + (zSklepu ? `<button class="btn2 ntKod">${T('MAM KOD', 'I HAVE A CODE')}</button>` : '') + '</div>';
   const k = el.querySelector('.ntKawa');
   if (k) k.onclick = () => STATY.zdarzenie('kawa/' + (zSklepu ? 'sklep' : 'kod'), 'Klik: kawa (' + (zSklepu ? 'sklep' : 'kod') + ')');
@@ -4122,7 +4123,7 @@ const odslUi = () => META.ui.odsl || (META.ui.odsl = {});   // META.ui kopiowane
 // stan odsłonięcia menu (§10.4): 0 = pierwsza sesja, 1 / 2 = po 1. / 2. biegu, 3 = pełny (od 3. biegu)
 const menuStan = () => Math.min(3, biegi());
 // ikona z icons.js BEZ stylu inline (rozmiar daje CSS w `--p`, `ico()` wpisuje sztywne px)
-const mIk = (n) => `<img class="ikp" src="${icon(n, 4)}" alt="">`;
+const mIk = (n) => `<img class="ikp" src="${iconObrys(n, 4, '#1b1b22', '#f2e3bf')}" alt="">`;   // 29.09: kontur + jasny obrys (siatka 12×12)
 // skrzynka → od którego stanu stoi na ladzie
 const SKRZ_OD = { postacie: 1, sklep: 1, akta: 2, ksiazka: 3, zeszyt: 99 };
 const SKRZ_ODSL = { r1: ['postacie', 'sklep'], r2: ['akta'], r3: ['ksiazka'] };
@@ -4134,7 +4135,17 @@ const ZAPOWIEDZ = {
 };
 // Mapa odsłonięta (bez mgły, do wyboru). Dziś: Łąki zawsze, reszta po 1. biegu (§10.4: „0 biegów: mapa bez wyboru").
 // E4 K2 (Zeszyt) podmieni warunki na zadania: Wąwozy po 1. kapralu, Market po dotrwaniu do 5:00 (§11, decyzja 5).
-function mapaOdbl(key) { return key === 'laki' || biegi() >= 1; }
+// 29.09 (Piotr: „wszystkie plansze nie mogą być od razu aktywne"): mapa otwiera się po przeżyciu `do` s na poprzedniej.
+// Stare zapisy bez bestMapa: rekord `best` liczy się jako Łąki (weteran ma od razu Wąwozy, Market musi zdobyć).
+const MAPA_WARUNEK = { wawozy: { po: 'laki', do: 300 }, market: { po: 'wawozy', do: 300 } };
+const bestNaMapie = k => { const b = META.st.bestMapa || {}; return b[k] != null ? b[k] : (k === 'laki' ? META.st.best || 0 : 0); };
+function mapaOdbl(key) {
+  if (DEV && /[?&]mapy=1/.test(location.search)) return true;
+  const w = MAPA_WARUNEK[key];
+  return !w || bestNaMapie(w.po) >= w.do;
+}
+const mapaWarunekTxt = k => { const w = MAPA_WARUNEK[k]; if (!w) return '';
+  return T(`Przetrwaj ${fmtTime(w.do)} na mapie ${MAPS[w.po].nm}, a mgła zejdzie.`, `Survive ${fmtTime(w.do)} on ${MAPS[w.po].nm} and the fog lifts.`); };
 const odkryteBest = () => Object.keys(ENEMY_TYPES).filter(k => (META.bestiary[k] || 0) > 0).length;
 const liczba = n => (+n || 0).toLocaleString(JEZYK.cur === 'en' ? 'en-US' : 'pl-PL');
 
@@ -4143,11 +4154,23 @@ function menuSkala() {
   const w = document.getElementById('warzywniak');
   if (!w) return;
   const W = w.clientWidth || innerWidth, H = w.clientHeight || innerHeight;
-  const s = Math.max(0.5, Math.min(W / 812, H / 375));
-  MENU.s = s; MENU.pc = s >= 1.3;
+  // PC (29.09, uwaga właściciela „menu na PC za duże"): mysz + ≥ 1024×560 → skala 1,0 (do 1,2 dopiero od 2304×1296)
+  // i osobny układ `w-pcx` (scena ≤ 1320 px wyśrodkowana, postać/tablica z sufitem wysokości). Telefon i tablet
+  // (dotyk) jak dawniej: s = min(szer/812, wys/375).
+  const mysz = !matchMedia || matchMedia('(pointer: fine)').matches || !matchMedia('(pointer: coarse)').matches;
+  const pcx = mysz && W >= 1024 && H >= 560;
+  const s = pcx ? Math.min(1.2, Math.max(1, Math.min(W / 1920, H / 1080))) : Math.max(0.5, Math.min(W / 812, H / 375));
+  MENU.s = s; MENU.pc = pcx || s >= 1.3; MENU.pcx = pcx;
   w.style.setProperty('--s', s.toFixed(4));
   w.style.setProperty('--tx', String(Math.max(2, Math.round(2 * s))));
+  // PC: poziomy margines sceny (px ekranu), żeby na 1920 elementy nie uciekały w rogi
+  w.style.setProperty('--bx', (pcx ? Math.max(0, Math.round((W - 1320 * s) / 2)) : 0) + 'px');
+  // IKONY (8×8 + kontur + jasny obrys = siatka 12×12, `mIk`): rozmiar CSS = całkowita wielokrotność siatki w pikselach
+  // URZĄDZENIA (pixelated bez rozmycia i bez nierównych pikseli). --ikN = ikona projektowana na N px makiety.
+  const dpr = devicePixelRatio || 1;
+  for (const n of [24, 36, 48]) w.style.setProperty('--ik' + n, (Math.max(1, Math.round(n * s * dpr / 12)) * 12 / dpr) + 'px');
   w.classList.toggle('w-pc', MENU.pc);
+  w.classList.toggle('w-pcx', pcx);
   if (document.getElementById('startOv').classList.contains('panel-mapy')) mapaRysuj(1);
 }
 
@@ -4486,7 +4509,7 @@ function mapaDymek(k, txt) {
 function mapaWezel(k) {
   if (k === 'stragan') return document.getElementById('panelBack').click();          // Warzywniak = powrót do lady
   if (k === 'willa') return mapaDymek('willa', T('Willa Dona. Wejście — wkrótce.', "Don's villa. Entry — coming soon."));
-  if (!mapaOdbl(k)) return mapaDymek(k, T('Mgła zejdzie po pierwszym biegu.', 'The fog lifts after your first run.'));
+  if (!mapaOdbl(k)) return mapaDymek(k, mapaWarunekTxt(k));
   menuMapa(0, k);
 }
 // sprite postaci z atlasu (idle, kierunek „south"), ostry, animowany CSS-em po klatkach arkusza
@@ -4562,7 +4585,15 @@ function menuKlawisz(e) {
 }
 
 // START MENU: skala, zdarzenia, obserwator widoczności (#startOv pokazywany w kilku miejscach przez style.display)
+// 29.09: mały numer wersji w rogu menu (z ?v= w adresie main.js — to samo, co podbijamy przy każdym wydaniu)
+const WERSJA_GRY = (new URL(import.meta.url).searchParams.get('v')) || 'dev';
 function menuInit() {
+  { const w = document.getElementById('warzywniak');
+    if (w && !document.getElementById('wWersja')) {
+      const v = document.createElement('div'); v.id = 'wWersja'; v.textContent = 'v' + WERSJA_GRY;
+      v.style.cssText = 'position:absolute;left:6px;bottom:3px;font-size:11px;line-height:1;opacity:.55;color:#f3e6c8;pointer-events:none;z-index:50;letter-spacing:.5px';
+      w.appendChild(v);
+    } }
   const w = document.getElementById('warzywniak');
   if (!w) return;
   menuSkala();
@@ -4635,14 +4666,15 @@ function menuAudyt() {
   // (4) bez przewijania
   wynik.scroll = [ov.scrollHeight, ov.clientHeight, document.documentElement.scrollHeight, innerHeight];
   if (ov.scrollHeight > ov.clientHeight + 1 || document.documentElement.scrollHeight > innerHeight + 1) wynik.bledy.push('przewijanie');
-  // (5) pola dotyku ≥ 44×44
+  // (5) pola dotyku ≥ 44×44 (PC z myszą `w-pcx`: ≥ 32 — decyzja właściciela 29.09 „na PC mogą być < 44 px, ale czytelne")
+  const minPole = MENU.pcx ? 32 : 44;
   wynik.male = inter.map(el => { const r = el.getBoundingClientRect(); return [el.id || el.dataset.tab || el.dataset.w || el.className, Math.round(r.width), Math.round(r.height)]; })
-    .filter(([, a, b]) => a < 44 || b < 44);
-  if (wynik.male.length) wynik.bledy.push('pola < 44 px: ' + wynik.male.length);
+    .filter(([, a, b]) => a < minPole || b < minPole);
+  if (wynik.male.length) wynik.bledy.push(`pola < ${minPole} px: ` + wynik.male.length);
   // (6) ≤ 2 kropki
   wynik.kropki = [...ov.querySelectorAll('.wKropka')].filter(e => e.offsetWidth).length;
   if (wynik.kropki > 2) wynik.bledy.push('> 2 kropki');
-  wynik.stan = 'w-r' + menuStan() + (MENU.pc ? ' pc' : '') + ' s=' + MENU.s.toFixed(2);
+  wynik.stan = 'w-r' + menuStan() + (MENU.pcx ? ' pcx' : MENU.pc ? ' pc' : '') + ' s=' + MENU.s.toFixed(2);
   return wynik;
 }
 function menuPodstaw(n, o = {}) {
@@ -4721,7 +4753,7 @@ function resetStats() {
     weapons: [{ key: CHARS[charKey].startWpn || 'kule', lvl: 1, t: 0, t0: 0 }],   // max 3 sloty; t0 = od kiedy (DPS broni)
     passives: {},                                // key -> poziom (E2: ile razy wzięto składnik)
     skl: [], sklU: {}, slotySkl: CFG_DECYZJE.slotySkl, regenAkum: 0,   // E2 K1: sloty składników, jednostki siły, Rosół
-    awanse: 0, wyklucz: new Set(),                   // E2 K2/K3: licznik awansów (nauka rzadkości), wykluczone id kart
+    awanse: 0, awAuto: 0, wyklucz: new Set(),         // awAuto: AWANS CO 3 — liczba awansów z automatycznym wzmocnieniem                   // E2 K2/K3: licznik awansów (nauka rzadkości), wykluczone id kart
     nozeBonus: 0,                                    // E2 K8: noże Razoretty za krytyki
     wybory: { przelos: CFG_DECYZJE.wybory.przelos + (charKey === 'carrotello' ? 1 : 0),   // Carrotello: Wszechstronny (+1)
               pomin: CFG_DECYZJE.wybory.pomin, wyklucz: CFG_DECYZJE.wybory.wyklucz },
@@ -4780,8 +4812,11 @@ const xpDoNast = l => Math.round(XP_KRZ.a + XP_KRZ.b * l + XP_KRZ.c * l * l + XP
 // obrażeń poniżej połowy HP — zostaje samo leczenie, i to co 5 s zamiast co 3 s.
 const cisnienie = () => charKey === 'beetino' && P.hp > 0 && P.hp <= P.maxHp * 0.5;
 const BEET_LECZ_CD = 5.0;                         // s między sercami z wysysania (nerf 23.09: 3 s, 24.09: 5 s)
-const dmgAll  = () => CHARS[charKey].dmg * (1 + 0.10 * META.up.dmg) * Math.pow(1.15, U('moc')) * (1 + 0.03 * (P.repeat.sol || 0)) * (G.buff.key === 'dmg' ? 2 : 1) * rangaDmg();   // Ciśnienie Beetina bez bonusu obrażeń (24.09; było 1.25 → 1.20)
-const fireMul = () => Math.pow(1.12, U('tempo')) * (1 + 0.03 * (P.repeat.oliwa || 0)) * rangaFire();
+// AWANS CO 3 (29.09): automatyczne wzmocnienie za każdy awans (P.awAuto = liczba awansów w biegu; CFG_TRUDNOSC.*.awans)
+const awansDmg  = () => 1 + trudn().awans.dmg * (P.awAuto || 0);
+const awansTempo = () => 1 + trudn().awans.tempo * (P.awAuto || 0);
+const dmgAll  = () => CHARS[charKey].dmg * (1 + 0.10 * META.up.dmg) * Math.pow(1.15, U('moc')) * (1 + 0.03 * (P.repeat.sol || 0)) * (G.buff.key === 'dmg' ? 2 : 1) * rangaDmg() * awansDmg();   // Ciśnienie Beetina bez bonusu obrażeń (24.09; było 1.25 → 1.20)
+const fireMul = () => Math.pow(1.12, U('tempo')) * (1 + 0.03 * (P.repeat.oliwa || 0)) * rangaFire() * awansTempo();
 // clamp 0.75: pasyw daje najwyżej 0.50, ale „Pieprz Nonny” jest bez limitu i bez
 // tego setny poziom oznaczałby krytyk na 100% (crit ×3 przestaje być zdarzeniem).
 const critC   = () => Math.min(0.75, 0.10 * U('krytyk') + 0.02 * (P.repeat.pieprz || 0));
@@ -6150,6 +6185,7 @@ const CFG_BIEG = {
     ketchupCo: 3, ketchupOd: 360,                  // Ketchupino od 6:00 i 3× rzadziej
     podlogaMax: 245,                               // podłoga z tabeli najwyżej 245 (K11 podniósł 8:30–9:52 do 440 tylko w normalnym)
     reka: { hp: 0.5, r: 10, sila: 9, niet: 3 },    // Ręka Nonny: raz na bieg, śmiertelny cios → 50% serc + fala + 3 s
+    kartyCo: null,                                 // AWANS CO 3: null = jak normalny bieg (CFG_TRUDNOSC.*.awans.kartyCo)
   },
   nietyk: 0.9,                                     // s nietykalności po trafieniu (1 cios = 1 serce)
   // B8 (28.09): monety z hordy — zwykły wróg `zwykly` szansy na 1 monetę, elita 1 moneta; od `od` s szansa ×(od/t)^`wykl`
@@ -6232,6 +6268,8 @@ const CFG_TRUDNOSC = {
     garnekCd: 45, piniataPoziom: 1, lagodnyDrugaSzansa: true,
     // SKŁADNIKI (29.09): v1 = jak przed Spiżarnią — wszystkie poza Pokrywką od startu, waga i rzadkość ×1, sufit 5
     karty: { sklBlokady: false, sklWaga: 1, sklRz: 1, sklMax: 5 },
+    // AWANS (29.09 wieczór): v1 = karty przy KAŻDYM awansie, bez automatycznego wzmocnienia
+    awans: { kartyOd: 2, kartyCo: 1, dmg: 0, tempo: 0, bron: false },
   },
   v2: {
     bieg: {
@@ -6264,6 +6302,14 @@ const CFG_TRUDNOSC = {
     // sklepu; waga kart składników ×0,5 (względem bron 1,4 / dokl 0,8 — CFG_DECYZJE.wagi); szansa na niebieską/fioletową
     // KARTĘ SKŁADNIKA ×0,5 (bronie bez zmian); maks. poziom składnika w biegu 3, „Większy słoik" ze Spiżarni → 5.
     karty: { sklBlokady: true, sklWaga: 0.5, sklRz: 0.5, sklMax: 3 },
+    // AWANS RZADZIEJ Z KARTAMI (uwaga właściciela 29.09 po v295: „karty wybierajmy rzadziej, co któryś awans"):
+    // okno kart tylko na poziomach kartyOd, kartyOd + kartyCo, … (2, 5, 8, 11, …; łagodny 1. bieg co 2 — lagodny.kartyCo);
+    // kilka awansów naraz = najwyżej jedno okno. KAŻDY awans bez pauzy: +dmg obrażeń i +tempo szybkości ataków
+    // (addytywnie: dmgAll × (1 + dmg·n), fireMul × (1 + tempo·n), n = awanse w biegu), a awans BEZ kart (bron) dodatkowo
+    // +1 poziom najsłabszej broni < max. Samo +4%/+2% bez broni dawało w 5:00 ¼ siły broni sprzed zmiany (bronie na poz. 1–2).
+    // Pomiar (bot-średni Carrotello, Łąki, N=40): przed 3/40 do 10:00, mediana śmierci 4:05, okna do 5:00/10:00 17/26;
+    // po 5/40, 4:23, okna 6/9. Z tempo 0 → 0/40, 2:37 (bot kruchy w 1:30–3:00). Sekcja „AWANS CO 3" w INFO-PROJEKT.md.
+    awans: { kartyOd: 2, kartyCo: 3, dmg: 0.01, tempo: 0.005, bron: true },
     // łagodny pierwszy bieg bliżej normalnego (stare → nowe)
     lagodny: {
       L: { hp: 0.65, spd: 0.02, elita: 0.4, tempo: 0.55 },   // { hp 0,50, spd 0, elita 0,2, tempo 0,35 }
@@ -6275,6 +6321,7 @@ const CFG_TRUDNOSC = {
       nietyk: 1.4,                                   // 2,0 s
       ketchupCo: 2, ketchupOd: 270,                  // 3× rzadziej od 6:00 → 2× rzadziej od 4:30
       podlogaMax: 300,                               // 245
+      kartyCo: 2,                                    // AWANS CO 3: w łagodnym 1. biegu karty co 2. awans (normalny co 3.)
     },
   },
 };
@@ -7864,6 +7911,15 @@ const GLIF = {
   'Ą': ['01110','10001','10001','11111','10001','10001','10011'],
   'Ę': ['11111','10000','10000','11110','10000','10000','11111'],
   'Ń': ['10001','11001','10101','10011','10001','10001','10001'],
+  // 29.09 (napis awansu „+2% OBRAŻEŃ", nazwy broni): reszta polskich liter jak Ę/Ń — kształt bazowej litery
+  // (7 wierszy nie mieści kreski), Ł z ukośnikiem; do tego procent
+  'Ó': ['01110','10001','10001','10001','10001','10001','01110'],
+  'Ś': ['01111','10000','10000','01110','00001','00001','11110'],
+  'Ć': ['01110','10001','10000','10000','10000','10001','01110'],
+  'Ż': ['11111','00001','00010','00100','01000','10000','11111'],
+  'Ź': ['11111','00001','00010','00100','01000','10000','11111'],
+  'Ł': ['01000','01000','01100','11000','01000','01000','01111'],
+  '%': ['11001','11001','00010','00100','01000','10011','10011'],
   '!': ['00100','00100','00100','00100','00100','00000','00100'],
   '?': ['01110','10001','00001','00010','00100','00000','00100'],
   '+': ['00000','00100','00100','11111','00100','00100','00000'],
@@ -9653,6 +9709,7 @@ function zamknijOverlay(id) {
   G.paused = false;
 }
 function showCards(o = {}) {
+  if (!o.zrodlo) G.oknoAwansu = false;              // AWANS CO 3: okno awansu z kolejki właśnie się otwiera
   const wrap = document.getElementById('cards'); wrap.innerHTML = '';
   const h2 = document.querySelector('#cardsOv h2');
   if (h2) h2.textContent = o.zrodlo === 'kapral' ? T('SKRZYNIA KAPRALA! Wybierz ulepszenie', "CORPORAL'S CRATE! Pick an upgrade")
@@ -11485,19 +11542,74 @@ function updateKarabin(dt) {
 }
 
 // AWANS: WHILE, nie IF — jedna pigułka może dać więcej niż jeden poziom, a przy Wielkim Magnesie pigułki przychodzą
-// kiszkami po kilkanaście w jednej klatce. Każdy awans wchodzi do KOLEJKI, więc żaden zestaw kart nie przepada.
+// kiszkami po kilkanaście w jednej klatce.
+// AWANS CO 3 (29.09, uwaga właściciela po v295): KAŻDY awans = automatyczne wzmocnienie bez pauzy (napis nad głową,
+// błysk, pierścień, dźwięk); okno kart tylko na poziomach kartowych (`poziomKart`). Kilka awansów w jednej klatce =
+// najwyżej JEDNO okno (i żadne, jeśli okno awansu już czeka w kolejce OV_Q).
+const kartyCo = () => (G.lagodny && CFG_BIEG.trybLagodny.kartyCo) || trudn().awans.kartyCo;
+const poziomKart = l => { const A = trudn().awans; return l >= A.kartyOd && (l - A.kartyOd) % kartyCo() === 0; };
+const nastPoziomKart = l => { let n = l + 1; while (!poziomKart(n)) n++; return n; };
+// broń do automatycznego podciągnięcia: najniższy poziom poniżej max, nie wykluczona (WYKLUCZ = „bez ulepszeń do końca
+// biegu"), przy remisie ta zdobyta wcześniej
+function awansBron() {
+  let naj = null;
+  for (const w of P.weapons) {
+    if (w.lvl >= WEAPONS[w.key].max || wykluczone('bron:' + w.key)) continue;
+    if (!naj || w.lvl < naj.lvl) naj = w;
+  }
+  return naj;
+}
 function awansujJesliTrzeba() {
+  let karty = false, ile = 0;
+  const bronie = [];
   while (!STRES && P.xp >= P.xpNeed) {            // STRES (DEV): bez kart, bo pauzowałyby pomiar
-    P.xp -= P.xpNeed; P.lvl++;
+    P.xp -= P.xpNeed; P.lvl++; ile++;
     P.xpNeed = xpDoNast(P.lvl);
+    P.awAuto = (P.awAuto || 0) + 1;
+    if (poziomKart(P.lvl)) karty = true;
+    else if (trudn().awans.bron) {                 // awans BEZ kart: broń +1 poziom (siła jak przy karcie co awans)
+      const w = awansBron();
+      if (w) { w.lvl++; bronie.push(w); }
+    }
+  }
+  if (ile) {
+    if (bronie.length) renderWpns();
     document.getElementById('lvl').textContent = T('POZIOM ', 'LEVEL ') + P.lvl;
     AUDIO.sfx('awans');
     AUDIO.event('awans');
     // 0.20 -> 0.10: właściciel zgłosił, że błysk „za mocno" wchodzi w oko (awans co ~10 s na starcie biegu)
-    blysk('#ffffff', 0.10);
-    pchnijOverlay(showCards);
+    blysk(karty ? '#ffffff' : '#ffe38a', 0.10);
+    awansNapis(ile, karty, bronie);
+    if (karty && !G.oknoAwansu) {
+      G.oknoAwansu = true;                           // zdejmowane w showCards (okno naprawdę otwarte)
+      pchnijOverlay(showCards);
+    }
   }
-  document.getElementById('xpbar').style.width = (P.xp / P.xpNeed * 100) + '%';
+  const xb = document.getElementById('xpbar');
+  xb.style.width = (P.xp / P.xpNeed * 100) + '%';
+  xb.classList.toggle('karty', !STRES && kartyCo() > 1 && poziomKart(P.lvl + 1));   // złoty pasek = następny awans otworzy karty
+}
+// napis nad graczem („POZIOM 7" + „KULE POZ. 3" albo „+3% OBRAŻEŃ") + pierścień + pasek pod tabliczką poziomu; bez pauzy.
+function awansNapis(ile, karty, bronie = []) {
+  const A = trudn().awans;
+  if (kartyCo() <= 1) return;                     // v1: jak dawniej (każdy awans = karty)
+  const pr = x => String(+(x * 100 * ile).toFixed(1)).replace('.', JEZYK.cur === 'en' ? '.' : ',');   // 0,5 / 1 / 1,5
+  const d = pr(A.dmg), t = pr(A.tempo);
+  const pc = (A.dmg ? T(`+${d}% obrażeń`, `+${d}% damage`) : '') + (A.dmg && A.tempo ? ' · ' : '') + (A.tempo ? T(`+${t}% tempa`, `+${t}% attack speed`) : '');
+  const bw = bronie.length ? bronie[bronie.length - 1] : null;
+  dmgPop(P.pos.x, P.y + 2.3, P.pos.z, T('POZIOM ', 'LEVEL ') + P.lvl, '#ffd75e', 1.7, 'wazny');
+  if (bw) dmgPop(P.pos.x, P.y + 1.5, P.pos.z, (WEAPONS[bw.key].nm + T(' POZ. ', ' LV ') + bw.lvl).toUpperCase(), '#bff27a', 1.2, 'wazny');
+  else if (A.dmg) dmgPop(P.pos.x, P.y + 1.5, P.pos.z, T(`+${d}% OBRAŻEŃ`, `+${d}% DAMAGE`), '#fff4c2', 1.15, 'wazny');
+  novaRing(P.pos.x, P.pos.z, 3.2);
+  const el = document.getElementById('awansInfo');
+  if (el) {
+    const czesci = [T('POZIOM ', 'LEVEL ') + P.lvl];
+    for (const w of bronie) czesci.push(ico(WEAPONS[w.key].ico, 14) + ' ' + WEAPONS[w.key].nm + T(' poz. ', ' lv ') + w.lvl);
+    if (pc) czesci.push(pc);
+    czesci.push(karty ? T('KARTY!', 'CARDS!') : T('karty na poz. ', 'cards at lv ') + nastPoziomKart(P.lvl));
+    el.innerHTML = czesci.join(' · ');
+    el.classList.remove('pokaz'); void el.offsetWidth; el.classList.add('pokaz');
+  }
 }
 
 // ============================== FALA UDERZENIOWA (nova) ==============================
@@ -12695,6 +12807,8 @@ function koniecBiegu(powod = 'smierc') {
   if (wygrana) { s.wins = (s.wins || 0) + 1; if (!s.bestDon || walkaDona < s.bestDon) s.bestDon = +walkaDona.toFixed(1); }
   else if (!doMenu) s.smierci = (s.smierci || 0) + 1;
   if (czasRek > s.best) s.best = czasRek;
+  s.bestMapa = s.bestMapa || {};
+  if (czasRek > (s.bestMapa[mapKey] || 0)) s.bestMapa[mapKey] = Math.round(czasRek);   // odblokowania map
   if (G.kills > s.bestKills) s.bestKills = G.kills;
   if (G.maxHit && G.maxHit.dmg > (s.maxHit || 0)) s.maxHit = Math.round(G.maxHit.dmg);
   // E2 K7: narastająca podpowiedź Książki — broń przepisu doszła w tym biegu do max, a danie nieugotowane → prawie +1 (raz na bieg)
@@ -12799,11 +12913,12 @@ function pokazKawe() {
   ov.classList.remove('dzieki');
   document.getElementById('kawaTytul').textContent = T('Nonna ma prośbę', 'A word from Nonna');
   document.getElementById('kawaTekst').innerHTML = T(
-    `Nonna gotuje tę grę po nocach. Jeśli sos Ci smakuje, postaw jej kawę ${fil} — dzięki temu powstaną nowe mapy i postacie.`,
-    `Nonna cooks this game late at night. If you like the sauce, buy her a coffee ${fil} — that's how new maps and characters get made.`);
+    // 29.09 (uwaga właściciela): kawa jest dla AUTORA gry, nie dla Nonny — Nonna tylko przekazuje prośbę
+    `Autor tej gry gotuje ją po nocach, a Nonna pilnuje sosu. Jeśli smakuje, postaw kawę autorowi gry ${fil} — dzięki temu powstaną nowe mapy i postacie.`,
+    `The game's author cooks it up late at night — Nonna just guards the sauce. If you like it, buy the game's author a coffee ${fil} — that's how new maps and characters get made.`);
   const tak = document.getElementById('kawaTak'), nie = document.getElementById('kawaNie');
   tak.hidden = false;
-  tak.innerHTML = `${ico('filizanka', 20)} ${T('Postaw kawę', 'Buy a coffee')}<span class="kawaGl" data-kgl="tak"></span>`;
+  tak.innerHTML = `${ico('filizanka', 20)} ${T('Postaw kawę autorowi gry', "Buy the game's author a coffee")}<span class="kawaGl" data-kgl="tak"></span>`;
   nie.innerHTML = `<span class="kawaTxt">${T('Może później', 'Maybe later')}</span><span class="kawaGl" data-kgl="nie"></span><i class="kawaPasek"></i>`;
   nie.disabled = true; nie.classList.add('czeka');
   _kawaOd = performance.now();
@@ -12830,8 +12945,8 @@ function kawaTak() {
   ov.classList.add('dzieki');
   document.getElementById('kawaTytul').textContent = T('Grazie mille!', 'Grazie mille!');
   document.getElementById('kawaTekst').innerHTML = T(
-    'Nonna już nastawia kawiarkę. Przez miesiąc nie będzie Cię o nic prosić — wracaj do kuchni!',
-    "Nonna is putting the moka pot on. She won't ask again for a month — back to the kitchen!");
+    'Autor gry już nastawia kawiarkę, a Nonna przez miesiąc nie będzie Cię o nic prosić — wracaj do kuchni!',
+    "The game's author is putting the moka pot on, and Nonna won't ask again for a month — back to the kitchen!");
   document.getElementById('kawaTak').hidden = true;
   clearTimeout(_kawaT);
   const nie = document.getElementById('kawaNie');
@@ -13088,7 +13203,7 @@ function newGame() {
     obrazeniaOd: {}, ostatniCios: null,
     kaprale: 0, cisza: false, donStart: null, wygrana: null, kinoMn: 0.55, donFaza2: null, donKoniec: null, solAkt: null,
     dpsTest: false, gotowyToast: false, przepisyBiegu: [], przepisyT: [], jackpoty: [], karty: null, chmury: [], kaluzeGracza: [],
-    maxBroni: new Set(), pauzaTab: 'bieg', babcia: 0, nozeBonusSuma: 0, nozeSerie: 0, samePrzyprawy: 0, decyzje: 0,   // E2
+    maxBroni: new Set(), pauzaTab: 'bieg', babcia: 0, nozeBonusSuma: 0, nozeSerie: 0, samePrzyprawy: 0, decyzje: 0, oknoAwansu: false,   // E2; oknoAwansu = AWANS CO 3
     // E3: zrodzeni per typ (HORDA.mapaStat), log kapliczek/wydarzenia/karabinu (bot, HORDA.wydLog)
     zrodzeni: {}, losowane: {}, e3: { stolnice: [], wyzwania: [], wyd: null, karabiny: [], trafWyd: 0 } });
   document.getElementById('timer').classList.remove('don');
@@ -13119,6 +13234,7 @@ function newGame() {
   document.getElementById('lvl').textContent = T('POZIOM 1', 'LEVEL 1');
   document.getElementById('kills').innerHTML = ico('czaszka', 15) + ' 0';
   document.getElementById('xpbar').style.width = '0%';
+  document.getElementById('xpbar').classList.toggle('karty', kartyCo() > 1 && poziomKart(2));   // AWANS CO 3: 1. awans = karty
   drawHearts(); drawCoins(); renderWpns();
   AUDIO.startRun(charKey);                         // losowy utwór na bieg + kwestia na start
   camYaw = 0;
@@ -13327,6 +13443,7 @@ function mulberry32(a) {                          // PRNG z seedem (algorytm dom
 const BOT = { on: false, naZywo: false, tryb: 'sredni', karty: 'priorytet', ka: 0, kier: 1, kapliczki: false, dotyk: false };
 let _ruchDev = null;                              // HORDA.ruch(vx, vz): nadpisanie wejścia jak touch.vx/vy
 const BOT_PRIO = ['evo', 'bron', 'podsun', 'skl:moc', 'skl:tempo', 'skl:krytyk', 'skl:serce', 'skl:zasieg', 'skl:magnes', 'skl:buty', 'dokl'];   // E2 (spec §9.1)
+const BOT_PRIO_AUTO = ['evo', 'podsun', 'bron', 'skl:moc', 'skl:tempo', 'skl:krytyk', 'skl:serce', 'skl:zasieg', 'skl:magnes', 'skl:buty', 'dokl'];   // AWANS CO 3
 function botRuch() {                              // zwraca kierunek w ŚWIECIE {x, z}
   const now = BOT.tryb === 'nowicjusz', R = now ? 12 : 10;
   let ux = 0, uz = 0, cx = 0, cz = 0, n = 0, blisko8 = 0, blisko3 = 0, najD = 1e9, nx = 0, nz = 0;
@@ -13437,10 +13554,14 @@ function botOverlay() {                           // zamyka karty/wymiennik; fal
     let wyb = karty[0], naj = 1e9;
     // E2: broń → podsunięty składnik (Nonna poleca) → Parmezan → Espresso → Papryczka → Rosół → Lornetka → Magnes →
     // Klapki → Dokładka najsłabszej broni → Przyprawy (spec §9.1)
+    // AWANS CO 3: broń rośnie sama na awansach bez kart, więc w rzadkim oknie opłaca się składnik PODSUNIĘTY do przepisu
+    // (danie w 3:00–4:00). Pomiar: stary bot na nowych zasadach — mediana śmierci 3:22 (N=40), ten — 3:48; na STARYCH
+    // zasadach odwrotnie (podsunięty przed bronią: 2:18, stary: 4:05). Próba „każdy składnik przed bronią": 2:40.
+    const PRIO = BOT.prio || (trudn().awans.bron ? BOT_PRIO_AUTO : BOT_PRIO);   // DEV: HORDA.bot.prio = [...] do porównań
     if (BOT.karty === 'priorytet') for (const k of karty) {
       const kl = k._klucz || '';
-      let p = k.dataset.podsun ? BOT_PRIO.indexOf('podsun') : BOT_PRIO.findIndex(x => kl === x || kl.startsWith(x + ':'));
-      if (kl.startsWith('dokl:')) p = BOT_PRIO.indexOf('dokl') + (hasWeapon(kl.slice(5))?.bonus || 0);
+      let p = k.dataset.podsun ? PRIO.indexOf('podsun') : PRIO.findIndex(x => kl === x || kl.startsWith(x + ':'));
+      if (kl.startsWith('dokl:')) p = PRIO.indexOf('dokl') + (hasWeapon(kl.slice(5))?.bonus || 0);
       if (p < 0) p = kl.startsWith('skl') ? 20 : 40;
       if (p < naj) { naj = p; wyb = k; }
     }
@@ -13836,7 +13957,7 @@ if (loadTip) {
   stoneMat = new THREE.MeshLambertMaterial({ map: stripeTexture('#9a9c96', '#6f7169', 3) });
 
   charKey = (CHARS[META.lastChar] && maszPostac(META.lastChar)) ? META.lastChar : 'carrotello';
-  mapKey = MAPS[META.lastMap] ? META.lastMap : 'laki';
+  mapKey = MAPS[META.lastMap] && mapaOdbl(META.lastMap) ? META.lastMap : 'laki';
   P.pos = new THREE.Vector3(0, 0, 0);
   P.y = terrainH(0, 0);
   playerBB = new Billboard(CHARS[charKey].char, CHARS[charKey].scale, true);

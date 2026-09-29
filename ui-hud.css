@@ -717,3 +717,29 @@ body.pad-foot .glRog{display:none}
   #kawaOv #kawaTytul{font-size:28px}
   #kawaOv #kawaTekst{font-size:19px}
 }
+
+/* ================= AWANS CO 3 (29.09): pasek „POZIOM 7 · Kule poz. 3 · +2% obrażeń · karty na poz. 8" =================
+   Automatyczne wzmocnienie bez pauzy — tabliczka pod paskiem rangi, wjeżdża z lewej i gaśnie po ~2,4 s.
+   Złoty pasek XP = następny awans otworzy karty. */
+#awansInfo{
+  position:absolute;top:64px;left:10px;max-width:calc(50vw - 24px);padding:2px 7px 3px;
+  font-size:12px;line-height:15px;color:var(--hud-kreda);text-shadow:var(--hud-obrys);
+  background:var(--hud-tabl-img) 0 0/128px 128px;image-rendering:pixelated;
+  box-shadow:inset 0 0 0 2px var(--hud-drewno-j), var(--hud-rama2);
+  opacity:0;transform:translateX(-12px);transform-origin:left center;pointer-events:none;
+}
+#awansInfo img{vertical-align:-2px}
+#awansInfo.pokaz{animation:awansInfo 2.4s steps(24) forwards}
+@keyframes awansInfo{
+  0%{opacity:0;transform:translateX(-12px) scale(1.15)}
+  8%{opacity:1;transform:translateX(0) scale(1.15)}
+  16%{transform:translateX(0) scale(1)}
+  80%{opacity:1;transform:translateX(0)}
+  100%{opacity:0;transform:translateX(0)}
+}
+#xpbar.karty{
+  background:repeating-linear-gradient(90deg, var(--hud-zloto) 0 8px, #e0a526 8px 16px);
+  animation:xpKarty 1s steps(2) infinite;
+}
+@keyframes xpKarty{50%{filter:brightness(1.25)}}
+@media (prefers-reduced-motion:reduce){ #xpbar.karty{animation:none} }

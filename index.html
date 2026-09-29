@@ -694,8 +694,8 @@
      Kolejność między plikami: tokeny → menu → HUD (HUD dokłada drugi agent). -->
 <link rel="stylesheet" href="ui-base.css?v=4">
 <link rel="stylesheet" href="ui-menu.css?v=4">
-<link rel="stylesheet" href="ui-warzywniak.css?v=2">
-<link rel="stylesheet" href="ui-hud.css?v=21">
+<link rel="stylesheet" href="ui-warzywniak.css?v=3">
+<link rel="stylesheet" href="ui-hud.css?v=22">
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -713,6 +713,7 @@
   <div id="lvl" data-pl="POZIOM 1" data-en="LEVEL 1">POZIOM 1</div>
   <div id="ranga" data-pl="RANGA 0" data-en="RANK 0">RANGA 0</div>
   <div id="rangawrap"><div id="rangabar"></div></div>
+  <div id="awansInfo"></div>
   <div id="timer">0:00</div>
   <div id="kills"></div>
   <div id="coins"></div>
@@ -916,7 +917,7 @@
     <div id="wFabulaBox">
       <a id="fabulaBtn" class="btn2" href="#" data-pl="OBEJRZYJ KOMIKS" data-en="WATCH THE COMIC">OBEJRZYJ KOMIKS</a>
       <a id="kawaBtn" class="btn2" href="#" target="_blank" rel="noopener" style="display:none"
-         data-pl="POSTAW MI KAWĘ" data-en="BUY ME A COFFEE">POSTAW MI KAWĘ</a>
+         data-pl="POSTAW KAWĘ AUTOROWI GRY" data-en="BUY THE GAME'S AUTHOR A COFFEE">POSTAW KAWĘ AUTOROWI GRY</a>
     </div>
   </div>
   </div><!-- /#panele -->
@@ -1021,6 +1022,6 @@
     addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
   }
 </script>
-<script type="module" src="main.js?v=295"></script>
+<script type="module" src="main.js?v=299"></script>
 </body>
 </html>

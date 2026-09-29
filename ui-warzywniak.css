@@ -13,7 +13,11 @@
    STANY (klasa na #warzywniak, liczy main.js z META.st.runs — §10.4):
    w-r0 = 0 biegów (duże logo, liścik Nonny, duży GRAJ, nic więcej) · w-r1 = monety, Sklep,
    Postacie, cel · w-r2 = Akta, strzałki postaci · w-r3 = pełna tablica, Książka, małe logo.
-   `w-pc` = s ≥ 1,3 (PC, tablet): staty postaci i dłuższe opisy.
+   `w-pc` = PC albo s ≥ 1,3 (tablet): staty postaci i dłuższe opisy.
+   `w-pcx` (29.09, „menu na PC za duże") = mysz + ≥ 1024×560: s = 1 (1,2 od 2304×1296), własny układ niżej
+   („PC: UKŁAD"), scena ≤ 1320 px wyśrodkowana marginesem `--bx` (JS), postać i tablica z sufitem wysokości.
+   IKONY: `--ik24/36/48` (JS) = rozmiar ikony z konturem i obrysem (siatka 12×12) zaokrąglony do całych pikseli
+   urządzenia na piksel siatki — pixelated bez nierównych pikseli.
 
    SPECYFICZNOŚĆ: stare reguły menu w <style> index.html (`.tab`, `#logo`, `#pwaHint`, `.ov`…)
    zostają — tu wszystko idzie przez `#warzywniak …` (id bije klasy i @media).
@@ -66,15 +70,15 @@ body.w-menu:not(.w-panel) #padFoot{display:none!important}
 #warzywniak #wRog{position:absolute;z-index:30;right:calc(var(--p)*6);top:calc(var(--p)*1);display:flex;gap:calc(var(--p)*6);align-items:center}
 #warzywniak #wMonety{display:flex;align-items:center;gap:calc(var(--p)*5);height:calc(var(--p)*30);padding:0 calc(var(--p)*10);
   font-size:calc(var(--p)*17);box-shadow:0 0 0 calc(var(--p)*3) var(--kontur),0 calc(var(--p)*4) 0 calc(var(--p)*3) var(--cien)}
-#warzywniak #wMonety img{height:calc(var(--p)*18)}
+#warzywniak #wMonety img{width:var(--ik24);height:var(--ik24)}
 #warzywniak.w-r0 #wMonety{display:none}
 /* zębatka: pole dotyku 44×44 (wizualnie deska 32×32) */
 #warzywniak #wZebatka{position:relative;width:calc(var(--p)*44);height:calc(var(--p)*44);min-width:44px;min-height:44px;padding:0;margin:0;
   display:grid;place-items:center;background:none;box-shadow:none;opacity:1;cursor:pointer}
-#warzywniak #wZebatka i{display:grid;place-items:center;width:calc(var(--p)*32);height:calc(var(--p)*32);
+#warzywniak #wZebatka i{display:grid;place-items:center;width:calc(var(--p)*38);height:calc(var(--p)*38);
   background:var(--drewno) var(--tex-deska) 0 0/calc(var(--tx)*64px) calc(var(--tx)*32px);
   box-shadow:inset 0 3px 0 rgba(255,255,255,.2),inset 0 -4px 0 rgba(0,0,0,.4),0 0 0 calc(var(--p)*3) var(--kontur),0 calc(var(--p)*4) 0 calc(var(--p)*3) var(--cien)}
-#warzywniak #wZebatka i img{width:calc(var(--p)*22);height:calc(var(--p)*22)}
+#warzywniak #wZebatka i img{width:var(--ik36);height:var(--ik36)}
 #warzywniak #wZebatka.sel i{background:var(--zloto)}
 #warzywniak #wZebatka.gp-sel{transform:none}
 
@@ -95,7 +99,7 @@ body.w-menu:not(.w-panel) #padFoot{display:none!important}
 #warzywniak #heroStat .hs,#postStat .hs{display:flex;align-items:center;gap:calc(var(--p)*4);border:0;padding:0;font-size:inherit;line-height:1.35}
 #warzywniak #heroStat .hs span{flex:1;color:var(--kreda-ciemna)}
 #warzywniak #heroStat .hs b{color:var(--zloto);font-weight:400}
-#warzywniak #heroStat img{height:calc(var(--p)*12)!important}
+#warzywniak #heroStat img{width:var(--ik24);height:var(--ik24)!important}
 
 /* ═══════════ TABLICA „DZIŚ U NONNY" ═══════════ */
 #warzywniak #tablica{position:absolute;z-index:3;right:calc(var(--p)*14);top:calc(var(--p)*47);width:calc(var(--p)*450);bottom:calc(var(--p)*132);
@@ -115,7 +119,7 @@ body.w-menu:not(.w-panel) #padFoot{display:none!important}
 #tablica .tRek{display:flex;gap:calc(var(--p)*7)}
 #tablica .tRek>div{flex:1;min-width:0;padding:calc(var(--p)*4) calc(var(--p)*6);background:rgba(0,0,0,.22);box-shadow:0 0 0 calc(var(--p)*2) rgba(0,0,0,.35);
   display:flex;align-items:center;gap:calc(var(--p)*5);font-size:calc(var(--p)*12)}
-#tablica .tRek img{width:calc(var(--p)*16);height:calc(var(--p)*16)}
+#tablica .tRek img{width:var(--ik24);height:var(--ik24)}
 #tablica .tRek span{flex:1;min-width:0;color:var(--kreda-ciemna);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #tablica .tRek b{font-weight:400;color:var(--kreda)}
 /* kartka „Najbliższy cel" (papier z pinezką) */
@@ -157,11 +161,12 @@ body.w-menu:not(.w-panel) #padFoot{display:none!important}
 #heroMapa .mNm.wNav{cursor:pointer}
 #heroMapa .mNm .k{color:var(--kreda-ciemna);font-size:calc(var(--p)*11.5)}
 #heroMapa .mNm b{font-weight:400;color:var(--kreda)}
-#heroMapa .mNm img{width:calc(var(--p)*18);height:calc(var(--p)*18)}
+#heroMapa .mNm img{width:var(--ik24);height:var(--ik24)}
 /* strzałki (mapa i postać): pole 44×44, wizualnie złoty znak */
 #warzywniak .wStrz{position:relative;display:grid;place-items:center;width:calc(var(--p)*44);height:calc(var(--p)*44);min-width:44px;min-height:44px;
-  padding:0;margin:0;border:0;background:none;cursor:pointer;font-family:inherit;font-size:calc(var(--p)*24);line-height:1;color:var(--zloto);
-  text-shadow:0 2px 0 rgba(0,0,0,.7)}
+  padding:0;margin:0;border:0;background:none;cursor:pointer;font-family:inherit;font-size:calc(var(--p)*30);line-height:1;color:var(--zloto);
+  /* 29.09: grubszy kontur (4 strony + cień) — cienki złoty znak ginął na drewnie */
+  text-shadow:2px 0 0 var(--kontur),-2px 0 0 var(--kontur),0 2px 0 var(--kontur),0 -2px 0 var(--kontur),0 4px 0 rgba(0,0,0,.6)}
 #warzywniak .wStrz:hover{color:#fff3b8}
 #warzywniak .wStrz:active{transform:translateY(2px)}
 #heroMapa .wStrz{height:calc(var(--p)*34)}
@@ -188,7 +193,7 @@ body.w-menu:not(.w-panel) #padFoot{display:none!important}
   font-size:calc(var(--p)*11.5);font-weight:400;letter-spacing:.5px;line-height:1;color:var(--kreda);text-shadow:0 2px 0 rgba(0,0,0,.75);white-space:nowrap;
   background:#5a3618 var(--tex-skrzynka) 0 0/100% 100%;image-rendering:pixelated;
   box-shadow:0 0 0 calc(var(--p)*2) var(--kontur),0 calc(var(--p)*3) 0 calc(var(--p)*2) rgba(0,0,0,.4)}
-#warzywniak #tabs .tab.skr img{width:calc(var(--p)*24);height:calc(var(--p)*24)!important;margin:0;filter:drop-shadow(0 2px 0 rgba(0,0,0,.5))}
+#warzywniak #tabs .tab.skr img{width:var(--ik36);height:var(--ik36)!important;margin:0;filter:drop-shadow(0 calc(var(--p)*2) 0 rgba(0,0,0,.6))}
 #warzywniak #tabs .tab.skr:hover{filter:brightness(1.15)}
 #warzywniak #tabs .tab.skr.sel{color:var(--zloto)}
 #warzywniak #tabs .tab.skr:not(.jest){display:none}
@@ -367,3 +372,66 @@ body.pad-foot #startOv.panel-open #warzywniak #panele{bottom:calc(58px + env(saf
 #warzywniak #aktaSkl .aSkl.zamk{color:var(--kreda-ciemna);opacity:.75}
 /* Książka: kłódka na kaflu przepisu, którego składnik czeka w Spiżarni */
 #menuKsiazka .kafel .kKl,#pauseStats .kafel .kKl{position:absolute;top:1px;right:1px;line-height:0}
+
+/* ═══════════ PC: UKŁAD (29.09, uwaga właściciela „menu w przeglądarce na PC za duże") ═══════════
+   s = 1 (makieta 1:1 w px), nadmiar ekranu to ściana sklepu, nie powiększenie. Scena ≤ 1320 px (`--bx` z JS),
+   lada i markiza na całą szerokość. Postać: wysokość max(480, 58% ekranu) i szerokość max(360, 44vh), tablica max(400, 42%). Cele dotyku
+   mogą być < 44 px (mysz), czcionki ≥ 12. Telefon/tablet dotykowy: bez zmian (reguły wyżej). */
+#warzywniak.w-pcx .wMarkiza{height:calc(var(--p)*34)}
+/* logo = szyld sklepu na ścianie nad ladą, wyśrodkowany; wysokość do 180, ale zawsze nad górną krawędzią tablicy */
+#warzywniak.w-pcx #logo{left:50%;transform:translateX(-50%);top:calc(var(--p)*40);
+  height:max(calc(var(--p)*64), min(calc(var(--p)*180), calc(100% - var(--p)*176 - max(var(--p)*400, 42%) - var(--p)*54)))}
+#warzywniak.w-pcx.w-r0 #logo{left:auto;transform:none;right:calc(var(--bx) + var(--p)*170);top:calc(var(--p)*64);height:calc(var(--p)*150)}
+#warzywniak.w-pcx #wRog{right:calc(var(--bx) + var(--p)*12);top:calc(var(--p)*3);gap:calc(var(--p)*10);align-items:flex-start}
+#warzywniak.w-pcx #wMonety{height:calc(var(--p)*36);font-size:calc(var(--p)*20);gap:calc(var(--p)*7);padding:0 calc(var(--p)*12)}
+#warzywniak.w-pcx #wMonety img{width:var(--ik36);height:var(--ik36)}
+/* zębatka z podpisem (na PC jest miejsce pod rogiem) */
+#warzywniak.w-pcx #wZebatka{width:auto;min-width:calc(var(--p)*64);height:auto;min-height:0;display:flex;flex-direction:column;align-items:center;gap:calc(var(--p)*4)}
+#warzywniak.w-pcx #wZebatka i{width:calc(var(--p)*40);height:calc(var(--p)*40)}
+#warzywniak.w-pcx #wZebatka i img{width:var(--ik36);height:var(--ik36)}
+#warzywniak.w-pcx #wZebatka::after{content:attr(aria-label);font-size:calc(var(--p)*13);line-height:1;color:var(--kreda);
+  text-shadow:1px 0 0 var(--kontur),-1px 0 0 var(--kontur),0 2px 0 var(--kontur),0 -1px 0 var(--kontur)}
+#warzywniak.w-pcx #wZebatka.sel::after{color:var(--zloto)}
+/* postać za ladą: sufit wysokości, stopy za ladą */
+#warzywniak.w-pcx #heroBox{left:calc(var(--bx) + var(--p)*40);width:max(calc(var(--p)*360), 44vh);bottom:calc(var(--p)*96);
+  top:max(calc(var(--p)*76), calc(100% - var(--p)*96 - max(var(--p)*480, 58%)))}
+#warzywniak.w-pcx.w-r0 #heroBox{left:calc(var(--bx) + var(--p)*90);width:calc(var(--p)*420)}
+#warzywniak.w-pcx #heroStat{left:calc(var(--bx) + max(var(--p)*360, 44vh));width:calc(var(--p)*150);font-size:calc(var(--p)*13);gap:calc(var(--p)*3);
+  top:max(calc(var(--p)*96), calc(100% - var(--p)*96 - max(var(--p)*440, 54%)))}
+/* tablica: szerokość do 600, wysokość do max(400, 42%), nad tabliczką mapy */
+#warzywniak.w-pcx #tablica{right:calc(var(--bx) + var(--p)*24);bottom:calc(var(--p)*176);gap:calc(var(--p)*10);padding:calc(var(--p)*12) calc(var(--p)*16);
+  width:min(calc(var(--p)*600), calc(100% - 2 * var(--bx) - var(--p)*24 - max(var(--p)*360, 44vh) - var(--p)*230));   /* 230 = staty 150 + ramka i padding tablicy 48 + luz */
+  top:max(calc(var(--p)*80), calc(100% - var(--p)*176 - max(var(--p)*400, 42%)))}
+#warzywniak.w-pcx #tablica .tNag{font-size:calc(var(--p)*20)}
+#warzywniak.w-pcx #tablica .tNag small{font-size:calc(var(--p)*13)}
+#warzywniak.w-pcx #tablica .tDanie img{width:calc(var(--p)*40);height:calc(var(--p)*40)}
+#warzywniak.w-pcx #tablica .tDanie b{font-size:calc(var(--p)*17)}
+#warzywniak.w-pcx #tablica .tDanie span,#warzywniak.w-pcx #tablica .tDanie .tWkr{font-size:calc(var(--p)*13)}
+#warzywniak.w-pcx #tablica .tRek>div{font-size:calc(var(--p)*14);padding:calc(var(--p)*6) calc(var(--p)*8);gap:calc(var(--p)*7)}
+#warzywniak.w-pcx #tablica .tRek img{width:var(--ik36);height:var(--ik36)}
+#warzywniak.w-pcx #tablica .tCel .k{font-size:calc(var(--p)*13)}
+#warzywniak.w-pcx #tablica .tCel .t{font-size:calc(var(--p)*17)}
+#warzywniak.w-pcx #tablica.tLisc{right:calc(var(--bx) + var(--p)*110);width:calc(var(--p)*440);font-size:calc(var(--p)*17);
+  top:max(calc(var(--p)*230), calc(50% - var(--p)*40));bottom:auto}
+#warzywniak.w-pcx #wZapowiedz{right:calc(var(--bx) + var(--p)*240);top:calc(var(--p)*50);font-size:calc(var(--p)*15)}
+/* tabliczka mapy */
+#warzywniak.w-pcx #wWybor{right:calc(var(--bx) + var(--p)*24);bottom:calc(var(--p)*120);height:calc(var(--p)*40)}
+#warzywniak.w-pcx #heroMapa{height:calc(var(--p)*40);font-size:calc(var(--p)*17)}
+#warzywniak.w-pcx #heroMapa .mNm{min-height:0}
+#warzywniak.w-pcx #heroMapa .mNm .k{font-size:calc(var(--p)*13)}
+#warzywniak.w-pcx #heroMapa .mNm img{width:var(--ik36);height:var(--ik36)}
+#warzywniak.w-pcx #heroMapa .wStrz{height:calc(var(--p)*40)}
+#warzywniak.w-pcx .wStrz{min-width:0;min-height:0;width:calc(var(--p)*40);height:calc(var(--p)*40);font-size:calc(var(--p)*32)}
+/* lada: wyższa, skrzynki większe (ikona 40 + podpis 14) */
+#warzywniak.w-pcx #lada{height:calc(var(--p)*104);grid-template-columns:calc(var(--p)*250) minmax(0,1fr) calc(var(--p)*280);
+  padding:calc(var(--p)*14) calc(var(--bx) + var(--p)*16) calc(var(--p)*6)}
+#warzywniak.w-pcx #wSzyldNm{width:calc(var(--p)*160);padding:calc(var(--p)*5) calc(var(--p)*12)}
+#warzywniak.w-pcx #heroNm{font-size:calc(var(--p)*20)}
+#warzywniak.w-pcx #heroDs{font-size:calc(var(--p)*13)}
+#warzywniak.w-pcx #tabs{gap:calc(var(--p)*12)}
+#warzywniak.w-pcx #tabs .tab.skr{width:calc(var(--p)*88);height:calc(var(--p)*80);min-width:0;min-height:0;gap:calc(var(--p)*5);font-size:calc(var(--p)*14)}
+#warzywniak.w-pcx #tabs .tab.skr img{width:var(--ik48);height:var(--ik48)!important}
+#warzywniak.w-pcx .wKropka{width:calc(var(--p)*12);height:calc(var(--p)*12)}
+/* GRAJ: dalej największy, ale nie pół ekranu */
+#warzywniak.w-pcx #btnStart{right:calc(var(--bx) + var(--p)*26);bottom:calc(var(--p)*18);min-width:calc(var(--p)*250);height:calc(var(--p)*68);min-height:0;font-size:calc(var(--p)*34)}
+#warzywniak.w-pcx.w-r0 #btnStart{min-width:calc(var(--p)*290);height:calc(var(--p)*76);font-size:calc(var(--p)*38)}
