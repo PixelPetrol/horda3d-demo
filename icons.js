@@ -14,6 +14,8 @@ const PAL = {
   f: '#ff7a1f', F: '#ffc44d',      // ogień
   // symbole PlayStation (glify pada): kolory prawdziwego pada, jasne, bo stoją na ciemnej twarzy
   u: '#8fb8ff', c: '#ff6b6b', m: '#ff8ad8', t: '#4fe0b0',
+  // menu A „Warzywniak” (E4 K11a, z dokumenty/menu-makiety/ikony-makiety.js): stal, papier, ciemna zieleń
+  C: '#ff7a5e', e: '#2f7a2a', d: '#5a5f6a', D: '#b9bec8', h: '#f5e6c8', H: '#c9b48a',
 };
 
 const ART = {
@@ -531,6 +533,18 @@ const ART = {
   lornetka:  ['........','.kk..kk.','.kkkkkk.','kkk..kkk','kBbkkBbk','kbbkkbbk','.kk..kk.','........'],
   pokrywka:  ['........','...kk...','...gg...','.gggggg.','gwwwwwwg','gggggggg','kkkkkkkk','........'],
   ksiazka:   ['.oooooo.','oOOOOOOo','oOyyyyOo','oOOOOOOo','oOyyyyOo','oOOOOOOo','owwwwwwo','.oooooo.'],
+  // ---- menu A „Warzywniak” (E4 K11a): ikony z makiet (ikony-makiety.js), bez PixelLab ----
+  papryczkaPusta: ['......ss','.....ss.','....ggD.','...gDDg.','..gDDg..','.gDgg...','gDg.....','gg......'],
+  zebatka:   ['...DD...','.D.DD.D.','.DDddDD.','DDd..dDD','DDd..dDD','.DDddDD.','.D.DD.D.','...DD...'],
+  garnek:    ['..kggk..','.kDDDDk.','kDwrwrDk','kDrwrwDk','kDwrwrDk','kDDDDDDk','.kDDDDk.','..k..k..'],
+  zeszyt:    ['kkkkkkk.','khhhhhhk','khHHHHhk','khhhhhhk','khHHHHhk','khhhhhhk','khHHhhhk','kkkkkkk.'],
+  sloik:     ['.kkkkkk.','.kggggk.','kBBBBBBk','kByyYyBk','kByYyyBk','kByyyYBk','kBBBBBBk','.kkkkkk.'],
+  kalendarz: ['.k.kk.k.','kkkkkkkk','krrrrrrk','khhhhhhk','khkhkhhk','khhhhhhk','khkhchhk','kkkkkkkk'],
+  teczka:    ['..kkkk..','.kOooOk.','kkkkkkkk','kOOOOOOk','kOOrrOOk','kOOOOOOk','kOOOOOOk','kkkkkkkk'],
+  dzwonek:   ['...yy...','..yYYy..','.yYYYYy.','.yYYYYy.','.yYYYYy.','yYYYYYYy','yyyyyyyy','...kk...'],
+  paczka:    ['...rr...','.kkrrkk.','kOOrrOOk','kkkrrkkk','kOOrrOOk','kOOrrOOk','kOOrrOOk','kkkkkkkk'],
+  pinezka:   ['.kkkk...','kcCCck..','kcCCck..','kccccck.','.kccck..','..kkk...','...k....','...k....'],
+  ptaszek:   ['........','.......n','......nn','n....nn.','nn..nn..','.nnnn...','..nn....','........'],
   klodka:    ['..kkkk..','.k....k.','.k....k.','yyyyyyyy','yYYkkYYy','yYYkkYYy','yYYYYYYy','yyyyyyyy'],
   psKrzyzyk: [
     'u......u',

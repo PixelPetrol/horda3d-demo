@@ -1,8 +1,8 @@
 // HORDA 3D v4 — teren 3D + kamera za plecami + meta-progresja (monety/sklep)
 import * as THREE from './lib/three.module.js';
 import { SPRITEDATA } from './spritedata.js?v=11';
-import { icon, ico } from './icons.js?v=7';
-import { AUDIO } from './audio.js?v=7';            // muzyka wg fazy gry + kwestie głosowe + efekty
+import { icon, ico } from './icons.js?v=8';
+import { AUDIO } from './audio.js?v=8';            // muzyka wg fazy gry + kwestie głosowe + efekty
 import { initKomiks, pokazKomiks } from './komiks.js?v=1';   // komiks wprowadzający (Etap 2)
 import { generujSzkielet, siatkaGalezi, RNG } from './lib/drzewa-szkielet.js?v=2';
 import { wczytajModeleNatury } from './lib/modele-natura.js?v=2';
@@ -2549,6 +2549,64 @@ class GrupaHordy {
   }
 }
 
+// ---- E3 K2 (spec 09 §4): SYLWETKA ZASŁONIĘTYCH — drugi przebieg ≤ 30 wrogów (Don, kaprale, najbliższe elity) ----
+// Ta sama geometria i atrybuty co GrupaHordy (klatka animacji zgodna), materiał z depthFunc GreaterDepth: rysuje tylko
+// tam, gdzie coś jest BLIŻEJ kamery niż wróg. renderOrder −1: po terenie i dekoracjach chunka (−2), przed hordą,
+// graczem i trawą (0) → widać przez mesę/ścianę/regał/drzewo, nie przez innych wrogów ani przez gracza.
+// Odsunięcie 1,2 j. ku kamerze: kępy trawy i własne stopy na zboczu nie robią „duchów". aEx.w = kolor (0 fiolet, 1 czerwień Dona).
+const SYLW_GRUPY = [];
+function sylwShader(sh, u) {
+  hordaSpriteShader(sh, u);
+  sh.uniforms.uBias = u.uBias; sh.uniforms.uKolA = u.uKolA; sh.uniforms.uKolB = u.uKolB; sh.uniforms.uKrycie = u.uKrycie;
+  sh.vertexShader = 'uniform float uBias;\n' + sh.vertexShader.replace('#include <project_vertex>',
+    '#include <project_vertex>\n  mvPosition.xyz += normalize(-mvPosition.xyz) * uBias;\n  gl_Position = projectionMatrix * mvPosition;');
+  sh.fragmentShader = 'uniform vec3 uKolA;\nuniform vec3 uKolB;\nuniform float uKrycie;\n' + sh.fragmentShader.replace('#include <opaque_fragment>',
+    'gl_FragColor = vec4(mix(uKolA, uKolB, vFx.y), uKrycie);');
+}
+class GrupaSylwetek {
+  constructor(g) {
+    const S = CFG_MAPA.sylw;
+    const u = this.u = { uStopy: g.u.uStopy, uRep: g.u.uRep, uBias: { value: S.bias }, uKrycie: { value: S.krycie },
+                         uKolA: { value: new THREE.Color(S.kolElita) }, uKolB: { value: new THREE.Color(S.kolDon) } };
+    const m = new THREE.MeshBasicMaterial({ map: g.mat.map, alphaTest: 0.5, side: THREE.DoubleSide, fog: false,
+      depthWrite: false, depthFunc: THREE.GreaterDepth, transparent: false, blending: THREE.CustomBlending,
+      blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor });
+    m.onBeforeCompile = sh => sylwShader(sh, u);
+    m.customProgramCacheKey = () => 'hordaSylw1';     // pułapka z INFO: bez klucza three.js wziąłby program hordy
+    this.mat = m; this.nazwa = 'sylwetki ' + g.nazwa;
+    this.mesh = null; this.geo = null; this.n = 0; this.cap = 0;
+    this.kx = this.ky = this.kz = 0;
+    SYLW_GRUPY.push(this);
+  }
+  end() { GrupaHordy.prototype.end.call(this); if (this.mesh) this.mesh.renderOrder = -1; }
+}
+GrupaSylwetek.prototype._rosnij = function (cap) { GrupaHordy.prototype._rosnij.call(this, Math.max(cap, 32)); };
+GrupaSylwetek.prototype.begin = GrupaHordy.prototype.begin;
+GrupaSylwetek.prototype.add = GrupaHordy.prototype.add;
+// wybór co 0,2 s, O(n): Don → żywi kaprale → elity ≤ 30 j. po odległości; razem ≤ 30 (flaga e.sylw)
+let _sylwT = 0;
+const _sylwEl = [];
+function wybierzSylwetki(dt) {
+  if ((_sylwT -= dt) > 0) return;
+  _sylwT = CFG_MAPA.sylw.co;
+  const S = CFG_MAPA.sylw, on = CFG_MAPA.wlaczone.sylwetki;
+  let n = 0;
+  _sylwEl.length = 0;
+  for (const e of G.enemies) {
+    e.sylw = false;
+    if (!on || e.dying || e.odwrot) continue;
+    if (e.don || e.kapral) { if (n < S.max) { e.sylw = true; n++; } continue; }
+    if (e.elite) {
+      const d2 = (e.pos.x - P.pos.x) ** 2 + (e.pos.z - P.pos.z) ** 2;
+      if (d2 <= S.rElity * S.rElity) { e._sd2 = d2; _sylwEl.push(e); }
+    }
+  }
+  if (n < S.max && _sylwEl.length) {
+    if (_sylwEl.length > S.max - n) _sylwEl.sort((a, b) => a._sd2 - b._sd2);
+    for (let i = 0; i < _sylwEl.length && n < S.max; i++, n++) _sylwEl[i].sylw = true;
+  }
+}
+
 function ringTexture(color) {
   const c = document.createElement('canvas'); c.width = c.height = 64;
   const g = c.getContext('2d');
@@ -3519,7 +3577,10 @@ function loadMeta() {
           // zależy łagodny pierwszy bieg — szybkie „Do menu" go nie zużywa); `smierci` = porażki (prezent Piorun
           // za pierwszą porażkę/wygraną); `bestDon` = najszybsza walka z Donem w s (0 = brak wygranej)
           pelne: 0, smierci: 0, bestDon: 0,
-          jackpoty: 0, przepisy: 0 },               // E2: jackpoty w historii zapisu (scenariusz 1-1-3-1-5), ugotowane dania
+          jackpoty: 0, przepisy: 0,                 // E2: jackpoty w historii zapisu (scenariusz 1-1-3-1-5), ugotowane dania
+          // E3 (spec 09 §8): kapliczki, wydarzenia, karabin; `karabinPierwszy` = gwarantowany karabin już był
+          stolnice: 0, wyzwania: 0, wyzwaniaWyg: 0, wydarzenia: 0, zmyci: 0, przygnieceni: 0, karabiny: 0,
+          karabinPierwszy: false },
     bestiary: {},                                  // typ wroga -> ile razy zabity (bestiariusz)
     audio: { muz: 0.15, glos: 0.9, efe: 0.7, mute: 0 },   // głośności i wyciszenie (zakładka Dźwięk)
     // KONTROLER (zakładka Sterowanie). `map` trzyma INDEKSY przycisków w układzie
@@ -3533,12 +3594,15 @@ function loadMeta() {
     // ładowania; potem tylko z przycisku FABUŁA w menu). Stare zapisy go nie mają,
     // więc `Object.assign(d.ui, m.ui)` niżej zostawia false i komiks poleci raz.
     ui: { pwaHint: false, komiks: false,
-          skrzyniaSzybka: null, ksiazkaNowe: false, ksiazkaPodp: false },   // E2: animacja skrzyni (null = wg systemu), kropka Książki, podpowiedź
+          skrzyniaSzybka: null, ksiazkaNowe: false, ksiazkaPodp: false,   // E2: animacja skrzyni (null = wg systemu), kropka Książki, podpowiedź
+          // E3: podpowiedzi przy znacznikach (3× na typ), pierwsza Stolnica (toast), celowanie karabinu na dotyku
+          podp: { stolnica: 0, wyzwanie: 0, garnek: 0 }, stolnicaToast: false, celKarabinu: 'auto' },
     ksiazka: {},                                 // E2: evoKey → { odk: 0|1, prawie: n, ile: n } (Książka kucharska)
     // B12: prośba o kawę na ekranie końca — `dzien` = data ostatniego pokazu, `spokojDo` = ms (po kliknięciu kawy +30 dni),
     // `czasy` = długości ostatnich 20 pełnych biegów (mediana gracza), `krotkie` = porażki < 2 min z rzędu
     kawa: { dzien: '', spokojDo: 0, czasy: [], krotkie: 0, pokazy: 0, klik: 0 },
     lang: '',                                    // '' = automatycznie z przeglądarki; 'pl' | 'en' po wyborze gracza
+    kody: {},                                    // Kod od Nonny: skrót SHA-256 (16 znaków) → data użycia (raz na urządzenie)
   });
   try {
     const m = JSON.parse(localStorage.getItem(META_KEY)) || {};
@@ -3560,13 +3624,15 @@ function loadMeta() {
       // pad: dopełniamy PO KLUCZU, bo dojście nowej akcji (np. smrodu) nie może
       // skasować mapowania, które gracz już sobie przestawił
       pad: Object.assign(d.pad, m.pad, { map: Object.assign(d.pad.map, m.pad && m.pad.map) }),
-      ui: Object.assign(d.ui, m.ui),     // stare zapisy: podpowiedzi jeszcze niepokazane
+      // stare zapisy: podpowiedzi jeszcze niepokazane; E3 `ui.podp` dopełniane PO KLUCZU (nowy typ kapliczki nie kasuje liczników)
+      ui: Object.assign(d.ui, m.ui, { podp: Object.assign(d.ui.podp, m.ui && m.ui.podp) }),
       // E2: Książka kucharska — BIAŁA LISTA (bez tej linii pierwszy saveMeta() kasowałby odkrycia)
       ksiazka: Object.assign(d.ksiazka, m.ksiazka),
       kawa: Object.assign(d.kawa, m.kawa),        // B12: BIAŁA LISTA (inaczej 30 dni spokoju znikałoby po przeładowaniu)
       // język MUSI wrócić z zapisu: bez tego pierwszy `saveMeta()` po przeładowaniu
       // zapisywał META bez `lang` i wybór PL/EN znikał (zgłoszenie agenta komiksu)
       lang: m.lang || '',
+      kody: Object.assign(d.kody, m.kody),       // BIAŁA LISTA: bez tej linii zużyty kod działałby znowu po przeładowaniu
     };
   } catch { return def(); }
 }
@@ -3665,9 +3731,8 @@ const SHOP_UNLOCKS = [
     ds: T('Leci łukiem i wybucha', 'Lobbed in an arc, goes bang'), price: 200 },
   { key: 'bumerang', ico: 'pizza', nm: 'Pizza Volante',
     ds: T('Koło pizzy leci i wraca, kosząc po drodze', 'A pizza wheel flies out and back, mowing both ways'), price: 250 },
-  { key: 'tarcza',   ico: 'tarcza', nm: T('Tarcza', 'Shield'),
-    ds: T('Blokuje 1 trafienie co jakiś czas', 'Blocks 1 hit every so often'), price: 120 },
-  { key: 'djump',    ico: 'skok', nm: T('Podwójny skok', 'Double Jump'),
+  // Pokrywka (`tarcza`) przeniesiona do SPIŻARNI NONNY (29.09) — klucz META.unlocked.tarcza bez zmian (stary zakup zostaje)
+  { key: 'djump',   ico: 'skok', nm: T('Podwójny skok', 'Double Jump'),
     ds: T('Drugi skok w powietrzu — przeskakuj regały (bywa też w skrzyniach)',
           'A second jump mid-air — hop the shelves (also drops from crates)'), price: 300 },
   { key: 'glide',    ico: 'skok', nm: T('Foliowa torba', 'Plastic Bag'),
@@ -3694,17 +3759,88 @@ const SHOP_UNLOCKS = [
 const zakupyRazem = () => Object.values(META.up).reduce((a, b) => a + b, 0);
 const shopPrice = it => Math.round(it.base * Math.pow(2, META.up[it.key]) * (1 + 0.10 * zakupyRazem()));
 
+// ============================== SPIŻARNIA NONNY (życzenie właściciela 29.09) ==============================
+// „Power-upy do odblokowania, do wykupienia i dużo rzadziej dawane; obecnie bardzo drogo — wyfarm albo kawa → kod na monety."
+// Na start tylko 3 składniki (SKL_STARTOWE). Pozostałe 5 kupuje się RAZ w Sklepie; zablokowany nie trafia do kart ani
+// jackpotu (cardPool → sklOdbl). Klucz zakupu = klucz składnika w META.unlocked (Pokrywka: `tarcza` jak od E2 — stary
+// zakup zostaje). Cena rośnie z liczbą JUŻ kupionych składników (dowolna kolejność), nie z pozycją.
+// „Większy słoik" (`sloik`) = maks. poziom składnika w biegu 3 → 5 (bez niego sufit z trudn().karty.sklMax).
+// Preset trudności v1 (HORDA.trudnosc('v1')) wyłącza blokady i sufit — stare zachowanie (trudn().karty).
+const SKL_STARTOWE = ['moc', 'tempo', 'buty'];
+const SPIZ_KOLEJNOSC = ['magnes', 'krytyk', 'serce', 'zasieg', 'tarcza'];      // kolejność kafli (nie cen)
+const CFG_SPIZ = {
+  // Pomiar 29.09 (bot-średni, v2, Łąki, 16 biegów, bez ulepszeń sklepu): 3 składniki ~330 monet/bieg, wszystkie ~530,
+  // wygrana ~2 400 → 1. składnik po ~3–4 biegach, całość (20 700) po ~35–40 biegach. Propozycja właściciela była
+  // 1 500 / 2 500 / 4 000 / 6 000 / 9 000 (+ słoik) = ~55–60 biegów przy tym dochodzie — przycięte (PAKIET B16).
+  ceny: [1200, 2000, 3200, 4800, 7000],           // 1., 2., … kupiony składnik (razem 18 200)
+  sloik: 2500,                                     // Większy słoik — cena stała, poza progresją (razem 20 700)
+};
+const sklKupione = () => SPIZ_KOLEJNOSC.filter(k => META.unlocked[k]).length;
+const cenaSpiz = () => CFG_SPIZ.ceny[Math.min(CFG_SPIZ.ceny.length - 1, sklKupione())];
+// składnik dostępny w biegu? (v1: wszystko poza Pokrywką — jak przed 29.09)
+function sklOdbl(k) {
+  if (!PASSIVES[k]) return false;
+  if (SKL_STARTOWE.includes(k)) return true;
+  if (!trudn().karty.sklBlokady && k !== 'tarcza') return true;
+  return !!META.unlocked[k];
+}
+// maks. poziom składnika w biegu (Pokrywka ma własne 3)
+const sklMaxBiegu = k => Math.min(PASSIVES[k].max, META.unlocked.sloik ? 5 : trudn().karty.sklMax);
+
+// ============================== ZAKUPY ZA PRAWDZIWE PIENIĄDZE — HAK POD E5 (NIEAKTYWNY) ==============================
+// E5: Google Play Billing (Capacitor) / Steam (microtransakcje) — paczki monet. Tu NIC nie jest zaimplementowane:
+// `wlaczone: false` = żaden przycisk się nie pokazuje. Implementacja w E5 podłączy `kup(paczka)` i serwerową weryfikację
+// paragonu; do tego czasu wsparcie = kawa (tylko web) → kod od Nonny (KODY_NONNY niżej).
+const KUP_MONETY = { wlaczone: false, paczki: [], kup: null };
+
+// ============================== KOD OD NONNY (kody na monety dla wspierających) ==============================
+// `kody.json` (ten sam origin, cache-bust): { "kody": [ { "h": sha256-hex, "m": monety } ] }. Hash liczony z
+// SOL + kod po normalizacji: wielkie litery, bez myślników/spacji (alfabet bez 0/O, 1/I/L). Generator dla Piotra:
+// `python3 narzedzia/kod_monet.py 5000 "notatka"` (jawne kody tylko lokalnie w narzedzia/kody-wydane.txt, .gitignore).
+// DEV: `HORDA.kodyTest = [{ h, m }]` dokłada wpisy bez ruszania pliku (test bez działającego kodu w repo).
+const KODY_NONNY = {
+  SOL: 'veggie-famiglia/kod-nonny/v1:',
+  ALFABET: 'ABCDEFGHJKMNPQRSTUVWXYZ23456789',
+  blokadaMs: 2000, blokadaDo: 0,
+  norm: s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''),
+  async hash(kod) {
+    const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(KODY_NONNY.SOL + kod));
+    return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
+  },
+  // → { ok, monety, klucz } albo { ok: false, powod: 'czekaj' | 'zly' | 'uzyty' | 'siec' | 'https' }
+  async sprawdz(surowy) {
+    const K = KODY_NONNY;
+    if (K.trwa || performance.now() < K.blokadaDo) return { ok: false, powod: 'czekaj' };
+    K.trwa = true;                                   // dwuklik nie zaliczy kodu dwa razy (dopisanie META.kody tuż po powrocie)
+    try { return await K._sprawdz(surowy); } finally { K.trwa = false; }
+  },
+  async _sprawdz(surowy) {
+    const K = KODY_NONNY;
+    const kod = K.norm(surowy);
+    const zly = () => { K.blokadaDo = performance.now() + K.blokadaMs; return { ok: false, powod: 'zly' }; };
+    if (kod.length < 10 || [...kod].some(c => !K.ALFABET.includes(c))) return zly();
+    if (!(window.crypto && crypto.subtle)) return { ok: false, powod: 'https' };
+    const h = await K.hash(kod), klucz = h.slice(0, 16);
+    if (META.kody[klucz]) return { ok: false, powod: 'uzyty' };
+    let lista;
+    try {
+      const r = await fetch('kody.json?cb=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) throw new Error(r.status);
+      lista = (await r.json()).kody || [];
+    } catch { return { ok: false, powod: 'siec' }; }
+    if (DEV && Array.isArray(window.HORDA?.kodyTest)) lista = lista.concat(window.HORDA.kodyTest);
+    const wpis = lista.find(x => x && x.h === h);
+    if (!wpis) return zly();
+    const monety = Math.max(0, Math.min(1000000, Math.round(+wpis.m || 0)));
+    if (!monety) return zly();
+    return { ok: true, monety, klucz };
+  },
+};
+
 // ---- MENU: mapy / postacie / statystyki ----
+// Panel Map = mapa osiedla we mgle (menu A, E4 K11). Rysowana tylko przy otwartym panelu (mapaOtworz / menuSkala).
 function renderMaps() {
-  const wrap = document.getElementById('mapGrid'); wrap.innerHTML = '';
-  for (const key of Object.keys(MAPS)) {
-    const M = MAPS[key];
-    const d = document.createElement('div');
-    d.className = 'tile' + (key === mapKey ? ' sel' : '');
-    d.innerHTML = `<div class="ico">${ico(M.ico, 46)}</div><div class="nm">${M.nm}</div><div class="ds">${M.ds}</div>`;
-    d.onclick = () => { setMap(key); META.lastMap = key; saveMeta(); renderMaps(); renderPick(); };
-    wrap.appendChild(d);
-  }
+  if (document.getElementById('startOv')?.classList.contains('panel-mapy')) mapaAktualizuj();
 }
 // czy postać jest już nasza (kupiona ALBO wypracowana zabójstwami)
 const maszPostac = (key) => !!META.chars[key] ||
@@ -3767,40 +3903,50 @@ function renderChars() {
   }
 }
 function renderPick() {
-  document.getElementById('selMapNm').innerHTML = ico(MAPS[mapKey].ico, 16) + ' ' + MAPS[mapKey].nm;
-  document.getElementById('selCharNm').innerHTML =
-    `<img class="pxi" src="${portret(CHARS[charKey].char)}" style="height:22px"> ` + CHARS[charKey].nm;
-
-  // ---- SCENKA W MENU (portret na ladzie + kredowa tabliczka) ----
+  // ---- MENU A „WARZYWNIAK": postać za ladą, szyld ‹ › i tabliczka mapy (E4 K11a) ----
   const C = CHARS[charKey], M = MAPS[mapKey];
   const por = document.getElementById('heroPortret');
   if (por) {
-    // `render` gdy jest w mapie, inaczej klatka ze sprite'a — w scence bierzemy ją
-    // od razu w 256 px (nie 96), bo stoi na ekranie kilka razy większa niż w kaflu.
-    // Klasa `mini` mówi CSS-owi, że to sprite: ma być skalowany nearestem i niżej.
+    // `render` gdy jest w mapie, inaczej klatka ze sprite'a w 256 px. Klasa `mini` = sprite (nearest, niżej).
     const r = RENDER_PORTRET[charKey];
     const srcPor = r || portret(C.char, 256);
     if (srcPor) por.src = srcPor; else por.removeAttribute('src');   // `src=''` = żądanie URL-a strony i ikona zepsutego obrazka
     por.classList.toggle('mini', !r);
     por.alt = C.nm;
   }
-  const nm = document.getElementById('heroNm'); if (nm) nm.textContent = C.nm;
-  const ds = document.getElementById('heroDs'); if (ds) ds.innerHTML = C.ds + (C.regula ? `<br><b class="regula">${C.regula}</b>` : '');   // E2 K8
-  // STATYSTYKI: cztery krótkie wiersze. `spd/dmg/mag` to mnożniki (×), `hp` to
-  // DODATKOWE serca względem bazy (może być ujemne — Razoretta ma -1).
-  const st = document.getElementById('heroStat');
-  if (st) {
-    const mn = v => '×' + (+v).toFixed(2).replace(/\.?0+$/, '');   // 1.00 → „×1", 1.15 → „×1.15"
-    const serca = C.hp > 0 ? '+' + C.hp : (C.hp < 0 ? String(C.hp) : '—');
-    st.innerHTML = [
-      ['but', T('SZYBKOŚĆ', 'SPEED'), mn(C.spd)],
-      ['serce', T('SERCA', 'HEARTS'), serca],
-      ['kula', T('OBRAŻENIA', 'DAMAGE'), mn(C.dmg)],
-      ['magnes', T('MAGNES', 'MAGNET'), mn(C.mag)],
-    ].map(([i, k, v]) => `<div class="hs">${ico(i, 15)}<span>${k}</span><b>${v}</b></div>`).join('');
-  }
+  // szyld na ladzie: pierwsze słowo imienia + krótka rola (fragment opisu po „—", do kropki)
+  const nm = document.getElementById('heroNm'); if (nm) nm.textContent = C.nm.split(' ')[0].toUpperCase();
+  const ds = document.getElementById('heroDs');
+  if (ds) { const rola = (C.ds.split('—')[1] || C.ds).split('.')[0].trim(); ds.textContent = rola; }
+  // STATYSTYKI: `spd/dmg/mag` to mnożniki (×), `hp` = DODATKOWE serca względem bazy (Razoretta ma -1).
+  // Na ekranie głównym tylko PC (#heroStat), zawsze w panelu Postacie (#postStat) — audyt: na telefonie tabela wygrywała z postacią.
+  const mn = v => '×' + (+v).toFixed(2).replace(/\.?0+$/, '');   // 1.00 → „×1", 1.15 → „×1.15"
+  const serca = C.hp > 0 ? '+' + C.hp : (C.hp < 0 ? String(C.hp) : '—');
+  const wiersze = [
+    ['but', T('SZYBK.', 'SPEED'), mn(C.spd)],
+    ['serce', T('SERCA', 'HEARTS'), serca],
+    ['kula', T('OBRAŻ.', 'DAMAGE'), mn(C.dmg)],
+    ['magnes', T('MAGNES', 'MAGNET'), mn(C.mag)],
+  ].map(([i, k, v]) => `<div class="hs">${mIk(i)}<span>${k}</span><b>${v}</b></div>`).join('');
+  const st = document.getElementById('heroStat'); if (st) st.innerHTML = wiersze;
+  const ps = document.getElementById('postStat');
+  if (ps) ps.innerHTML = `<div class="nm">${C.nm}</div>` + wiersze;
+  // TABLICZKA MAPY: 0 biegów = sama nazwa (bez wyboru); potem ‹ nazwa › (nazwa otwiera mapę osiedla)
   const mp = document.getElementById('heroMapa');
-  if (mp) mp.innerHTML = `${ico(M.ico, 18)} <span>${T('Mapa', 'Map')}:</span> <b>${M.nm}</b>`;
+  if (mp) {
+    // przegląd 29.09: przebudowa gubiła zaznaczenie pada/klawiatury → drugi Enter/A odpalał GRAJ
+    let m0 = null;
+    try { if (gpSel && mp.contains(gpSel)) m0 = gpSel.dataset.m; } catch (_) {}   // gpSel w TDZ przy pierwszym renderze
+    const wybor = menuStan() >= 1, strz = wybor && Object.keys(MAPS).filter(mapaOdbl).length > 1;
+    const kr = wybor && kropkiMenu().includes('mapy') ? '<i class="wKropka"></i>' : '';
+    const nazwa = `${mIk(M.ico)}<span class="k">${T('MAPA', 'MAP')}</span><b>${M.nm}</b>`;
+    mp.innerHTML = (strz ? `<button class="wNav wStrz" data-m="-1" aria-label="‹">‹</button>` : '')
+      + (wybor ? `<button class="wNav mNm" data-m="0" style="position:relative;background:none;border:0;font:inherit;color:inherit">${nazwa}${kr}<span class="wGl" data-mglif="mapa"></span></button>`
+               : `<div class="mNm">${nazwa}</div>`)
+      + (strz ? `<button class="wNav wStrz" data-m="1" aria-label="›">›</button>` : '');
+    if (m0 != null) { const el = mp.querySelector(`[data-m="${m0}"]`); if (el) gpMark(el); }
+    menuGlifyOdswiez();
+  }
 }
 function renderStats() {
   const s = META.st;
@@ -3853,6 +3999,17 @@ function renderBestiary() {
     wrap.appendChild(d);
   }
   document.getElementById('bestProg').textContent = odkryte + '/' + klucze.length;
+  renderSkladnikiAkta();
+}
+// AKTA: składniki Nonny — kupione z ikoną, niekupione jako kłódka (Spiżarnia Nonny w Sklepie)
+function renderSkladnikiAkta() {
+  const el = document.getElementById('aktaSkl');
+  if (!el) return;
+  const kl = Object.keys(PASSIVES);
+  el.innerHTML = kl.map(k => { const S = PASSIVES[k], ma = sklOdbl(k);
+    return `<div class="aSkl${ma ? '' : ' zamk'}" title="${ma ? S.nm : T('Spiżarnia Nonny (Sklep)', "Nonna's Pantry (Shop)")}">${ico(ma ? S.ico : 'klodka', 26)}<span>${ma ? S.nm : '???'}</span></div>`; }).join('');
+  const p = document.getElementById('aktaSklProg');
+  if (p) p.textContent = kl.filter(sklOdbl).length + '/' + kl.length;
 }
 
 function renderShop() {
@@ -3884,6 +4041,623 @@ function renderShop() {
     };
     wrap.appendChild(d);
   }
+  renderSpizarnia(deny);
+  odswiezRog();                                    // menu A: monety w rogu nad otwartym Sklepem
+}
+// SPIŻARNIA NONNY: 5 składników do kupienia (cena wg liczby kupionych) + Większy słoik; tabliczka Nonny o wsparciu
+function renderSpizarnia(deny) {
+  const wrap = document.getElementById('spizItems');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  const cena = cenaSpiz(), blokady = trudn().karty.sklBlokady;
+  const licz = document.getElementById('spizLicz');
+  if (licz) licz.textContent = `${SKL_STARTOWE.length + sklKupione()}/${Object.keys(PASSIVES).length}`;
+  const kafel = (ikona, nm, ds, stopka, masz, onBuy) => {
+    const d = document.createElement('div');
+    d.className = 'tile spiz' + (masz ? ' lock' : '');
+    d.innerHTML = `<div class="ico">${ico(ikona, 40)}${masz ? '' : `<i class="spizKl">${ico('klodka', 16)}</i>`}</div><div class="nm">${nm}</div>
+      <div class="ds">${ds}</div><div class="pr">${stopka}</div>`;
+    if (!masz) d.onclick = () => onBuy(d);
+    wrap.appendChild(d);
+  };
+  for (const k of SPIZ_KOLEJNOSC) {
+    const S = PASSIVES[k], masz = sklOdbl(k);
+    const ds = T('Na poziom: ', 'Per level: ') + S.ef(1, 0);
+    kafel(S.ico, S.nm, ds, masz ? T('W SPIŻARNI', 'IN THE PANTRY') : ico('moneta', 15) + ' ' + liczba(cena), masz, d => {
+      const c = cenaSpiz();
+      if (META.coins < c) return deny(d);
+      META.coins -= c; META.unlocked[k] = 1; saveMeta();
+      STATY.zdarzenie('spizarnia/' + k, 'Spiżarnia: ' + k);
+      AUDIO.sfx('zlota');
+      renderShop();
+    });
+  }
+  const slMasz = !!META.unlocked.sloik || !blokady;
+  kafel('sloik', T('Większy słoik', 'Bigger Jar'),
+    T(`Składnik w biegu do poz. 5 (bez słoika: ${trudn().karty.sklMax})`, `Ingredients go up to lv. 5 in a run (without it: ${trudn().karty.sklMax})`),
+    slMasz ? T('MASZ', 'OWNED') : ico('moneta', 15) + ' ' + liczba(CFG_SPIZ.sloik), slMasz, d => {
+      if (META.coins < CFG_SPIZ.sloik) return deny(d);
+      META.coins -= CFG_SPIZ.sloik; META.unlocked.sloik = 1; saveMeta();
+      STATY.zdarzenie('spizarnia/sloik', 'Spiżarnia: słoik');
+      AUDIO.sfx('zlota');
+      renderShop();
+    });
+  renderTabliczkaNonny('nonnaSklep', true);
+}
+// TABLICZKA NONNY o wsparciu: w Sklepie (obok Spiżarni) i przy polu kodu w Ustawieniach.
+// Kawa tylko web (B12, JEST_APKA) — w aplikacji zostaje sam tekst o farmieniu i przycisk kodu.
+function renderTabliczkaNonny(id, zSklepu) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const kawa = KAWA_URL && !JEST_APKA;
+  el.innerHTML = `<div class="ntTekst">${mIk('postac')}<span>${kawa
+      ? T('Za drogo? Wyfarm monety albo postaw Nonnie kawę — napisz na buycoffee, a dostaniesz kod na monety.',
+          'Too pricey? Farm the coins or buy Nonna a coffee — drop a note on buycoffee and you will get a coin code.')
+      : T('Za drogo? Każdy bieg dokłada monet — Nonna czeka cierpliwie.', 'Too pricey? Every run adds coins — Nonna is patient.')}</span></div>`
+    + `<div class="ntPrz">${kawa ? `<a class="btn2 ntKawa" href="${KAWA_URL}" target="_blank" rel="noopener">${T('POSTAW KAWĘ', 'BUY A COFFEE')}</a>` : ''}`
+    + (zSklepu ? `<button class="btn2 ntKod">${T('MAM KOD', 'I HAVE A CODE')}</button>` : '') + '</div>';
+  const k = el.querySelector('.ntKawa');
+  if (k) k.onclick = () => STATY.zdarzenie('kawa/' + (zSklepu ? 'sklep' : 'kod'), 'Klik: kawa (' + (zSklepu ? 'sklep' : 'kod') + ')');
+  const b = el.querySelector('.ntKod');
+  if (b) b.onclick = () => {
+    document.getElementById('wZebatka').click();
+    requestAnimationFrame(() => {
+      const box = document.getElementById('kodBox');
+      if (box) box.scrollIntoView({ block: 'center' });
+      const inp = document.getElementById('kodInput');
+      if (inp && !(matchMedia('(pointer:coarse)').matches)) inp.focus();   // na dotyku bez klawiatury od razu
+    });
+  };
+}
+
+// ============================== MENU A „WARZYWNIAK" (E4 K11a + K11, 29.09) ==============================
+// Decyzja właściciela 24.09: A „Warzywniak" + liścik Nonny z B (1. sesja) + mapa osiedla we mgle z C w panelu Map.
+// Spec: dokumenty/badanie-gry/10-spec-E4.md §10 · DOM: #warzywniak (index.html) · wygląd: ui-warzywniak.css.
+// Rzeczy z E4, których jeszcze nie ma (Zeszyt, Danie dnia, zlecenia, kalendarz, Pikantność, Paczka) mają w DOM
+// miejsca-zaślepki: flaga w E4_GOTOWE = false → ukryte albo „wkrótce". Logiki tu NIE ma — dopiszą ją kroki K2–K8.
+const E4_GOTOWE = { zeszyt: false, danie: false, zlecenia: false, kalendarz: false, pikant: false, paczka: false };
+const MENU = { s: 1, pc: false, pierwszy: true, zapT: 0, mapaDom: false, mapaAnim: 0, mapaWym: '' };
+const biegi = () => META.st.pelne || 0;   // przegląd 29.09: jak łagodny tryb — szybkie „Do menu" nie odsłania skrzynek
+const odslUi = () => META.ui.odsl || (META.ui.odsl = {});   // META.ui kopiowane w loadMeta w całości — pole przeżywa przeładowanie
+// stan odsłonięcia menu (§10.4): 0 = pierwsza sesja, 1 / 2 = po 1. / 2. biegu, 3 = pełny (od 3. biegu)
+const menuStan = () => Math.min(3, biegi());
+// ikona z icons.js BEZ stylu inline (rozmiar daje CSS w `--p`, `ico()` wpisuje sztywne px)
+const mIk = (n) => `<img class="ikp" src="${icon(n, 4)}" alt="">`;
+// skrzynka → od którego stanu stoi na ladzie
+const SKRZ_OD = { postacie: 1, sklep: 1, akta: 2, ksiazka: 3, zeszyt: 99 };
+const SKRZ_ODSL = { r1: ['postacie', 'sklep'], r2: ['akta'], r3: ['ksiazka'] };
+// zapowiedzi odsłonięć — liścik Nonny, jedna linia, raz (META.ui.odsl)
+const ZAPOWIEDZ = {
+  r1: T('Masz monety! W sklepie czekają ulepszenia — i nowe bronie.', "You've got coins! Upgrades are waiting in the shop — and new weapons."),
+  r2: T('Spisuję w aktach każdego chipsiarza, którego przegonisz. Zajrzyj czasem.', 'I keep a file on every chip-pusher you chase off. Take a look sometimes.'),
+  r3: T('Twoje dania zapisuję w książce. Zajrzyj, co już ugotowałeś.', 'I write your dishes down in my cookbook. See what you have cooked so far.'),
+};
+// Mapa odsłonięta (bez mgły, do wyboru). Dziś: Łąki zawsze, reszta po 1. biegu (§10.4: „0 biegów: mapa bez wyboru").
+// E4 K2 (Zeszyt) podmieni warunki na zadania: Wąwozy po 1. kapralu, Market po dotrwaniu do 5:00 (§11, decyzja 5).
+function mapaOdbl(key) { return key === 'laki' || biegi() >= 1; }
+const odkryteBest = () => Object.keys(ENEMY_TYPES).filter(k => (META.bestiary[k] || 0) > 0).length;
+const liczba = n => (+n || 0).toLocaleString(JEZYK.cur === 'en' ? 'en-US' : 'pl-PL');
+
+// SKALA: jeden mnożnik --s = min(szer/812, wys/375) (CSS nie podzieli długości przez długość)
+function menuSkala() {
+  const w = document.getElementById('warzywniak');
+  if (!w) return;
+  const W = w.clientWidth || innerWidth, H = w.clientHeight || innerHeight;
+  const s = Math.max(0.5, Math.min(W / 812, H / 375));
+  MENU.s = s; MENU.pc = s >= 1.3;
+  w.style.setProperty('--s', s.toFixed(4));
+  w.style.setProperty('--tx', String(Math.max(2, Math.round(2 * s))));
+  w.classList.toggle('w-pc', MENU.pc);
+  if (document.getElementById('startOv').classList.contains('panel-mapy')) mapaRysuj(1);
+}
+
+// NAJBLIŻSZY CEL (kartka na tablicy) — z tego, co gra już ma; Zeszyt Nonny (K2) przejmie tę kartkę
+function celNajblizszy() {
+  const s = META.st, nagr = t => T('nagroda: ', 'reward: ') + t;
+  for (const k of Object.keys(CHARS)) {
+    const C = CHARS[k];
+    if (C.killGoal && !maszPostac(k))
+      return { t: T(`Pokonaj ${C.killGoal} chipsiarzy`, `Defeat ${C.killGoal} chip-pushers`), n: s.kills, z: C.killGoal, nagr: nagr(C.nm.split(' ')[0]) };
+  }
+  const kup = Object.keys(CHARS).filter(k => !maszPostac(k) && CHARS[k].price > 0).sort((a, b) => CHARS[a].price - CHARS[b].price)[0];
+  if (kup) return { t: META.coins >= CHARS[kup].price ? T('Stać Cię na nową postać — zajrzyj do Postaci!', 'You can afford a new hero — check Heroes!')
+    : T('Uzbieraj monety na postać', 'Save up coins for a hero'), n: META.coins, z: CHARS[kup].price, nagr: nagr(CHARS[kup].nm.split(' ')[0]) };
+  if (!s.wins) return { t: T('Przetrwaj Wieczór i pokonaj Dona', 'Survive the Evening and beat the Don'),
+    n: Math.min(s.best || 0, CZAS_WIECZORU), z: CZAS_WIECZORU, czas: true, nagr: nagr(T('monety ×1,5', 'coins ×1.5')) };
+  const it = SHOP_UNLOCKS.filter(i => !META.unlocked[i.key]).sort((a, b) => a.price - b.price)[0];
+  if (it) return { t: T('Kup w sklepie: ', 'Buy in the shop: ') + it.nm, n: META.coins, z: it.price, nagr: nagr(T('nowa broń', 'a new weapon')) };
+  const sk = SPIZ_KOLEJNOSC.find(k => !sklOdbl(k));
+  if (sk) return { t: T('Spiżarnia Nonny: ', "Nonna's Pantry: ") + PASSIVES[sk].nm, n: META.coins, z: cenaSpiz(), nagr: nagr(T('nowy składnik', 'a new ingredient')) };
+  return { t: T('Wygraj kolejny Wieczór', 'Win another Evening'), n: s.wins, z: s.wins + 1, nagr: nagr(T('chwała Nonny', "Nonna's glory")) };
+}
+
+// KROPKI „nowe" (§10.7): tylko gdy czeka akcja, najwyżej 2, w kolejności priorytetu. Gasną po wejściu do panelu
+// (zapamiętujemy monety / liczbę wpisów z chwili wejścia — kropka wraca dopiero, gdy przybyło).
+function kropkiMenu() {
+  const st = menuStan(), c = META.coins, u = META.ui, out = [];
+  if (st >= 1) {
+    const ceny = SHOP.filter(it => META.up[it.key] < it.max).map(shopPrice)
+      .concat(SHOP_UNLOCKS.filter(it => !META.unlocked[it.key]).map(it => it.price))
+      .concat(SPIZ_KOLEJNOSC.some(k => !sklOdbl(k)) ? [cenaSpiz()] : [], META.unlocked.sloik || !trudn().karty.sklBlokady ? [] : [CFG_SPIZ.sloik]);
+    if (ceny.length && c >= Math.min(...ceny) && c > (u.krSklep ?? -1)) out.push('sklep');
+    if (Object.keys(CHARS).some(k => !maszPostac(k) && CHARS[k].price > 0 && c >= CHARS[k].price) && c > (u.krPost ?? -1)) out.push('postacie');
+    if (Object.keys(MAPS).some(k => mapaOdbl(k) && !(u.mapyWidz || {})[k])) out.push('mapy');
+  }
+  if (st >= 3 && u.ksiazkaNowe) out.push('ksiazka');
+  if (st >= 2 && odkryteBest() > (u.krAkta ?? 0)) out.push('akta');
+  return out.slice(0, 2);
+}
+
+function odswiezRog() {
+  const m = document.getElementById('wMonety');
+  if (m) m.innerHTML = mIk('moneta') + ' ' + liczba(META.coins);
+  const z = document.querySelector('#wZebatka i');
+  if (z && !z.firstChild) z.innerHTML = mIk('zebatka');
+}
+
+// TABLICA „DZIŚ U NONNY" (§10.5) albo liścik Nonny w pierwszej sesji (z makiety B)
+function renderTablica(st) {
+  const t = document.getElementById('tablica');
+  if (!t) return;
+  if (st === 0) {
+    t.className = 'tLisc';
+    t.innerHTML = '<i class="tTasma"></i>' + T('Kochanie, najpierw przegoń tych chipsiarzy z osiedla. Obiad będzie potem.',
+      'Darling, first chase those chip-pushers off the block. Dinner comes after.') + '<div class="tPod">— Nonna</div>';
+    return;
+  }
+  t.className = '';
+  const s = META.st, cel = celNajblizszy();
+  const pr = Math.max(0, Math.min(100, cel.n / Math.max(1, cel.z) * 100));
+  const nz = cel.czas ? `${fmtTime(cel.n)}/${fmtTime(cel.z)}` : `${liczba(Math.min(cel.n, cel.z))}/${liczba(cel.z)}`;
+  const rek = [['zegar', T('Najdłuższy', 'Longest'), fmtTime(Math.min(s.best || 0, CZAS_WIECZORU))],
+               ['czaszka', T('Rekord', 'Best'), liczba(s.bestKills || 0)],
+               ['korona', T('Wygrane', 'Wins'), s.wins || 0]];
+  t.innerHTML = `<div class="tNag"><span>${T('DZIŚ U NONNY', "TODAY AT NONNA'S")}</span><small>${T('bieg nr', 'run no.')} ${liczba(s.runs + 1)}</small></div>`
+    // Danie dnia = E4 K7; do tego czasu miejsce „wkrótce" (bez przycisku, poza nawigacją pada)
+    + (st >= 3 && !E4_GOTOWE.danie ? `<div class="tDanie"><img src="assets/garnek_nonny.png" alt=""><div><b>${T('DANIE DNIA', 'DISH OF THE DAY')}</b>`
+        + `<span>${T('Nonna jeszcze gotuje', 'Nonna is still cooking')}</span></div><span class="tWkr">${T('WKRÓTCE', 'SOON')}</span></div>` : '')
+    // rekordy w miejscu 3 zleceń (zlecenia = E4 K8)
+    + `<div class="tRek">${rek.map(([i, k, v]) => `<div>${mIk(i)}<span>${k}</span><b>${v}</b></div>`).join('')}</div>`
+    + `<div class="tCel w-papier"><div class="k"><span>${T('NAJBLIŻSZY CEL', 'NEXT GOAL')}</span><em>${cel.nagr}</em></div>`
+    + `<div class="t"><span>${cel.t}</span><b>${nz}</b></div><div class="wPasek"><i style="width:${pr.toFixed(1)}%"></i></div></div>`;
+}
+
+// CAŁE MENU: stan odsłonięcia, skrzynki, kropki, róg, tablica, postać i mapa. `odslon` = odpal animacje odsłonięć.
+function renderMenu(o = {}) {
+  const w = document.getElementById('warzywniak');
+  if (!w) return;
+  const st = menuStan();
+  w.classList.remove('w-r0', 'w-r1', 'w-r2', 'w-r3'); w.classList.add('w-r' + st);
+  w.classList.toggle('w-strzP', st >= 2 && Object.keys(CHARS).filter(maszPostac).length >= 2);
+  const kr = kropkiMenu();
+  for (const t of document.querySelectorAll('#tabs .tab.skr')) {
+    const k = t.dataset.tab;
+    if (!t.querySelector('img') && t.dataset.ik) t.insertAdjacentHTML('afterbegin', mIk(t.dataset.ik));
+    t.classList.toggle('jest', st >= (SKRZ_OD[k] ?? 99) && (k !== 'zeszyt' || E4_GOTOWE.zeszyt));
+    const k0 = t.querySelector('.wKropka');
+    if (kr.includes(k) && !k0) t.insertAdjacentHTML('beforeend', '<i class="wKropka"></i>');
+    else if (!kr.includes(k) && k0) k0.remove();
+  }
+  odswiezRog(); renderTablica(st); renderPick();
+  if (o.odslon) menuOdslon();
+}
+
+// ODSŁONIĘCIA (§10.4): skrzynka spada na ladę + liścik z zapowiedzią, raz na klucz (META.ui.odsl).
+function menuOdslon() {
+  const o = odslUi(), r = biegi();
+  const nowe = ['r1', 'r2', 'r3'].filter(k => r >= +k[1] && !o[k]);
+  const pierwszy = MENU.pierwszy; MENU.pierwszy = false;
+  if (!nowe.length) return;
+  nowe.forEach(k => { o[k] = 1; });
+  saveMeta();
+  // stary zapis (≥ 3 biegi, żadnego odsłonięcia w zapisie) = od razu stan pełny, bez animacji
+  if (pierwszy && r >= 3 && nowe.length === 3) {   // przegląd 29.09: stary zapis zna już mapy — bez „mgła schodzi"
+    META.ui.mapyWidz = { laki: 1, wawozy: 1, market: 1 }; saveMeta(); return;
+  }
+  for (const k of nowe) STATY.zdarzenie('menu/odsl/' + k, 'Menu: odsłonięcie ' + k);
+  let i = 0;
+  for (const k of nowe) for (const tab of SKRZ_ODSL[k]) {
+    const el = document.querySelector(`#tabs .tab.skr.jest[data-tab="${tab}"]`);
+    if (!el) continue;
+    el.classList.remove('spada'); void el.offsetWidth;
+    el.style.animationDelay = (0.2 + 0.14 * i++) + 's';
+    el.classList.add('spada');
+  }
+  pokazZapowiedz(ZAPOWIEDZ[nowe[nowe.length - 1]], 0.35 + 0.14 * i);
+}
+function pokazZapowiedz(txt, opozn = 0) {
+  const z = document.getElementById('wZapowiedz');
+  if (!z || !txt) return;
+  z.innerHTML = `<i class="tTasma"></i>${txt}<div class="tPod">— Nonna</div>`;
+  z.style.animationDelay = opozn + 's';
+  z.hidden = false;
+  clearTimeout(MENU.zapT);
+  MENU.zapT = setTimeout(() => { z.hidden = true; }, 6000 + opozn * 1000);
+}
+
+// ZMIANA POSTACI (strzałki szyldu, Q/E, LB/RB) i MAPY (strzałki tabliczki, M) — 1 klik zamiast 3
+function menuPostac(dir) {
+  const w = document.getElementById('warzywniak');
+  if (!w || !w.classList.contains('w-strzP')) return;
+  const lista = Object.keys(CHARS).filter(maszPostac);
+  if (lista.length < 2) return;
+  const key = lista[(lista.indexOf(charKey) + dir + lista.length) % lista.length];
+  charKey = key; META.lastChar = key; saveMeta();
+  setPlayerChar(key);
+  renderChars(); renderPick();
+}
+function menuMapa(dir, key) {
+  if (menuStan() < 1) return;
+  const lista = Object.keys(MAPS).filter(mapaOdbl);
+  if (!key) { if (lista.length < 2) return; key = lista[(lista.indexOf(mapKey) + dir + lista.length) % lista.length]; }
+  if (!mapaOdbl(key) || key === mapKey) return;
+  setMap(key); META.lastMap = key; saveMeta();
+  renderPick();
+  if (document.getElementById('startOv').classList.contains('panel-mapy')) mapaAktualizuj();
+}
+
+// GLIFY PRZY ELEMENTACH MENU (klawiatura: litera klawisza, pad: przycisk, dotyk: nic) — system glifów v208
+function menuGlifyOdswiez() {
+  const tryb = WEJ.tryb, strzP = document.getElementById('warzywniak')?.classList.contains('w-strzP');
+  const GL = {
+    graj: () => tryb === 'pad' ? padKapsel(0) : tryb === 'klaw' ? glKl('ENTER') : '',
+    mapaGraj: () => tryb === 'pad' ? padKapsel(0) : tryb === 'klaw' ? glKl('ENTER') : '',
+    postL: () => !strzP ? '' : tryb === 'pad' ? padKapsel(4) : tryb === 'klaw' ? glKl('Q') : '',
+    postP: () => !strzP ? '' : tryb === 'pad' ? padKapsel(5) : tryb === 'klaw' ? glKl('E') : '',
+    mapa: () => tryb === 'klaw' && Object.keys(MAPS).filter(mapaOdbl).length > 1 ? glKl('M') : '',
+  };
+  document.querySelectorAll('[data-mglif]').forEach(el => { el.innerHTML = (GL[el.dataset.mglif] || (() => ''))(); });
+}
+
+// PANEL OTWARTY (handler zakładek `.tab[data-tab]`): rendery, klasy układu, kropki gasną, pad skacze do panelu
+function menuPanelOtwarty(tab, zak) {
+  const ov = document.getElementById('startOv'), u = META.ui;
+  const otwarty = tab !== 'graj';
+  ov.classList.toggle('panel-open', otwarty);
+  ov.classList.toggle('panel-mapy', tab === 'mapy');
+  document.body.classList.toggle('w-panel', otwarty);
+  if (tab === 'sklep') { renderShop(); u.krSklep = META.coins; saveMetaSoon(); }
+  if (tab === 'postacie') { renderChars(); u.krPost = META.coins; saveMetaSoon(); }
+  if (tab === 'akta') { renderBestiary(); renderStats(); u.krAkta = odkryteBest(); saveMetaSoon(); }
+  if (tab === 'ksiazka') renderKsiazkaMenu();
+  if (tab === 'ustawienia') renderSterowanie();
+  if (tab === 'mapy') mapaOtworz();
+  const pn = document.getElementById('panele'); if (pn && otwarty) pn.scrollTop = 0;
+  const skad = MENU.zamkniety;                    // skrzynka / zębatka, z której wszedł gracz (tam wraca zaznaczenie)
+  if (!otwarty) { renderMenu(); MENU.zamkniety = null; }
+  else if (zak) MENU.zamkniety = zak;
+  // pad/klawiatura: zaznaczenie na pierwszy element panelu; po zamknięciu wraca na skrzynkę, z której weszliśmy
+  if (gpSel || WEJ.tryb === 'pad') {
+    requestAnimationFrame(() => {
+      if (otwarty) {
+        const p = document.getElementById('p-' + tab);
+        const cel = tab === 'mapy' ? document.querySelector('#mapGrid .mWezel.sel') || document.getElementById('mapaGraj')
+          : (p && [...p.querySelectorAll('.tile,.btn2,input[type=range],.kafel')].find(e => e.offsetWidth)) || document.getElementById('panelBack');
+        gpMark(cel);
+      } else {
+        const wr = skad && skad.offsetWidth ? skad : document.getElementById('btnStart');
+        gpMark(wr);
+      }
+    });
+  }
+}
+// Książka w menu: sama „CAŁA KSIĄŻKA" (część „Twoje dania" zależy od bronie bieżącego biegu — zostaje w pauzie)
+function renderKsiazkaMenu() {
+  const el = document.getElementById('menuKsiazka');
+  if (!el) return;
+  el.innerHTML = ksiazkaHTML();
+  el.querySelector('.kDania')?.remove();
+  for (const k of el.querySelectorAll('.kafel')) k.onclick = () => szczegolKafla(k.dataset.ek, k.dataset.bron);
+  if (META.ui.ksiazkaNowe) { META.ui.ksiazkaNowe = false; saveMetaSoon(); }
+}
+
+// ---------------- PANEL MAP: MAPA OSIEDLA WE MGLE (kod z makiety C, bez nowych grafik) ----------------
+// Węzły we współrzędnych względnych 0..1 (przy innych proporcjach ekranu rozsuwają się same).
+const MAPA_WEZLY = {
+  laki: { x: .40, y: .44 }, stragan: { x: .53, y: .66 }, wawozy: { x: .70, y: .36 }, market: { x: .83, y: .60 }, willa: { x: .92, y: .34 },
+};
+// PODMIANA NA GRAFIKI (przyjdą później, np. assets/ui/mapa_tlo.png): wpisz ścieżkę, a zamiast proceduralnego
+// canvasu / budynku z CSS pojawi się obrazek (pixelated). Mgła zostaje osobną warstwą canvasu nad nim.
+// tlo = cała mapa (dowolna rozdzielczość, rozciągana object-fit:cover); budynki = obrazek stojący stopami na węźle.
+const MAPA_GRAF = { tlo: '', stragan: '', market: '', willa: '' };
+const MAPA_DEKO = [['oak1', .31, .30, 44], ['oak2', .35, .62, 40], ['bush1', .45, .30, 26], ['kwiat1', .37, .52, 12], ['kwiat2', .44, .55, 12],
+  ['kwiat1', .33, .46, 12], ['oak3', .60, .86, 44], ['rock1', .64, .22, 30], ['rock1', .77, .40, 24], ['oak1', .97, .88, 48], ['bush1', .90, .44, 24],
+  ['scarecrow', .47, .42, 30]];
+const MAPA_PROM = { laki: .16, stragan: .09, wawozy: .15, market: .13 };   // promień odsłonięcia (× szerokość mapy w pikselach mapy)
+const MAPA_NOWA = {
+  wawozy: T('Wąwozy otwarte! Uważaj na rzekę.', 'The Ravines are open! Mind the river.'),
+  market: T('Market otwarty! Regały lubią spadać.', 'The Supermarket is open! Shelves like to fall.'),
+};
+function mapaRng(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function mapaSzum(w, h, r, skala) {          // wygładzony szum wartości (łaty trawy, krawędź mgły)
+  const gw = Math.ceil(w / skala) + 2, gh = Math.ceil(h / skala) + 2, g = [];
+  for (let i = 0; i < gw * gh; i++) g.push(r());
+  return (x, y) => { const fx = x / skala, fy = y / skala, x0 = fx | 0, y0 = fy | 0, tx = fx - x0, ty = fy - y0;
+    const s = t => t * t * (3 - 2 * t), a = g[y0 * gw + x0], b = g[y0 * gw + x0 + 1], c = g[(y0 + 1) * gw + x0], d = g[(y0 + 1) * gw + x0 + 1];
+    return (a + (b - a) * s(tx)) * (1 - s(ty)) + (c + (d - c) * s(tx)) * s(ty); };
+}
+// canvas w niskiej rozdzielczości: 1 piksel mapy = round(4·s) px ekranu, powiększany `pixelated` (ta sama skala co sprite)
+function mapaRozmiar() {
+  const box = document.getElementById('mapGrid');
+  const W = box.clientWidth || innerWidth, H = box.clientHeight || innerHeight, s = MENU.s, P = Math.max(4, Math.round(4 * s));
+  return { W, H, P, w: Math.ceil(W / P), h: Math.ceil(H / P) };
+}
+function mapaTeren(cv) {
+  const { w, h } = mapaRozmiar(); cv.width = w; cv.height = h;
+  const g = cv.getContext('2d'), r = mapaRng(7), n1 = mapaSzum(w, h, r, 9), n2 = mapaSzum(w, h, r, 3.5), N = MAPA_WEZLY;
+  const img = g.createImageData(w, h);
+  const px = (x, y, c) => { if (x < 0 || y < 0 || x >= w || y >= h) return; const i = (y * w + x) * 4; img.data[i] = c[0]; img.data[i + 1] = c[1]; img.data[i + 2] = c[2]; img.data[i + 3] = 255; };
+  const hex = s => [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)];
+  const C = { t1: hex('#7cc242'), t2: hex('#6bb03a'), t3: hex('#8fd354'), t4: hex('#5e9e33'), rz: hex('#4f9ed8'), rzj: hex('#a8d8f5'), rzc: hex('#3d7fb3'),
+    dr: hex('#e0c890'), drc: hex('#b89a62'), sk: hex('#c49a60'), skc: hex('#8b5a2b'), skj: hex('#dcb57a'), as: hex('#9aa0a8'), asj: hex('#c3c8cf'),
+    kw1: hex('#ff8ad8'), kw2: hex('#ffe89a'), most: hex('#8b5a2b'), mostj: hex('#b07a3f') };
+  // 1) trawa: dwie skale szumu → łaty jasne/ciemne
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const a = n1(x, y), b = n2(x, y); let c = C.t1;
+    if (a > .62) c = C.t3; else if (a < .32) c = C.t2; if (a < .22) c = C.t4;
+    if (b > .78 && r() < .5) c = a > .5 ? C.t1 : C.t3;
+    px(x, y, c);
+  }
+  const X = v => Math.round(v * w), Y = v => Math.round(v * h);
+  // 2) wąwóz: tarasy wokół Wąwozów
+  const wx = X(N.wawozy.x), wy = Y(N.wawozy.y);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const dx = (x - wx) / (w * .13), dy = (y - wy + h * .02) / (h * .24), d = dx * dx + dy * dy + (n2(x, y) - .5) * .25;
+    if (d < 1) px(x, y, d > .82 ? C.skc : d > .55 ? C.sk : d > .5 ? C.skc : C.skj);
+  }
+  // 3) rzeka i 4) ścieżki + most
+  const linia = (pts, rad, fn) => { for (let i = 0; i < pts.length - 1; i++) { const [ax, ay] = pts[i], [bx, by] = pts[i + 1];
+    const k = Math.ceil(Math.hypot((bx - ax) * w, (by - ay) * h)); for (let t = 0; t <= k; t++) { const cx = (ax + (bx - ax) * t / k) * w, cy = (ay + (by - ay) * t / k) * h;
+      for (let oy = -rad - 1; oy <= rad + 1; oy++) for (let ox = -rad - 1; ox <= rad + 1; ox++) fn(Math.round(cx + ox), Math.round(cy + oy), Math.hypot(ox, oy), rad); } } };
+  linia([[.66, -.05], [.69, .18], [.70, .32], [.64, .48], [.66, .62], [.74, .80], [.78, 1.05]], Math.max(2, Math.round(w / 90)),
+    (x, y, d, rad) => { if (d <= rad) px(x, y, d > rad - 1 ? C.rzc : ((x * 7 + y * 3) % 11 === 0 ? C.rzj : C.rz)); });
+  const rd = Math.max(1, Math.round(w / 170));
+  for (const d of [[[N.stragan.x, N.stragan.y], [N.laki.x, N.laki.y + .02]], [[N.stragan.x, N.stragan.y], [.62, .58], [.72, .60], [N.market.x, N.market.y]],
+    [[N.stragan.x, N.stragan.y], [.58, .44], [.64, .40], [N.wawozy.x, N.wawozy.y + .06]], [[N.wawozy.x, N.wawozy.y], [.82, .22], [N.willa.x, N.willa.y]]])
+    linia(d, rd, (x, y, dd, rad) => { if (dd <= rad + .6) px(x, y, dd > rad - .4 ? C.drc : C.dr); });
+  const mx = X(.645), my = Y(.585);
+  for (let y = my - 2; y <= my + 2; y++) for (let x = mx - 5; x <= mx + 5; x++) px(x, y, (x % 2) ? C.most : C.mostj);
+  // 5) parking marketu i łąka z kwiatami
+  const kx = X(N.market.x), ky = Y(N.market.y);
+  for (let y = ky - 3; y <= ky + Math.round(h * .08); y++) for (let x = kx - Math.round(w * .07); x <= kx + Math.round(w * .07); x++) px(x, y, (x % 6 === 0 && y > ky) ? C.asj : C.as);
+  const lx = X(N.laki.x), ly = Y(N.laki.y);
+  for (let i = 0; i < w * h * .004; i++) { const x = lx + Math.round((r() - .5) * w * .18), y = ly + Math.round((r() - .5) * h * .3); px(x, y, r() < .5 ? C.kw1 : C.kw2); }
+  g.putImageData(img, 0, 0);
+}
+// MGŁA: osobna warstwa; `rosn` = mapy właśnie odsłonięte (promień rośnie od 0), `k` = postęp animacji 0..1
+function mapaMgla(cv, rosn = [], k = 1) {
+  const { w, h } = mapaRozmiar(); cv.width = w; cv.height = h;
+  const g = cv.getContext('2d'), n2 = mapaSzum(w, h, mapaRng(11), 3.5), N = MAPA_WEZLY;
+  const mg = [238, 243, 247], mgc = [207, 217, 227];
+  const odsl = ['laki', 'stragan', 'wawozy', 'market'].filter(k2 => k2 === 'stragan' || mapaOdbl(k2))
+    .map(k2 => [N[k2].x * w, N[k2].y * h, w * MAPA_PROM[k2] * (rosn.includes(k2) ? k : 1)]);
+  const img = g.createImageData(w, h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let m = 9;
+    for (const [cx, cy, rr] of odsl) if (rr > 0.5) m = Math.min(m, Math.hypot(x - cx, (y - cy) * 1.4) / rr);
+    m += (n2(x, y) - .5) * .45;
+    if (m > 1) { const c = m > 1.18 ? mg : mgc, i = (y * w + x) * 4; img.data[i] = c[0]; img.data[i + 1] = c[1]; img.data[i + 2] = c[2]; img.data[i + 3] = 255; }
+  }
+  g.putImageData(img, 0, 0);
+}
+// `teren` = 1: przerysuj też tło (zmiana rozmiaru); rysujemy tylko przy otwarciu i resize (~5 ms), bez pętli
+function mapaRysuj(teren = 0, rosn, k) {
+  const box = document.getElementById('mapGrid');
+  if (!box || !MENU.mapaDom) return;
+  const wym = box.clientWidth + 'x' + box.clientHeight + '@' + MENU.s.toFixed(3);
+  const tlo = box.querySelector('canvas.mTlo');
+  if (tlo && (teren || MENU.mapaWym !== wym)) mapaTeren(tlo);
+  MENU.mapaWym = wym;
+  mapaMgla(box.querySelector('canvas.mMgla'), rosn, k);
+}
+const pct = v => (v * 100).toFixed(2) + '%';
+function mapaZbuduj() {
+  const box = document.getElementById('mapGrid'), N = MAPA_WEZLY;
+  let h = MAPA_GRAF.tlo ? `<img class="mTlo" src="${MAPA_GRAF.tlo}" alt="">` : '<canvas class="mTlo"></canvas>';
+  h += MAPA_DEKO.map(([f, x, y, wd]) => `<div class="mW" style="left:${pct(x)};top:${pct(y)}"><img src="assets/${f}.png" alt="" style="width:calc(var(--p)*${wd})"></div>`).join('');
+  const bud = (k, css) => `<div class="mW" style="left:${pct(N[k].x)};top:${pct(N[k].y)}">${MAPA_GRAF[k] ? `<img src="${MAPA_GRAF[k]}" alt="" style="width:calc(var(--p)*80)">` : css}</div>`;
+  h += bud('stragan', '<div class="mStragan"><div class="mk"></div><div class="ld"><i style="background:#ff7a1f"></i><i style="background:#9adf58"></i><i style="background:#e2404a"></i></div></div>');
+  h += bud('market', '<div class="mMarket"></div>') + bud('willa', '<div class="mWilla"></div>');
+  h += '<canvas class="mMgla"></canvas>';
+  // węzły: mapy gry + Warzywniak (= powrót) + Willa Dona (zawsze we mgle, zapowiedź aktów 2–3)
+  const wezel = (k, nm) => `<button class="wNav mWezel" data-w="${k}" style="left:${pct(N[k].x)};top:calc(${pct(N[k].y)} + var(--p)*4)"><span class="mSz">${nm}</span></button>`;
+  h += wezel('laki', '') + wezel('wawozy', '') + wezel('market', '') + wezel('stragan', T('WARZYWNIAK', 'VEG STAND')) + wezel('willa', '???');
+  h += '<div class="mGracz"><i class="cien"></i><span class="spr"></span></div>';
+  h += '<div class="mInfo"></div>';
+  h += `<button class="bigbtn" id="mapaGraj"><span></span><span class="wGl" data-mglif="mapaGraj"></span></button>`;
+  box.innerHTML = h;
+  box.onclick = e => {
+    const b = e.target.closest('.mWezel');
+    if (b) return mapaWezel(b.dataset.w);
+  };
+  document.getElementById('mapaGraj').onclick = () => document.getElementById('btnStart').click();
+  MENU.mapaDom = true;
+}
+function mapaDymek(k, txt) {
+  const box = document.getElementById('mapGrid'), N = MAPA_WEZLY[k];
+  const d = document.createElement('div');
+  d.className = 'mDymek';
+  // dymek po stronie z miejscem: węzły z prawej połowy mają go po lewej
+  d.style.cssText = N.x > .6 ? `right:calc(${pct(1 - N.x)} + var(--p)*30);top:calc(${pct(N.y)} - var(--p)*84)` : `left:calc(${pct(N.x)} + var(--p)*30);top:calc(${pct(N.y)} - var(--p)*90)`;
+  d.textContent = txt;
+  box.appendChild(d);
+  setTimeout(() => d.remove(), 4500);
+}
+function mapaWezel(k) {
+  if (k === 'stragan') return document.getElementById('panelBack').click();          // Warzywniak = powrót do lady
+  if (k === 'willa') return mapaDymek('willa', T('Willa Dona. Wejście — wkrótce.', "Don's villa. Entry — coming soon."));
+  if (!mapaOdbl(k)) return mapaDymek(k, T('Mgła zejdzie po pierwszym biegu.', 'The fog lifts after your first run.'));
+  menuMapa(0, k);
+}
+// sprite postaci z atlasu (idle, kierunek „south"), ostry, animowany CSS-em po klatkach arkusza
+function mapaSprite(el, h) {
+  const nm = CHARS[charKey].char, L = LIB[nm], D = SPRITEDATA[nm];
+  const a = D && (D.anims.idle || D.anims.walk || D.anims.run);
+  if (!L || !L.img || !a) { el.className = 'spr'; el.style.cssText = `width:${h}px;height:${h}px;background:url(${portret(nm, 96)}) center/contain no-repeat`; return; }
+  const row = a.rows.south ?? 0, n = a.frames.south || 1, k = h / D.size, iw = L.img.naturalWidth || L.img.width;
+  el.className = 'spr' + (n > 1 ? ' anim' : '');
+  el.style.cssText = `width:${h}px;height:${h}px;background-image:url(${L.img.src});background-size:${iw * k}px auto;`
+    + `background-position:0 ${-row * h}px;--kx:${-n * h}px;--sn:${n};--sd:${(n / (a.fps || 6)).toFixed(2)}s;margin-bottom:${-(L.footOff || 0) * k}px`;
+}
+function mapaAktualizuj() {
+  const box = document.getElementById('mapGrid'), N = MAPA_WEZLY, M = MAPS[mapKey];
+  for (const b of box.querySelectorAll('.mWezel')) {
+    const k = b.dataset.w, gra = !!MAPS[k];
+    b.classList.toggle('sel', k === mapKey);
+    b.classList.toggle('zamk', k === 'willa' || (gra && !mapaOdbl(k)));
+    if (gra) b.querySelector('.mSz').textContent = mapaOdbl(k) ? MAPS[k].nm.toUpperCase() : '???';
+  }
+  const gr = box.querySelector('.mGracz');
+  gr.style.left = pct(N[mapKey].x); gr.style.top = `calc(${pct(N[mapKey].y)} + var(--p)*2)`;
+  mapaSprite(gr.querySelector('.spr'), Math.round(96 * MENU.s));
+  box.querySelector('.mInfo').innerHTML = `<b>${M.nm}</b><span>${M.ds}</span>`;
+  document.querySelector('#mapaGraj span').textContent = T('GRAJ: ', 'PLAY: ') + M.nm.toUpperCase();
+  menuGlifyOdswiez();
+}
+function mapaOtworz() {
+  if (!MENU.mapaDom) mapaZbuduj();
+  mapaAktualizuj();
+  const u = META.ui, widz = u.mapyWidz || (u.mapyWidz = {});
+  const nowe = Object.keys(MAPS).filter(k => mapaOdbl(k) && !widz[k] && k !== 'laki');
+  Object.keys(MAPS).forEach(k => { if (mapaOdbl(k)) widz[k] = 1; });
+  saveMetaSoon();
+  clearInterval(MENU.mapaAnim);
+  if (!nowe.length) { requestAnimationFrame(() => mapaRysuj()); return; }
+  // „MGŁA SCHODZI": promień nowych map rośnie od 0 do pełnego w 1,2 s (8 przerysowań)
+  let i = 0;
+  requestAnimationFrame(() => mapaRysuj(0, nowe, 0));
+  MENU.mapaAnim = setInterval(() => {
+    i++; mapaRysuj(0, nowe, i / 8);
+    if (i >= 8) { clearInterval(MENU.mapaAnim); nowe.forEach(k => MAPA_NOWA[k] && mapaDymek(k, MAPA_NOWA[k])); }
+  }, 150);
+  STATY.zdarzenie('menu/mapa-mgla/' + nowe.join('+'), 'Mapa osiedla: mgła zeszła z ' + nowe.join(', '));
+}
+
+// Klawiatura w menu (§10.9): strzałki = nawigacja jak krzyżak pada, Enter = zaznaczony element albo GRAJ,
+// Esc/Backspace = zamknij panel, Q/E = postać, M = następna mapa. Pole tekstowe (kod DEV) jest pomijane.
+function menuKlawisz(e) {
+  const ov = topOverlay();
+  if (!ov || ov.id !== 'startOv') return;
+  const tg = e.target;
+  if (tg && (tg.tagName === 'TEXTAREA' || (tg.tagName === 'INPUT' && tg.type !== 'range'))) return;
+  const panel = ov.classList.contains('panel-open'), items = navItems(ov);
+  const kier = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.code];
+  if (kier) {
+    e.preventDefault();
+    if (jestSuwak(gpSel) && kier[0]) gpSuwak(gpSel, kier[0]);
+    else if (!gpSel || !items.includes(gpSel)) gpMark(items[0]);
+    else gpMove(items, kier[0], kier[1]);
+    return;
+  }
+  if (e.repeat) return;
+  if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+    e.preventDefault();
+    if (gpSel && items.includes(gpSel) && !jestSuwak(gpSel)) gpSel.click();
+    else if (!panel) document.getElementById('btnStart').click();
+    else if (ov.classList.contains('panel-mapy')) document.getElementById('mapaGraj').click();
+  } else if ((e.code === 'Escape' || e.code === 'Backspace') && panel) { e.preventDefault(); gpBack(ov); }
+  else if (!panel && e.code === 'KeyQ') menuPostac(-1);
+  else if (!panel && e.code === 'KeyE') menuPostac(1);
+  else if ((!panel || ov.classList.contains('panel-mapy')) && e.code === 'KeyM') menuMapa(1);
+}
+
+// START MENU: skala, zdarzenia, obserwator widoczności (#startOv pokazywany w kilku miejscach przez style.display)
+function menuInit() {
+  const w = document.getElementById('warzywniak');
+  if (!w) return;
+  menuSkala();
+  addEventListener('resize', menuSkala);
+  addEventListener('orientationchange', () => setTimeout(menuSkala, 120));
+  document.getElementById('wPostL').onclick = () => menuPostac(-1);
+  document.getElementById('wPostP').onclick = () => menuPostac(1);
+  document.getElementById('heroMapa').onclick = e => {
+    const b = e.target.closest('[data-m]');
+    if (!b) return;
+    const d = +b.dataset.m;
+    if (d) menuMapa(d); else document.querySelector('.tab[data-tab="mapy"]').click();
+  };
+  document.getElementById('wZapowiedz').onclick = e => { e.currentTarget.hidden = true; };
+  addEventListener('keydown', menuKlawisz);
+  const ov = document.getElementById('startOv');
+  const widoczne = () => ov.style.display !== 'none' && getComputedStyle(ov).display !== 'none';
+  let bylo = widoczne();
+  document.body.classList.toggle('w-menu', bylo);
+  new MutationObserver(() => {
+    const jest = widoczne();
+    if (jest === bylo) return;
+    bylo = jest;
+    document.body.classList.toggle('w-menu', jest);
+    if (!jest) { gpMark(null); return; }
+    // powrót do menu (z biegu, z komiksu): zamknięty panel, świeże dane, zaległe odsłonięcia
+    if (ov.classList.contains('panel-open')) document.querySelector('.tab[data-tab="graj"]').click();
+    menuSkala();
+    renderMenu({ odslon: true });
+  }).observe(ov, { attributes: true, attributeFilter: ['style'] });
+  // „nowy dzień" przy otwartym menu (Danie dnia / zlecenia — E4 K7/K8) i powrót do karty: odśwież tablicę
+  addEventListener('focus', () => { if (widoczne()) renderMenu(); });
+  renderMenu();
+  // pierwsze wejście: odsłonięcia dopiero, gdy menu naprawdę widać (po ekranie ładowania; komiks = obserwator)
+  if (bylo) setTimeout(() => renderMenu({ odslon: true }), 650);
+}
+
+// DEV: pomiar menu (§10.10) — wynik w konsoli i jako obiekt; `menuPodstaw(n)` = zapis „po n biegach" do zrzutów
+function menuAudyt() {
+  const ov = document.getElementById('startOv'), wynik = { bledy: [] };
+  const graj = [...ov.querySelectorAll('.bigbtn')].find(b => b.offsetWidth);   // w panelu (poza Mapą) GRAJ jest schowany
+  const inter = navItems(ov);
+  if (graj) {
+    const rg = graj.getBoundingClientRect();
+    wynik.graj = [Math.round(rg.width), Math.round(rg.height)];
+    if (rg.height < 44) wynik.bledy.push('GRAJ < 44 px wysokości');
+    for (const el of inter) { const r = el.getBoundingClientRect(); if (el !== graj && !el.closest('#panele .panel') && r.width * r.height > rg.width * rg.height) wynik.bledy.push('większe od GRAJ: ' + (el.id || el.className)); }
+  }
+  // (2) najmniejsza czcionka widocznego tekstu
+  let min = 99, minEl = '';
+  const tw = document.createTreeWalker(ov, NodeFilter.SHOW_TEXT);
+  for (let n = tw.nextNode(); n; n = tw.nextNode()) {
+    if (!n.textContent.trim()) continue;
+    const el = n.parentElement; if (!el || !el.offsetWidth || !el.getClientRects().length) continue;
+    if (el.closest('.panel:not(.on)')) continue;
+    const f = parseFloat(getComputedStyle(el).fontSize);
+    if (f < min) { min = f; minEl = (el.id || el.className || el.tagName) + ': ' + n.textContent.trim().slice(0, 20); }
+  }
+  wynik.minCzcionka = [+min.toFixed(1), minEl];
+  if (min < 11) wynik.bledy.push('czcionka < 11 px: ' + minEl);
+  // (3) prostokąty stref się nie przecinają (postać za ladą — zamierzone)
+  const strefy = ['tablica', 'wWybor', 'lada', 'wRog', 'heroBox', 'logo', 'btnStart'].map(id => [id, document.getElementById(id)]).filter(([, e]) => e && e.offsetWidth);
+  const zw = [['heroBox', 'lada'], ['btnStart', 'lada'], ['heroBox', 'logo']];   // zamierzone: stopy za ladą, GRAJ na ladzie, logo nad czubkiem postaci
+  for (let i = 0; i < strefy.length; i++) for (let j = i + 1; j < strefy.length; j++) {
+    const [a, ea] = strefy[i], [b, eb] = strefy[j];
+    if (zw.some(([x, y]) => (x === a && y === b) || (x === b && y === a))) continue;
+    const A = ea.getBoundingClientRect(), B = eb.getBoundingClientRect();
+    if (A.left < B.right - 1 && B.left < A.right - 1 && A.top < B.bottom - 1 && B.top < A.bottom - 1) wynik.bledy.push(`nachodzą: #${a} × #${b}`);
+  }
+  // (4) bez przewijania
+  wynik.scroll = [ov.scrollHeight, ov.clientHeight, document.documentElement.scrollHeight, innerHeight];
+  if (ov.scrollHeight > ov.clientHeight + 1 || document.documentElement.scrollHeight > innerHeight + 1) wynik.bledy.push('przewijanie');
+  // (5) pola dotyku ≥ 44×44
+  wynik.male = inter.map(el => { const r = el.getBoundingClientRect(); return [el.id || el.dataset.tab || el.dataset.w || el.className, Math.round(r.width), Math.round(r.height)]; })
+    .filter(([, a, b]) => a < 44 || b < 44);
+  if (wynik.male.length) wynik.bledy.push('pola < 44 px: ' + wynik.male.length);
+  // (6) ≤ 2 kropki
+  wynik.kropki = [...ov.querySelectorAll('.wKropka')].filter(e => e.offsetWidth).length;
+  if (wynik.kropki > 2) wynik.bledy.push('> 2 kropki');
+  wynik.stan = 'w-r' + menuStan() + (MENU.pc ? ' pc' : '') + ' s=' + MENU.s.toFixed(2);
+  return wynik;
+}
+function menuPodstaw(n, o = {}) {
+  bezZapisu = true;                                // DEV: podstawiony zapis nie nadpisuje prawdziwego (przegląd 29.09)
+  const s = META.st;
+  s.runs = s.pelne = n; s.smierci = Math.max(0, n - (o.wins || 0)); s.wins = o.wins || 0;
+  if (n >= 1) { s.best = Math.max(s.best, o.best ?? 432); s.bestKills = Math.max(s.bestKills, o.bestKills ?? 846); s.kills = Math.max(s.kills, o.kills ?? 60 * n); }
+  if (o.coins != null) META.coins = o.coins;
+  if (o.bestia) for (const k of Object.keys(ENEMY_TYPES).slice(0, o.bestia)) META.bestiary[k] = META.bestiary[k] || 3;
+  META.ui.odsl = o.animuj ? {} : { r1: 1, r2: 1, r3: 1 };
+  if (!o.animuj) MENU.pierwszy = false;
+  if (o.mapyWidz !== false && !o.animuj) META.ui.mapyWidz = { laki: 1, wawozy: 1, market: 1 };
+  if (o.reset) { META.ui.odsl = {}; META.ui.mapyWidz = {}; delete META.ui.krSklep; delete META.ui.krPost; delete META.ui.krAkta; }
+  saveMeta(); renderShop(); renderChars(); renderMenu({ odslon: !!o.animuj });
+  return menuAudyt();
 }
 
 // ============================== STAN GRY ==============================
@@ -3997,8 +4771,8 @@ function sprawdzRange() {
 // (l=2: 13 jak dawniej), późne dużo wyżej (l=30: 1385 zamiast 371).
 // E1-bieg K5/K11: krzywa XP (spec §6). K11: sześcian 0,025 → XP_KRZ.d, bo piniaty 6 kaprali (+1 poziom każda)
 // dawały botowi-średniemu 44 w 10:00 zamiast 35–40. Strojenie na żywo: HORDA.cfg.xpKrzywa.
-const XP_KRZ = { a: 5, b: 2.5, c: 0.70, d: 0.055 };   // K11: d 0.025 → 0.055
-const xpDoNast = l => Math.round(XP_KRZ.a + XP_KRZ.b * l + XP_KRZ.c * l * l + XP_KRZ.d * l * l * l);
+const XP_KRZ = { a: 5, b: 2.5, c: 0.70, d: 0.055, e: 0 };   // K11: d 0.025 → 0.055; TRUDNOŚĆ v2: człon e·l⁴ (CFG_TRUDNOSC)
+const xpDoNast = l => Math.round(XP_KRZ.a + XP_KRZ.b * l + XP_KRZ.c * l * l + XP_KRZ.d * l * l * l + (XP_KRZ.e || 0) * l * l * l * l);
 
 // BURACZANE CIŚNIENIE (pasyw Beetina z biblii, wdrożony 18.09 na zgłoszenie właściciela
 // „burak prawie nieużywalny"): poniżej połowy serc wysysanie życia (10% zadanych obrażeń →
@@ -4355,6 +5129,7 @@ function glifyOdswiez() {
   document.querySelectorAll('[data-glif]').forEach(el => { el.innerHTML = glif(el.dataset.glif); });
   const sf = document.getElementById('startFoot');
   if (sf) sf.innerHTML = startFootHTML();
+  menuGlifyOdswiez();                                 // menu A: plakietki przy GRAJ i strzałkach
   const jg = document.querySelector('#pauseStats .jakGrac');
   if (jg) jg.outerHTML = jakGracHTML();
   if (document.getElementById('cardsOv')?.style.display === 'flex') odswiezPrzyciskiKart();   // E2 K3
@@ -4454,7 +5229,8 @@ function topOverlay() {
 // byłyby jedynymi miejscami w grze, do których trzeba myszy (a to wywraca cały punkt
 // „Steam Deck bez klawiatury"). Pola TEKSTOWE zostają poza listą — padem i tak nie ma
 // czym w nie wpisać, a jedyne takie pole (kod DEV) wylatuje z drzewa w wydaniu.
-const navItems = ov => [...ov.querySelectorAll('.tab,.tile,.card,.bigbtn,.btn2,input[type=range],select')]
+// `.wNav` = przyciski menu A „Warzywniak” (strzałki, nazwa mapy, węzły mapy osiedla)
+const navItems = ov => [...ov.querySelectorAll('.tab,.tile,.card,.bigbtn,.btn2,.wNav,input[type=range],select')]
   .filter(el => el.offsetWidth);
 const jestSuwak = el => el && el.tagName === 'INPUT' && el.type === 'range';
 function gpMark(el) {
@@ -4513,7 +5289,8 @@ function gpSuwak(el, dir) {
 // duży przycisk), więc filtrujemy po offsetWidth — inaczej pad zatrzymywałby się
 // na niewidocznym elemencie i wyglądałoby to na zawieszenie.
 function gpZakladka(dir) {
-  const tabs = [...document.querySelectorAll('#tabs .tab')].filter(t => t.offsetWidth);
+  // `.jest` = skrzynka odsłonięta (menu A): przy otwartym panelu lada jest schowana, więc offsetWidth = 0
+  const tabs = [...document.querySelectorAll('#tabs .tab')].filter(t => t.offsetWidth || t.classList.contains('jest'));
   if (!tabs.length) return;
   let i = tabs.findIndex(t => t.classList.contains('sel'));
   if (i < 0) i = dir > 0 ? -1 : 0;
@@ -4702,9 +5479,11 @@ function pollPads(dt) {
       if (hit(2)) wymienZamiastJackpotu();
     } else if (hit(0) && gpSel && !suw) { gpSel.click(); AUDIO.sfx('klik'); }   // pad nie robi pointerdown, więc dźwięk ręcznie
     if (hit(1)) gpBack(ov);
-    if (ov.id === 'startOv') {                     // LB/RB = zakładka w lewo/w prawo
-      if (hit(4)) gpZakladka(-1);
-      if (hit(5)) gpZakladka(1);
+    if (ov.id === 'startOv') {                     // menu A: LB/RB = postać (ekran główny) albo panel w lewo/w prawo; Start = GRAJ
+      const panel = ov.classList.contains('panel-open');
+      if (hit(4)) { if (panel) gpZakladka(-1); else menuPostac(-1); }
+      if (hit(5)) { if (panel) gpZakladka(1); else menuPostac(1); }
+      if (hit(9) && !panel) document.getElementById('btnStart').click();
     }
     if (akcja('pauza') && ov.id === 'pauseOv') togglePause(false);
     if (ov.id === 'pauseOv') { if (hit(4)) przelaczZakladkePauzy(-1); if (hit(5)) przelaczZakladkePauzy(1); }   // E2 K7: zakładki LB/RB
@@ -5165,6 +5944,7 @@ function spawnEnemy(type, angle = null, przy = null, opcje = {}) {
   e.bb.update(0, e.pos, e.ty);
   if (e.ring) e.ring.position.set(e.pos.x, e.ty + 0.06, e.pos.z);
   G.enemies.push(e);
+  if (G.zrodzeni) G.zrodzeni[type] = (G.zrodzeni[type] || 0) + 1;   // E3: HORDA.mapaStat (realne udziały po limitach)
   return e;
 }
 
@@ -5311,6 +6091,8 @@ function rZaKadrem(a, r) {
   return d < polPoziom + 0.2 ? r + 8 : r;
 }
 // WSZYSTKIE LICZBY WIECZORU W JEDNYM OBIEKCIE (DEV: HORDA.cfg — strojenie bez przeładowania)
+// UWAGA (29.09): fale, rozgrzewka, xpPigulki, serceElity, litosc, nietyk, ketchup, ketchupMap i część trybLagodny
+// NADPISUJE preset CFG_TRUDNOSC (za tym obiektem) — wartości tutaj to v1 (stan E1/E2), aktywne są v2.
 const CFG_BIEG = {
   // [start okna s, tempo wr/s, paczka, podłoga żywych] — tempo i podłoga interpolowane liniowo między oknami
   fale: [[0, 1.2, 3, 10], [30, 2.0, 5, 15], [60, 3.0, 5, 20], [90, 3.8, 5, 25], [120, 5.0, 6, 35],
@@ -5329,13 +6111,28 @@ const CFG_BIEG = {
          [540, 32, 12, 16, 16, 12, 12]],
   limity: { ketchupino: 6, sodino: 45, lollini: 40 },   // żywych danego typu; ponad = Chipsetti
   ketchup: [[210, 25], [360, 15]],                 // [od s, co ile s] — Ketchupino poza pulą
+  // E3 K1 (spec 09 §3): PULA PER MAPA — Łąki = `pula` wyżej (tu kalibrowano E1/E2); momenty wejścia typów jak na Łąkach,
+  // tabela gęstości bez zmian, zmieniają się tylko udziały. Wąwozy „teren gra przeciw nim" (+Gummini, Ketchupino częściej),
+  // Market „korytarze" (+Chipsetti/Lollini/Sodino, −Friesetti). Realne udziały po limitach: HORDA.mapaStat().
+  pulaMap: {
+    wawozy: [[0, 100, 0, 0, 0, 0, 0], [60, 85, 15, 0, 0, 0, 0], [90, 75, 25, 0, 0, 0, 0], [120, 55, 20, 25, 0, 0, 0],
+             [150, 50, 20, 30, 0, 0, 0], [180, 45, 20, 35, 0, 0, 0], [210, 40, 15, 30, 15, 0, 0], [240, 36, 15, 25, 15, 9, 0],
+             [300, 35, 14, 23, 14, 9, 5], [330, 34, 14, 23, 14, 9, 6], [360, 33, 13, 22, 15, 10, 7], [420, 32, 12, 22, 16, 10, 8],
+             [480, 31, 12, 21, 16, 11, 9], [540, 30, 12, 21, 16, 11, 10]],
+    market: [[0, 100, 0, 0, 0, 0, 0], [60, 85, 15, 0, 0, 0, 0], [90, 75, 25, 0, 0, 0, 0], [120, 65, 20, 15, 0, 0, 0],
+             [150, 60, 22, 18, 0, 0, 0], [180, 56, 22, 22, 0, 0, 0], [210, 52, 18, 20, 10, 0, 0], [240, 46, 16, 16, 10, 12, 0],
+             [300, 42, 14, 14, 10, 12, 8], [330, 40, 14, 14, 10, 12, 10], [360, 38, 13, 13, 11, 13, 12], [420, 37, 12, 13, 11, 13, 14],
+             [480, 36, 12, 12, 11, 14, 15], [540, 35, 12, 12, 11, 14, 16]],
+  },
+  ketchupMap: { wawozy: { co: [[210, 20], [360, 12]], limit: 8 } },   // Łąki/Market: `ketchup` i `limity` wyżej
+  limityMap: { market: { lollini: 55, sodino: 55 } },
   podlogaCo: 0.25, podlogaIle: 6,                  // dosyp do podłogi: co 0,25 s najwyżej 6
   recyklCo: 0.5, recyklIle: 30,                    // recykling dalekich: co 0,5 s najwyżej 30
   obreczR: 22, pierscienR: 16, scianaR: 18,        // promienie fal w kadrze (telefon poziomo)
   scianaCzas: 5,                                   // s marszu ściany „razem"
   falaNaKlatke: 20,                                // wrogów fali na klatkę (ściana 80 = 4 klatki)
   lagodny: L_BIEG,                                 // AKTYWNE mnożniki L (newGame wpisuje normalne albo łagodne); tempo mnoży też fale
-  // E1-bieg K10: ŁAGODNY PIERWSZY BIEG (spec §7). Włącza się, gdy META.st.pelne === 0 albo (pelne === 1 i best < 300)
+  // E1-bieg K10: ŁAGODNY PIERWSZY BIEG (spec §7). Włącza się, gdy META.st.pelne === 0 (v1: także pelne === 1 i best < 300 — TRUDNOŚĆ v2 to usuwa)
   // (`pelne` = biegi zakończone śmiercią/wygraną albo wyjściem do menu po ≥ 60 s — patrz czyLagodny);
   // DEV: ?lagodny=1 / HORDA.botBieg({ czysty: true }). Gracz nie widzi żadnego tekstu o trybie (poza Ręką Nonny).
   trybLagodny: {
@@ -5408,6 +6205,126 @@ const CFG_BIEG = {
     monety: { n: 10, val: 20, duza: 100 }, mnozWygranej: 1.5, pierwszaWygrana: 200,   // B8: fontanna 200 → 300
   },
 };
+// ============================== TRUDNOŚĆ v2 (29.09): WSZYSTKIE ZMIANY W JEDNYM MIEJSCU ==============================
+// Zgłoszenie właściciela po v282: „gra jest dużo za prosta, pasywy za często, za mało wrogów". E1/E2 stroiło
+// bota-średniego Carrotella na 8–9/10 przeżyć 10:00 na Łąkach — za łagodnie. Preset `v1` = migawka wartości
+// sprzed zmiany (brana z CFG_BIEG/XP_KRZ przy starcie, więc zawsze dokładna), `v2` = nowe. Domyślnie v2.
+// DEV: HORDA.trudnosc('v1' | 'v2') przełącza na żywo (tabela fal i krzywa XP od razu; tryb łagodny od
+// następnego biegu). Pomiar przed/po: INFO-PROJEKT.md, sekcja „TRUDNOŚĆ v2 (29.09)".
+const _kopia = o => JSON.parse(JSON.stringify(o));
+// tabela fal v2: [start, tempo, paczka, podłoga] — tempo i podłoga × MN_FAL_V2 (do 4:30 / 5:00 / od 5:30), paczka ×1,2;
+// podłoga najwyżej 460 (LIMIT_SPAWNERA 470 — spawner i tak nie wchodzi wyżej, MAX_WROGOW 500 bez zmian)
+// Podłoga do 2:30 ×1,6 (MN_FAL_V2.podlogaStart) — to ona trzyma liczbę żywych w 1.–2. minucie (spawner ponad podłogą
+// bot i tak kosi): żywych w 1:00 ~25 → ~31, w 2:00 ~38 → ~61; przeżycie do 5:00 bez zmian (4/10 z nią i bez niej, seed 201–210).
+const MN_FAL_V2 = { wczesne: 1.3, przejscie: 1.25, pozne: 1.2, podlogaStart: 1.6 };   // próba 1: 1,5 / 1,4 / 1,25
+const _faleV2 = CFG_BIEG.fale.map(([t, tempo, paczka, podl]) => {
+  const m = t < 300 ? MN_FAL_V2.wczesne : t < 330 ? MN_FAL_V2.przejscie : MN_FAL_V2.pozne;
+  const mp = t <= 150 ? MN_FAL_V2.podlogaStart : m;
+  return [t, +(tempo * m).toFixed(2), Math.round(paczka * 1.2), Math.min(460, Math.round(podl * mp))];
+});
+const CFG_TRUDNOSC = {
+  akt: 'v2',
+  v1: {
+    bieg: _kopia({ fale: CFG_BIEG.fale, rozgrzewka: CFG_BIEG.rozgrzewka, xpPigulki: CFG_BIEG.xpPigulki,
+                   serceElity: CFG_BIEG.serceElity, litosc: CFG_BIEG.litosc, nietyk: CFG_BIEG.nietyk,
+                   ketchup: CFG_BIEG.ketchup, ketchupMap: CFG_BIEG.ketchupMap }),
+    xpKrz: { ...XP_KRZ }, lagodny: _kopia(CFG_BIEG.trybLagodny),
+    garnekCd: 45, piniataPoziom: 1, lagodnyDrugaSzansa: true,
+    // SKŁADNIKI (29.09): v1 = jak przed Spiżarnią — wszystkie poza Pokrywką od startu, waga i rzadkość ×1, sufit 5
+    karty: { sklBlokady: false, sklWaga: 1, sklRz: 1, sklMax: 5 },
+  },
+  v2: {
+    bieg: {
+      fale: _faleV2,                                 // tempo (przed rozgrzewką) 1:00 3,0 → 3,9 wr/s · 3:00 7,5 → 9,75 · 6:00 21 → 25,2; podłoga 0:00 10 → 16, 1:00 20 → 32, 2:00 35 → 56, 3:00 50 → 65, 5:00 110 → 138, 9:00 420 → 460
+      // stare { do: 300, wykl: 2.5, tempo: 0.10, zdarzenia: 0.40, hp: 0.50, dmg: 0.30, elita: 0.20 } → nowe niżej:
+      // rozgrzewka kończy się w 4:00 (było 5:00) i zaczyna od 1/5 tempa (było 1/10), krzywa (t/do)³. Mnożnik tempa:
+      // 1:00 ×0,21 (było ×0,12), 2:00 ×0,30 (×0,19), 3:00 ×0,54 (×0,35), 4:00 ×1 (×0,62) → realne tempo spawnera
+      // 1:00 0,8 wr/s (0,35), 2:00 2,0 (0,95), 3:00 5,2 (2,6), 4:00 16,9 (8,0) + NAPŁYW ×1,35. HP wrogów ×0,45 na starcie
+      // (było ×0,50), ale pełne już w 4:00 (było 5:00). Zdarzenia (obręcze/roje/ściany) jak w v1 od ×0,4, pełne w 4:00.
+      // Próba 1 (do 2:00, start ×0,5, fale ×1,5, xp 1,2, nietyk 0,7): bot-średni 0/10, mediana śmierci 1:44.
+      // Próba 2 (do 3:00, start ×0,25, fale ×1,3): 1/10, mediana 1:58. Bot jest kruchy w 1:30–2:30 (pierwsze obręcze):
+      // w v1 SAMO xp 1,2 albo SAMA rozgrzewka próby 2 zabijały 4–5/8 przed 5:00, samo nietyk 0,7 — 2/8.
+      // Próba 3 (ta rozgrzewka, bez podłogi ×1,6): 4/10 + 4/10 przeżyć 10:00. Próba 4 (późne fale ×1,35): 1/8 — odrzucona.
+      // WERSJA KOŃCOWA = próba 3 + podłoga ×1,6 do 2:30: 3/10, mediana śmierci 2:47 (seed 201–210; v1 na tych seedach 7/10).
+      rozgrzewka: { do: 240, wykl: 3, tempo: 0.20, podloga: 1, zdarzenia: 0.40, hp: 0.45, dmg: 0.35, elita: 0.30 },
+      xpPigulki: 2,                                  // zostaje 2 (1,2 zabijało wczesną grę) — mniej awansów robi krzywa xpKrz niżej
+      serceElity: 0.04,                              // 0,08 → 0,04
+      litosc: 0.30,                                  // 0,34 → 0,30 (drugie serce z bossa/kaprala)
+      nietyk: 0.8,                                   // 0,9 → 0,8 s nietykalności po ciosie (0,7 = bot 2/8 martwy przed 5:00 już w v1)
+      ketchup: [[150, 20], [300, 12]],               // [[210, 25], [360, 15]] → Ketchupino od 2:30, co 20 s; od 5:00 co 12 s
+      ketchupMap: { wawozy: { co: [[150, 16], [300, 10]], limit: 8 } },   // było [[210, 20], [360, 12]]
+    },
+    // + e·l⁴: wczesne poziomy niewiele droższe (6.: 57 → 72, 9. 124 → 203), późne dużo droższe (20.: 775 → 2695, 30.: 2195 → 11915).
+    // Ta sama zebrana XP: poziom 13 → 11, 20 → 16, 38 → 26–27 (liczone z sumy progów).
+    xpKrz: { a: 5, b: 2.5, c: 0.70, d: 0.055, e: 0.012 },
+    garnekCd: 60,                                    // Garnek Nonny: odnowienie 45 → 60 s
+    piniataPoziom: 0.6,                              // fontanna XP piniaty kaprala: 1 → 0,6 poziomu
+    lagodnyDrugaSzansa: false,                       // łagodny TYLKO pierwszy bieg w życiu (było też: 2. bieg, gdy 1. < 5:00)
+    // SKŁADNIKI RZADZIEJ (życzenie właściciela 29.09; Spiżarnia Nonny): blokady = na start tylko SKL_STARTOWE, reszta ze
+    // sklepu; waga kart składników ×0,5 (względem bron 1,4 / dokl 0,8 — CFG_DECYZJE.wagi); szansa na niebieską/fioletową
+    // KARTĘ SKŁADNIKA ×0,5 (bronie bez zmian); maks. poziom składnika w biegu 3, „Większy słoik" ze Spiżarni → 5.
+    karty: { sklBlokady: true, sklWaga: 0.5, sklRz: 0.5, sklMax: 3 },
+    // łagodny pierwszy bieg bliżej normalnego (stare → nowe)
+    lagodny: {
+      L: { hp: 0.65, spd: 0.02, elita: 0.4, tempo: 0.55 },   // { hp 0,50, spd 0, elita 0,2, tempo 0,35 }
+      rozgrzewka: { do: 360 },                       // { do: 600 } (cały Wieczór) → do 6:00 (normalny v2: do 4:00)
+      serceElity: 0.10, litosc: 0.45,                // 0,16 / 0,50
+      kapHp: 0.45, kapCzas: 60,                      // 0,30 / 45 s
+      donHp: 0.16,                                   // 0,11
+      xp: 2.0, magnes: 3,                            // 3 / 4 (× xpPigulki 2: pigułka 6 → 4)
+      nietyk: 1.4,                                   // 2,0 s
+      ketchupCo: 2, ketchupOd: 270,                  // 3× rzadziej od 6:00 → 2× rzadziej od 4:30
+      podlogaMax: 300,                               // 245
+    },
+  },
+};
+function ustawTrudnosc(v) {
+  const S = CFG_TRUDNOSC[v];
+  if (!S || !S.bieg) return null;
+  for (const [k, w] of Object.entries(S.bieg)) CFG_BIEG[k] = _kopia(w);
+  Object.assign(XP_KRZ, S.xpKrz);
+  // łagodny: pełny powrót do migawki v1, potem nakładka presetu (L i rozgrzewka łączone polami)
+  const L0 = _kopia(CFG_TRUDNOSC.v1.lagodny), Ln = _kopia(S.lagodny);
+  Object.assign(CFG_BIEG.trybLagodny, L0, Ln, { L: { ...L0.L, ...(Ln.L || {}) }, rozgrzewka: { ...L0.rozgrzewka, ...(Ln.rozgrzewka || {}) } });
+  CFG_TRUDNOSC.akt = v;
+  if (typeof P !== 'undefined' && P && P.lvl) P.xpNeed = xpDoNast(P.lvl);   // bieżący próg od razu po nowej krzywej
+  return v;
+}
+const trudn = () => CFG_TRUDNOSC[CFG_TRUDNOSC.akt];
+ustawTrudnosc('v2');
+// ============================== E3 „MAPA MA CELE": WSZYSTKIE LICZBY (spec 09 §0.1) ==============================
+// Kapliczki (Garnek / Stolnica / Wyzwanie Famiglii), znaczniki na krawędzi ekranu, wydarzenia map 3:52–4:26
+// (Piknik / Powódź / Promocja!), pula wrogów per mapa, sylwetka zasłoniętych, karabin z Wyzwania.
+// DEV: HORDA.cfgM. `wlaczone.*` = false → gra jak po E2 (test regresji K0/K11).
+const CFG_MAPA = {
+  wlaczone: { kapliczki: true, wydarzenia: true, pulaMap: true, sylwetki: true, karabinAuto: true },
+  // §1 kapliczki — wspólne
+  miejsce:  { rMin: 30, rMax: 60, odstep: 20, spadekMax: 0.25, prob: 40, przenies: 110, prosta: 8 },
+  znaczniki:{ max: 3, garnekD: 45, hz: 30, margines: { gora: 58, dol: 76, bok: 64 }, podpowiedzi: 3, podpD: 14 },
+  garnek:   { n: 3, r: 1.6, cd: 45 },
+  stolnica: { r: 3.5, rMarket: 2.6, czas: 4.0, zanik: 0.5, reset: 6, cd: 50, pierwsza: 45, odBiegu: 1,
+              premiaRz: { nieb: 0.10, fiol: 0.05 }, minRz: 'nieb' },
+  wyzwanie: { r: 2.5, potw: 2.0, resetPotw: 0.5, cd: 75, pierwsza: 105, odBiegu: 2,
+              n: { baza: 4, naMin: 0.8, max: 12 }, czas: 40, pierwszyRaz: { n: 4, czas: 60 },
+              grupy: 3, rGrupy: 15, tel: 1.0, stun: 0.5, tempo: 1.15, bonusMonet: 10, blokadaOd: 570,
+              typyBez: ['sodino', 'friesetti', 'ketchupino'] },
+  jackpot:  { wyzwanie: [0.35, 0.45, 0.20], wydarzenie: [0, 0.80, 0.20] },   // szanse N = 1 / 3 / 5
+  // §2 wydarzenia (sekundy biegu)
+  wyd:      { zapowiedz: 232, start: 240, koniec: 266 },
+  piknik:   { mesaMax: 60, odStop: 3.5, rMin: 12, rMax: 55, bezMesy: [30, 45],
+              straz: { elity: 3, zwykli: 12, r: [4, 6] }, lagodny: { elity: 2, zwykli: 8 },
+              budziD: 10, budziT: 265, koszR: 1.6, koszDo: 295, kocDo: 300, serca: 1, odkurz: 2.0, mniam: 2.0 },
+  powodz:   { delta: 0.8, narost: 8, opad: 8, obszar: 96, siatka: 2, nurtMn: 3.0, graczMn: [1.0, 2.0],
+              topiZw: 0.25, topiEl: 0.10, glebTopi: 0.3, kaprMn: 0.3, bezpR: 5, bezpMn: 0.1,
+              prog: 15, odkurz: 2.0, brodR: 120, brodR2: 200, nurtCo: 0.25, budowaNaKlatke: 400 },
+  promocja: { v: 5, dl: 80, pas: 48, tel: 1.5, dmgMn: 2, prog: 20, shake: 0.15, hitstopOd: 5 },
+  // §4 sylwetka
+  sylw:     { max: 30, rElity: 30, co: 0.2, krycie: 0.5, bias: 1.2, kolElita: 0xc07bff, kolDon: 0xff4a4a },
+  // §6 karabin
+  karabin:  { szansa: 0.25, gwarancjaNr: 3, pierwszyRaz: true, zeZwyklych: 0,
+              auto: { co: 0.1, stozek: 50, zasieg: 40, obrot: 2.0, obrotSzukaj: 0.8, pitchMax: 0.35,
+                      naprowadzanie: 5.0, recznaPrzerwa: 0.8, martwa: 3 } },
+};
 const TYPY_PULI = ['chipsetti', 'marshmallini', 'gummini', 'friesetti', 'sodino', 'lollini'];
 const lerp = (a, b, k) => a + (b - a) * k;
 function falaTeraz(t) {                           // { tempo, paczka, podloga } w chwili t
@@ -5424,8 +6341,18 @@ function falaTeraz(t) {                           // { tempo, paczka, podloga } 
            podloga: Math.round(Math.min(lerp(a[3], b ? b[3] : a[3], k), G.lagodny ? CFG_BIEG.trybLagodny.podlogaMax : 1e9)
                                * SKALA_GESTOSCI * mnFali(t, 'podloga')) };
 }
+// E3 K1: pula / limity / zegar Ketchupino bieżącej mapy (flaga CFG_MAPA.wlaczone.pulaMap = false → wszędzie Łąki)
+const mapaPuli = () => CFG_MAPA.wlaczone.pulaMap ? mapKey : null;
+const pulaTab = () => (mapaPuli() && CFG_BIEG.pulaMap[mapaPuli()]) || CFG_BIEG.pula;
+function limitTypu(typ) {
+  const m = mapaPuli();
+  if (typ === 'ketchupino' && m && CFG_BIEG.ketchupMap[m]) return CFG_BIEG.ketchupMap[m].limit;
+  const L = m && CFG_BIEG.limityMap[m];
+  return L && L[typ] != null ? L[typ] : CFG_BIEG.limity[typ];
+}
+const ketchupTab = () => (mapaPuli() && CFG_BIEG.ketchupMap[mapaPuli()] && CFG_BIEG.ketchupMap[mapaPuli()].co) || CFG_BIEG.ketchup;
 function pulaTeraz(t) {
-  const P_ = CFG_BIEG.pula;
+  const P_ = pulaTab();
   let i = P_.length - 1;
   while (i > 0 && P_[i][0] > t) i--;
   return P_[i];
@@ -5447,10 +6374,13 @@ function losujTyp(t) {                            // typ wg udziałów okna; Fri
   let suma = 0;
   for (let i = 1; i < w.length; i++) suma += i === 4 ? w[i] / 5 : w[i];
   let r = Math.random() * suma;
-  for (let i = 1; i < w.length; i++) { r -= i === 4 ? w[i] / 5 : w[i]; if (r <= 0) return TYPY_PULI[i - 1]; }
+  for (let i = 1; i < w.length; i++) {
+    r -= i === 4 ? w[i] / 5 : w[i];
+    if (r <= 0) { const typ = TYPY_PULI[i - 1]; if (G.losowane) G.losowane[typ] = (G.losowane[typ] || 0) + (i === 4 ? 5 : 1); return typ; }   // E3: mapaStat
+  }
   return 'chipsetti';
 }
-const typZLimitem = typ => (CFG_BIEG.limity[typ] != null && (_ileTyp[typ] || 0) >= CFG_BIEG.limity[typ]) ? 'chipsetti' : typ;
+const typZLimitem = typ => { const L = limitTypu(typ); return (L != null && (_ileTyp[typ] || 0) >= L) ? 'chipsetti' : typ; };
 // kąt „przed graczem": w kierunku ruchu, gdy biegnie; gdy stoi — przed kamerą
 function katPrzod() {
   if (Math.hypot(P.vx || 0, P.vz || 0) > 1) return Math.atan2(P.vx, P.vz);
@@ -5739,10 +6669,10 @@ function spawnerWieczoru(dt) {
     }
   }
   // Ketchupino na własnym zegarze (poza pulą)
-  const K = CFG_BIEG.ketchup;
+  const K = ketchupTab();
   if (t >= Math.max(K[0][0], G.lagodny ? CFG_BIEG.trybLagodny.ketchupOd : 0)) {   // K10: łagodny później
     const co = (t >= K[1][0] ? K[1][1] : K[0][1]) * lag('ketchupCo');   // K10: łagodny rzadziej
-    if (t >= G.ketchT && (_ileTyp.ketchupino || 0) < CFG_BIEG.limity.ketchupino && zywi < LIMIT_SPAWNERA) {
+    if (t >= G.ketchT && (_ileTyp.ketchupino || 0) < limitTypu('ketchupino') && zywi < LIMIT_SPAWNERA) {
       spawnEnemy('ketchupino');
       G.ketchT = t + co;
     }
@@ -6104,7 +7034,7 @@ function nagrodaKaprala(e) {
   AUDIO.sfx('zlota');
   padWibruj(0.6, 160);
   // fontanna XP: 12 pigułek o łącznej wartości xpDoNast(P.lvl) = P.xpNeed (pickup mnoży przez xpPigulki)
-  const val = P.xpNeed / ((CFG_BIEG.xpPigulki || 1) * lag('xp')) / 12;
+  const val = P.xpNeed * trudn().piniataPoziom / ((CFG_BIEG.xpPigulki || 1) * lag('xp')) / 12;   // TRUDNOŚĆ v2: 1 → 0,6 poziomu
   for (let k = 0; k < 12; k++) {
     const a = k / 12 * Math.PI * 2 + Math.random() * 0.4, r = 2 + Math.random() * 2;
     G.gems.push(makeGem(x + Math.sin(a) * r, z + Math.cos(a) * r, val));
@@ -8588,6 +9518,7 @@ function losujRz(o = {}) {
   const R = CFG_DECYZJE.rz, m = G.time / 60;
   let pf = Math.min(R.fiol[2], R.fiol[0] + R.fiol[1] * m), pn = Math.min(R.nieb[2], R.nieb[0] + R.nieb[1] * m);
   if (o.kapral) { pf += R.kapral.fiol; pn += R.kapral.nieb; }
+  if (o.skl) { const m = trudn().karty.sklRz; pf *= m; pn *= m; }   // Spiżarnia (29.09): rzadsze niebieskie/fioletowe składniki
   const x = Math.random();
   return x < pf ? 'fiol' : x < pf + pn ? 'nieb' : 'zw';
 }
@@ -8627,17 +9558,18 @@ function cardPool() {
     }
   }
   // NOWYCH BRONI NIE MA W KARTACH — znajduje się je w złotych skrzyniach
+  const KK = trudn().karty;                         // Spiżarnia (29.09): blokady, waga ×0,5, sufit poziomu
   for (const key of Object.keys(PASSIVES)) {
     const S = PASSIVES[key];
-    if (S.locked && !META.unlocked[key]) continue;
+    if (!sklOdbl(key)) continue;                    // niekupiony w Spiżarni Nonny = nie istnieje w biegu (karty i jackpot)
     if (wykluczone('skl:' + key)) continue;
     const lvl = P.passives[key] || 0;
-    if (lvl >= S.max) continue;
+    if (lvl >= sklMaxBiegu(key)) continue;
     if (!lvl && !wolnySlotSkl()) continue;          // nowy składnik tylko przy wolnym slocie (K1)
     const podsun = !lvl ? podsuwaDla(key) : null;
     pool.push({
       id: 'skl:' + key, klucz: 'skl:' + key, typ: lvl ? 'skl' : 'skl-nowy', ico: S.ico, podsun, bezRz: !!S.bezRz,
-      waga: lvl ? W8.sklPoz : W8.sklNowy * (podsun ? W8.podsun : 1),
+      waga: (lvl ? W8.sklPoz : W8.sklNowy * (podsun ? W8.podsun : 1)) * KK.sklWaga,
       nm: () => S.nm + (lvl ? ` (${lvl}→${lvl + 1})` : ''),
       ds: rz => S.ef(S.bezRz ? 1 : CFG_DECYZJE.rz.mnoz[rz], U(key)),
       do: rz => dodajSkladnik(key, CFG_DECYZJE.rz.mnoz[rz]),
@@ -8676,7 +9608,8 @@ function losujKarty(n = 3, o = {}) {
   // rzadkość: pierwszy bieg w historii zapisu — awanse 1–3 zwykłe, w 4. jedna niebieska (nauka koloru)
   const nauka = G.pierwszyBieg && !o.kapral && !o.minRz ? (P.awanse || 0) : -1;
   // (P.awanse jest już podbite dla bieżącego awansu: 1, 2, 3 = zwykłe; 4 = jedna niebieska, reszta losowo)
-  const karty = picks.map(k => ({ k, rz: k.typ === 'evo' || k.bezRz || (nauka >= 1 && nauka <= 3) ? 'zw' : losujRz(o) }));
+  const karty = picks.map(k => ({ k, rz: k.typ === 'evo' || k.bezRz || (nauka >= 1 && nauka <= 3) ? 'zw'
+    : losujRz(k.typ === 'skl' || k.typ === 'skl-nowy' ? { ...o, skl: true } : o) }));
   const zRz = karty.filter(c => c.k.typ !== 'evo' && !c.k.bezRz);
   if (nauka === 4 && zRz.length && !zRz.some(c => c.rz === 'nieb')) zRz[0].rz = 'nieb';
   if (o.minRz === 'nieb' && zRz.length && !zRz.some(c => c.rz !== 'zw')) zRz[Math.floor(Math.random() * zRz.length)].rz = 'nieb';
@@ -8852,7 +9785,7 @@ function pulaJackpotu() {
   const pool = [];
   for (const k of cardPool()) {
     if (k.typ === 'bron') pool.push({ ...k, waga: 3 });
-    else if (k.typ === 'skl') pool.push({ ...k, waga: 2 });
+    else if (k.typ === 'skl') pool.push({ ...k, waga: 2 * trudn().karty.sklWaga });   // Spiżarnia: v2 ×0,5
     else if (k.typ === 'dokl') pool.push({ ...k, waga: 1 });
   }
   if (!pool.length) for (const r of repeatPool()) pool.push({ ...r, waga: 1 });
@@ -8883,7 +9816,7 @@ function rozstrzygnijJackpot(zrodlo, gotowe, wymusN) {
     let x = Math.random() * suma, i = 0;
     for (; i < pula.length - 1; i++) { x -= pula[i].waga; if (x <= 0) break; }
     const k = pula[i];
-    const rz = k.bezRz ? 'zw' : losujRz({ kapral: zrodlo === 'kapral' });
+    const rz = k.bezRz ? 'zw' : losujRz({ kapral: zrodlo === 'kapral', skl: k.typ === 'skl' });
     lista.push({ ico: k.ico, nm: k.nm(rz), ds: k.ds(rz), rz, klucz: k.klucz });
     k.do(rz);
   }
@@ -9183,7 +10116,7 @@ function drawHearts(drgnij = false) {
 // Dona, lawina) idzie tędy. **1 cios = 1 serce** (decyzja właściciela 25.09): pierwszy argument jest
 // IGNOROWANY (zostaje w wywołaniach jako opis siły ataku z CFG_BIEG), bez skalowania w czasie — trudność
 // rośnie liczbą, HP i tempem wrogów, nie siłą ciosu. Obrażenia ciągłe (`o.dot`, Salt Storm): pierwsze
-// wejście zabiera 1 serce, potem zwykła nietykalność 0,9 s. Sprawdza nietykalność, garnek/karabin
+// wejście zabiera 1 serce, potem zwykła nietykalność CFG_BIEG.nietyk (v1 0,9 s, v2 0,8 s). Sprawdza nietykalność, garnek/karabin
 // (`ciosPochloniety`), tarczę; ustawia nietykalność, winietę, wstrząs, dźwięk, pop „-1", źródło ostatniego
 // ciosu (ekran porażki) i licznik trafień per źródło (`G.obrazeniaOd`, w sercach).
 //   o.nietyk — dłuższa nietykalność w s (domyślnie 0,9, łagodny 2,0; krótszej nie da), o.shake — wstrząs, o.dot — obrażenia ciągłe.
@@ -9659,6 +10592,9 @@ function buildChunk(cx, cz) {
     flushInst(rockGeo, rockMat, acc.rocks, rocks);
     blobRecs = acc.blobs;                            // → rebuildBlobs() po ensureChunks
   }
+  // E3 K2: teren i nieprzezroczyste dekoracje chunka rysują się PIERWSZE (−2), sylwetki (−1) widzą w buforze głębi
+  // tylko świat. Przezroczyste (woda, rozlana woda) zostają na 0 — ich kolejność względem pul bez zmian.
+  for (const o of [mesh, ...rocks, ...deco, ...leaves]) if (o && o.material && !o.material.transparent) o.renderOrder = -2;
   return { mesh, deco, rocks, solids, spills, grass, leaves, sway, shelves, blobRecs, cx, cz };
 }
 
@@ -10884,6 +11820,7 @@ function update(dt) {
   if (G.chmury && G.chmury.length) updateChmury(dt);            // E2 K6b
   if (G.kaluzeGracza && G.kaluzeGracza.length) updateKaluzeGracza(dt);   // E2 K6d
   if (G.telegrafy.length) updateTelegrafy(dt);     // E1-bieg K7/K8: telegrafy na ziemi
+  wybierzSylwetki(dt);                             // E3 K2: kto dostaje sylwetkę (co 0,2 s)
   if (G.skrzynieKap.length) updateSkrzynieKaprala(dt);
   updateDon(dt, dtReal);                           // K8: pociski, lawina, sól, zwycięstwo
   if (!G.running) return;                          // zwycięstwo mogło właśnie zamknąć bieg
@@ -11378,7 +12315,7 @@ function update(dt) {
         G.buff = { key: b.key, t: b.dur };
         AUDIO.sfx('totem');
         toastBuff(b.label, b.ico);
-        t.cd = 45;
+        t.cd = trudn().garnekCd;                     // TRUDNOŚĆ v2: 45 → 60 s (CFG_TRUDNOSC)
         novaRing(t.pos.x, t.pos.z, 4);
         // mrożonki i nietykalność to momenty — zasługują na wstrząs i błysk
         if (b.key === 'mroz' || b.key === 'niet') { G.shake = Math.max(G.shake, 0.35); fpsBlysk(0.4); }
@@ -11663,6 +12600,8 @@ function nazwaSprawcy(zr) {                        // „Zabił cię: …" z klu
 function nastepnyCel() {
   const c = [];
   for (const it of SHOP_UNLOCKS) if (!META.unlocked[it.key]) c.push({ nm: it.nm, ico: it.ico, cena: it.price });
+  const sk = SPIZ_KOLEJNOSC.find(k => !sklOdbl(k));   // Spiżarnia: następny składnik (cena wg liczby kupionych)
+  if (sk) c.push({ nm: PASSIVES[sk].nm, ico: PASSIVES[sk].ico, cena: cenaSpiz() });
   for (const it of SHOP) if (META.up[it.key] < it.max && it.key !== 'klatwa') c.push({ nm: it.nm, ico: it.ico, cena: shopPrice(it) });
   for (const k of Object.keys(CHARS)) if (CHARS[k].price && !maszPostac(k)) c.push({ nm: CHARS[k].nm.split(' ')[0], ico: 'serce', cena: CHARS[k].price });
   c.sort((a, b) => a.cena - b.cena);
@@ -11709,7 +12648,8 @@ function czyLagodny() {
   if (DEV) { const m = location.search.match(/[?&]lagodny=([01])/); if (m) return m[1] === '1'; }
   if (BOT.on && BOT.lagodny != null) return BOT.lagodny;
   const s = META.st;
-  return s.pelne === 0 || (s.pelne === 1 && s.best < 300);   // `pelne`, nie `runs`: szybkie „Do menu" nie zużywa trybu
+  // `pelne`, nie `runs`: szybkie „Do menu" nie zużywa trybu. TRUDNOŚĆ v2: bez drugiej szansy (pelne 1 i best < 300)
+  return s.pelne === 0 || (trudn().lagodnyDrugaSzansa && s.pelne === 1 && s.best < 300);
 }
 // n-ty bieg w historii zapisu → kubełek GoatCounter (spec §8.3): 1–10 dokładnie, potem przedziały
 const kubelekBiegu = n => n <= 10 ? String(n) : n <= 20 ? '11-20' : n <= 50 ? '21-50' : '51+';
@@ -12004,18 +12944,20 @@ function ksiazkaHTML() {
     else if (przepisGotowy(w)) { st = statusGotowy(); cls = 'puls'; }
     else {
       st = w.lvl < W.max ? T(`Broń: poz. ${w.lvl}/${W.max}`, `Weapon: lv. ${w.lvl}/${W.max}`) : '';
-      if (!maSkl) linia2 = odk(ek) ? T(`Brakuje: ${PASSIVES[R.skl].nm}`, `Missing: ${PASSIVES[R.skl].nm}`) : zagadkaHTML(ek);
+      if (!maSkl) linia2 = !sklOdbl(R.skl) ? klodkaSkl(R.skl, odk(ek))
+        : odk(ek) ? T(`Brakuje: ${PASSIVES[R.skl].nm}`, `Missing: ${PASSIVES[R.skl].nm}`) : zagadkaHTML(ek);
       if (!st) { st = linia2; linia2 = ''; }
     }
     return `<div class="kw ${cls}">${ico(W.ico, 28)}<span class="kp">${w.lvl}/${W.max}</span> + `
-      + `${znany ? ico(PASSIVES[R.skl].ico, 22) : '<span class="kq">?</span>'}<span class="${maSkl ? 'ok' : 'nie'}">${maSkl ? '✓' : '✗'}</span> = `
+      + `${!sklOdbl(R.skl) ? ico('klodka', 22) : znany ? ico(PASSIVES[R.skl].ico, 22) : '<span class="kq">?</span>'}<span class="${maSkl ? 'ok' : 'nie'}">${maSkl ? '✓' : '✗'}</span> = `
       + `${odk(ek) ? ico(W.evoIco, 28) : '<span class="kq">???</span>'}<span class="kst">${st}${linia2 ? `<br><small>${linia2}</small>` : ''}</span></div>`;
   }).join('');
   // B. CAŁA KSIĄŻKA — 12 przepisów + 3 „wkrótce"
   const wszystkie = Object.keys(PRZEPISY).filter(ek => PRZEPISY[ek].aktywny);
   const n = wszystkie.filter(odk).length;
   const kafle = wszystkie.map(ek => { const W = WEAPONS[PRZEPISY[ek].bron];
-      return `<button class="btn2 kafel${odk(ek) ? ' odk' : ''}" data-ek="${ek}" title="${odk(ek) ? W.evoNm : '???'}">${ico(odk(ek) ? W.evoIco : W.ico, 26)}${odk(ek) ? '' : '<i>???</i>'}</button>`; }).join('')
+      return `<button class="btn2 kafel${odk(ek) ? ' odk' : ''}" data-ek="${ek}" title="${odk(ek) ? W.evoNm : '???'}">${ico(odk(ek) ? W.evoIco : W.ico, 26)}${odk(ek) ? '' : '<i>???</i>'}`
+        + `${sklOdbl(PRZEPISY[ek].skl) ? '' : `<b class="kKl">${ico('klodka', 12)}</b>`}</button>`; }).join('')
     + WKROTCE.map(k => `<button class="btn2 kafel wkrotce" data-bron="${k}">${ico('klodka', 22)}</button>`).join('');
   return `<div class="ksiazka"><div class="kDania"><h3>${T('TWOJE DANIA', 'YOUR DISHES')}</h3>${wiersze}</div>`
     + `<div class="kSiatka"><h3>${T('CAŁA KSIĄŻKA', 'THE WHOLE BOOK')} <span>${T('Odkryte', 'Found')} ${n}/${wszystkie.length}</span></h3>`
@@ -12025,10 +12967,16 @@ function szczegolKafla(ek, bron) {
   const el = document.getElementById('kSzcz');
   if (!el) return;
   if (!ek) { el.innerHTML = `${ico(WEAPONS[bron].ico, 16)} ${WEAPONS[bron].nm}: ${T('Nonna jeszcze gotuje', "Nonna's still cooking")}`; return; }
-  const R = PRZEPISY[ek], W = WEAPONS[R.bron];
-  if (META.ksiazka[ek] && META.ksiazka[ek].odk)
-    el.innerHTML = `${ico(W.ico, 16)} ${W.nm} (${T('poz.', 'lv.')} ${W.max}) + ${ico(PASSIVES[R.skl].ico, 16)} ${PASSIVES[R.skl].nm} → ${ico(W.evoIco, 16)} <b>${W.evoNm}</b>: ${W.evoDs.replace(/^(PRZEPIS|RECIPE): /, '')}`;
-  else el.innerHTML = `${ico(W.ico, 16)} ${W.nm} + ? → ??? · ${zagadkaHTML(ek)}`;
+  const R = PRZEPISY[ek], W = WEAPONS[R.bron], odk = !!(META.ksiazka[ek] && META.ksiazka[ek].odk);
+  const kl = sklOdbl(R.skl) ? '' : `<br>${klodkaSkl(R.skl, odk)}`;
+  if (odk)
+    el.innerHTML = `${ico(W.ico, 16)} ${W.nm} (${T('poz.', 'lv.')} ${W.max}) + ${ico(PASSIVES[R.skl].ico, 16)} ${PASSIVES[R.skl].nm} → ${ico(W.evoIco, 16)} <b>${W.evoNm}</b>: ${W.evoDs.replace(/^(PRZEPIS|RECIPE): /, '')}${kl}`;
+  else el.innerHTML = `${ico(W.ico, 16)} ${W.nm} + ? → ??? · ${zagadkaHTML(ek)}${kl}`;
+}
+// kłódka składnika przepisu, który nie jest jeszcze kupiony w Spiżarni Nonny (nazwa tylko, gdy przepis już znany)
+function klodkaSkl(k, znany) {
+  return `${ico('klodka', 14)} ${znany ? T(`${PASSIVES[k].nm} czeka w Spiżarni Nonny (Sklep)`, `${PASSIVES[k].nm} is waiting in Nonna's Pantry (Shop)`)
+    : T('Ten składnik czeka w Spiżarni Nonny (Sklep)', "This ingredient is waiting in Nonna's Pantry (Shop)")}`;
 }
 // „JAK GRAĆ" W PAUZIE (życzenie właściciela 18.09 zamiast podpowiedzi na dole ekranu):
 // wiersz na akcję, plakietka wg TRYBU WEJŚCIA (pad → glif pada, klawiatura → klawisz,
@@ -12140,7 +13088,9 @@ function newGame() {
     obrazeniaOd: {}, ostatniCios: null,
     kaprale: 0, cisza: false, donStart: null, wygrana: null, kinoMn: 0.55, donFaza2: null, donKoniec: null, solAkt: null,
     dpsTest: false, gotowyToast: false, przepisyBiegu: [], przepisyT: [], jackpoty: [], karty: null, chmury: [], kaluzeGracza: [],
-    maxBroni: new Set(), pauzaTab: 'bieg', babcia: 0, nozeBonusSuma: 0, nozeSerie: 0, samePrzyprawy: 0, decyzje: 0 });   // E2
+    maxBroni: new Set(), pauzaTab: 'bieg', babcia: 0, nozeBonusSuma: 0, nozeSerie: 0, samePrzyprawy: 0, decyzje: 0,   // E2
+    // E3: zrodzeni per typ (HORDA.mapaStat), log kapliczek/wydarzenia/karabinu (bot, HORDA.wydLog)
+    zrodzeni: {}, losowane: {}, e3: { stolnice: [], wyzwania: [], wyd: null, karabiny: [], trafWyd: 0 } });
   document.getElementById('timer').classList.remove('don');
   document.getElementById('bossNm').style.color = '';
   winieta(true);
@@ -12192,9 +13142,16 @@ function loop() {
   if (!G.running || G.paused) windU.value = performance.now() / 1000;
   // render TEŻ w try/catch: wyjątek stąd leciałby co klatkę, obraz by zamarzł,
   // a symulacja szłaby dalej — najgorszy możliwy rodzaj awarii
-  try { renderer.render(scene, camera); } catch (err) { console.error(err); }
+  // Menu A „Warzywniak" jest NIEPRZEZROCZYSTE (body.w-menu): świata za nim nie widać, więc rysujemy go tylko 2×/s —
+  // shadery i tekstury zostają „ciepłe" na GRAJ, a telefon nie mieli GPU w menu na darmo.
+  const zakryty = !G.running && document.body.classList.contains('w-menu');
+  if (!zakryty || (_menuRnd += dt) > 0.5) {
+    _menuRnd = 0;
+    try { renderer.render(scene, camera); } catch (err) { console.error(err); }
+  }
   if (DEV) devHudTick(t0, t1, performance.now());
 }
+let _menuRnd = 0;
 
 // ============================== DEV: LICZNIK FPS + SCENA STRESU (E0) ==============================
 // Tylko w DEV (port 8123 albo `?dev=1` — tak też na telefonie). Nakładka w lewym dolnym
@@ -12271,13 +13228,17 @@ function syncInstancje() {
   // taflą wody 0.75 i wszystkie przezroczyste pule rysowały się przed wodą, która je gasiła)
   const kot = _kotwica.set(P.pos.x, P.y, P.pos.z);
   for (const g of HORDA_GRUPY) g.begin(kot);      // także bez mesha — może powstać w tej klatce
+  for (const g of SYLW_GRUPY) g.begin(kot);       // E3 K2
   for (const p of PULE) p.begin(kot);
   for (const e of G.enemies) {
     const bb = e.bb;
     if (!bb.inst) continue;
     const m = bb.mesh;
     const hk = m.material && m.material.userData.hk;
-    if (hk && m.visible) hk.g.add(m, hk, bb.fxProg, bb.fxFlash);
+    if (hk && m.visible) {
+      hk.g.add(m, hk, bb.fxProg, bb.fxFlash);
+      if (e.sylw) (hk.g.sylw || (hk.g.sylw = new GrupaSylwetek(hk.g))).add(m, hk, 0, e.don ? 1 : 0);   // E3 K2: sylwetka
+    }
     pulaCien.add(bb.shadow);
     if (e.ring) pulaKrag.add(e.ring);
     if (e.ring2) pulaKrag.add(e.ring2);            // K7: drugi krąg kaprala
@@ -12293,6 +13254,7 @@ function syncInstancje() {
   for (const c of G.coins) pulaMonety.add(c.mesh, 1, c.mesh.material && c.mesh.material.color);
   if (pulaPlamy) for (const p of plamy) if (p && p.mesh.visible) pulaPlamy.add(p.mesh, p.a, p.kc);
   for (const g of HORDA_GRUPY) g.end();
+  for (const g of SYLW_GRUPY) g.end();
   for (const p of PULE) p.end();
 }
 scene.onBeforeRender = syncInstancje;
@@ -12314,6 +13276,7 @@ function dcRaport() {
   }
   for (const p of PULE) etyk.set(p.mesh, 'pula:' + p.nazwa);
   for (const g of HORDA_GRUPY) if (g.mesh) etyk.set(g.mesh, 'pula:sprite ' + g.nazwa);
+  for (const g of SYLW_GRUPY) if (g.mesh) etyk.set(g.mesh, 'pula:' + g.nazwa);   // E3 K2
   for (const [k, v] of Object.entries(G)) {
     if (!Array.isArray(v)) continue;
     for (const it of v) if (it && it.mesh && it.mesh.isObject3D && !etyk.has(it.mesh)) etyk.set(it.mesh, 'G.' + k);
@@ -12361,7 +13324,7 @@ function mulberry32(a) {                          // PRNG z seedem (algorytm dom
   return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
-const BOT = { on: false, naZywo: false, tryb: 'sredni', karty: 'priorytet', ka: 0, kier: 1 };
+const BOT = { on: false, naZywo: false, tryb: 'sredni', karty: 'priorytet', ka: 0, kier: 1, kapliczki: false, dotyk: false };
 let _ruchDev = null;                              // HORDA.ruch(vx, vz): nadpisanie wejścia jak touch.vx/vy
 const BOT_PRIO = ['evo', 'bron', 'podsun', 'skl:moc', 'skl:tempo', 'skl:krytyk', 'skl:serce', 'skl:zasieg', 'skl:magnes', 'skl:buty', 'dokl'];   // E2 (spec §9.1)
 function botRuch() {                              // zwraca kierunek w ŚWIECIE {x, z}
@@ -12623,12 +13586,14 @@ async function botBieg(o = {}) {
   Object.assign(META.up, { serce: 0, dmg: 0, szyb: 0, magnes: 0, klatwa: 0, karabin: 0 });
   META.unlocked = { piorun: 1 }; META.st.runs = META.st.pelne = META.st.smierci = 5; META.st.skrzynki = 99;
   META.st.jackpoty = 99;                           // E2: weteran — scenariusz jackpotów 1-1-3-1-5 już za nim (czysty zapis: od 0)
+  // Spiżarnia (29.09): domyślnie bot ma tylko 3 startowe składniki; `spizarnia: true` = wszystko kupione + Większy słoik
+  if (o.spizarnia) for (const k of [...SPIZ_KOLEJNOSC, 'sloik']) META.unlocked[k] = 1;
   // K10: `czysty: true` = zapis nowego gracza (0 biegów, nic nie odblokowane) → łagodny pierwszy bieg,
   // wyreżyserowane pierwsze skrzynie; `lagodny: true|false` wymusza tryb niezależnie od zapisu
   if (o.czysty) { META.unlocked = {}; Object.assign(META.st, { runs: 0, pelne: 0, smierci: 0, best: 0, skrzynki: 0, chests: 0, kills: 0, wins: 0, bestDon: 0, jackpoty: 0 }); }
   Math.random = mulberry32(seed);
   Object.assign(BOT, { on: true, tryb, karty: o.karty || (tryb === 'nowicjusz' ? 'pierwsza' : 'priorytet'), ka: 0, kier: 1,
-                       lagodny: o.lagodny != null ? o.lagodny : null });
+                       lagodny: o.lagodny != null ? o.lagodny : null, kapliczki: !!o.kapliczki, dotyk: !!o.dotyk });   // E3: bot z kapliczkami / karabin w trybie dotyku
   const w = { tryb, postac, seed, czas: 0, lvlAt: {}, killsAt: {}, pierwszyKill: null, pierwszyAwans: null,
               maxZywi: 0, maxUpd: 0, maxUpdT: 0 };
   try {
@@ -12689,10 +13654,11 @@ async function botBieg(o = {}) {
       walka: +((G.donKoniec != null ? G.donKoniec : G.time) - G.donStart).toFixed(1), wygrana: !!G.wygrana,
       hpDona: (d => d ? +(Math.max(0, d.hp) / d.maxHp).toFixed(2) : 0)(G.enemies.find(e => e.don && !e.dying)) };
     w.msKrok = +((performance.now() - t0) / Math.max(1, G.time / dt)).toFixed(2);
+    w.e3 = { ...G.e3, mapa: mapKey, zrodzeni: { ...G.zrodzeni }, monety: G.runCoins };   // E3: kapliczki, wydarzenie, karabin
     if (G.running) { G.running = false; clearWorld(); }
     document.getElementById('overOv').style.display = 'none';
   } finally {
-    Math.random = mr; BOT.on = false; BOT.lagodny = null;
+    Math.random = mr; BOT.on = false; BOT.lagodny = null; BOT.kapliczki = false; BOT.dotyk = false;
     const m = JSON.parse(metaKopia);
     for (const k of Object.keys(m)) META[k] = m[k];
   }
@@ -12906,7 +13872,7 @@ if (loadTip) {
   // KLIK w UI: jeden delegat na cały dokument zamiast dopisywania dźwięku
   // do każdego przycisku osobno (menu jest generowane w kilku miejscach).
   addEventListener('pointerdown', ev => {
-    if (ev.target.closest && ev.target.closest('.tab,.tile,.card,.bigbtn,.btn2,#jumpBtn')) AUDIO.sfx('klik');
+    if (ev.target.closest && ev.target.closest('.tab,.tile,.card,.bigbtn,.btn2,.wNav,#jumpBtn')) AUDIO.sfx('klik');
   }, true);
   AUDIO.setPostac(charKey);
   AUDIO.menu();          // motyw główny — ruszy przy pierwszym kliknięciu (autoplay policy)
@@ -12975,33 +13941,52 @@ if (loadTip) {
       menu.style.display = 'flex';
     });
   }
-  // ---- KODY ----
-  // Kod odblokowuje WSZYSTKO + 5000 monet, a `main.js` w demo na GitHub Pages jest
-  // publiczny — kazdy moglby go odczytac z zrodla i sklep przestalby cokolwiek znaczyc.
-  // Poza DEV pole na kod jest USUWANE z drzewa (nie tylko ukrywane).
-  const kodBox = document.getElementById('kodBox');
-  if (!DEV && kodBox) kodBox.remove();
+  // ---- KOD OD NONNY (Ustawienia; 29.09) ----
+  // Kody na monety dla wspierających (kawa → Piotr wysyła kod). W źródle i w `kody.json` NIE MA jawnych kodów — tylko
+  // SHA-256(SOL + kod po normalizacji) i kwota. Nowy kod = nowy wpis w `kody.json` (narzedzia/kod_monet.py) i wydanie,
+  // bez zmiany main.js. Każdy kod działa RAZ na urządzenie (META.kody). Po złym kodzie 2 s blokady.
+  // Stary kod `rudeuszek2123` (wszystko odblokowane + 5000) działa WYŁĄCZNIE w DEV.
   const kodInfo = document.getElementById('kodInfo');
   const kodInput = document.getElementById('kodInput');
-  function uzyjKodu() {
-    const kod = (kodInput.value || '').trim();
-    if (kod.toLowerCase() === 'rudeuszek2123') {
+  const kodBtn = document.getElementById('kodBtn');
+  renderTabliczkaNonny('nonnaKod', false);
+  const kodKom = (txt, zle) => { if (kodInfo) { kodInfo.className = zle ? 'zle' : ''; kodInfo.textContent = txt; } };
+  async function uzyjKodu() {
+    const surowy = (kodInput.value || '').trim();
+    if (!surowy) return;
+    if (DEV && surowy.toLowerCase() === 'rudeuszek2123') {
       for (const k of Object.keys(CHARS)) META.chars[k] = 1;          // wszystkie postacie
       for (const it of SHOP_UNLOCKS) META.unlocked[it.key] = 1;       // bronie i zdolności
+      for (const k of [...SPIZ_KOLEJNOSC, 'sloik']) META.unlocked[k] = 1;   // Spiżarnia Nonny: składniki + Większy słoik
       for (const it of SHOP) META.up[it.key] = it.max;                // ulepszenia na max
       META.coins += 5000;
       saveMeta();
       renderShop(); renderChars(); renderPick();
       if (typeof renderBestiary === 'function') renderBestiary();
-      kodInfo.className = '';
-      kodInfo.textContent = T('KOD PRZYJĘTY! Odblokowano wszystko + 5000 monet.', 'CODE ACCEPTED! Everything unlocked + 5000 coins.');
+      kodKom(T('KOD PRZYJĘTY! Odblokowano wszystko + 5000 monet.', 'CODE ACCEPTED! Everything unlocked + 5000 coins.'));
       kodInput.value = '';
-    } else if (kod) {
-      kodInfo.className = 'zle';
-      kodInfo.textContent = T('Nieznany kod.', 'Unknown code.');
+      return;
+    }
+    const w = await KODY_NONNY.sprawdz(surowy);
+    if (w.ok) {
+      META.coins += w.monety; META.kody[w.klucz] = Date.now(); saveMeta();
+      renderShop(); odswiezRog();
+      AUDIO.sfx('zlota'); blysk('#ffd75e', 0.35);
+      STATY.zdarzenie('kod/ok', 'Kod od Nonny: przyjęty');
+      kodKom(T(`Nonna dorzuca ${liczba(w.monety)} monet!`, `Nonna chips in ${liczba(w.monety)} coins!`));
+      kodInput.value = '';
+      return;
+    }
+    if (w.powod === 'uzyty') kodKom(T('Ten kod już został tu wykorzystany.', 'This code has already been used here.'), true);
+    else if (w.powod === 'czekaj') kodKom(T('Chwileczkę, Nonna jeszcze liczy…', 'Just a moment, Nonna is still counting…'), true);
+    else if (w.powod === 'siec') kodKom(T('Nie udało się sprawdzić kodu — sprawdź internet i spróbuj znowu.', "Couldn't check the code — check your connection and try again."), true);
+    else if (w.powod === 'https') kodKom(T('Kody działają tylko w grze otwartej przez https.', 'Codes only work when the game is opened over https.'), true);
+    else {
+      kodKom(T('Nonna nie zna tego kodu.', "Nonna doesn't know this code."), true);
+      if (kodBtn) { kodBtn.disabled = true; setTimeout(() => { kodBtn.disabled = false; }, KODY_NONNY.blokadaMs); }
     }
   }
-  if (kodInput) document.getElementById('kodBtn').onclick = uzyjKodu;
+  if (kodInput && kodBtn) kodBtn.onclick = uzyjKodu;
   if (kodInput) kodInput.addEventListener('keydown', e => {
     e.stopPropagation();                       // żeby spacja/WSAD nie sterowały grą
     if (e.code === 'Enter') uzyjKodu();
@@ -13019,19 +14004,14 @@ if (loadTip) {
     document.querySelectorAll('.panel').forEach(x => x.classList.remove('on'));
     t.classList.add('sel');
     document.getElementById('p-' + t.dataset.tab).classList.add('on');
-    if (t.dataset.tab === 'staty') renderStats();
-    if (t.dataset.tab === 'bestia') renderBestiary();
-    if (t.dataset.tab === 'sklep') renderShop();
-    // dawne zakładki „dzwiek" i „sterowanie" są scalone w JEDNE USTAWIENIA
-    if (t.dataset.tab === 'ustawienia') renderSterowanie();
-    // KLASA `panel-open` = „coś jest otwarte obok scenki". Trzyma ją CSS:
-    // prawa kolumna z panelami ma wtedy szerokość, a na telefonie zasłania
-    // scenkę i pokazuje przycisk WRÓĆ. Zakładka „graj" = panel pusty = brak klasy.
-    document.getElementById('startOv').classList.toggle('panel-open', t.dataset.tab !== 'graj');
+    // menu A: rendery panelu, klasy `panel-open` / `panel-mapy`, gaśnięcie kropek, pad do panelu.
+    // Zakładka „graj" = panel pusty = powrót na ekran główny.
+    menuPanelOtwarty(t.dataset.tab, t.classList.contains('skr') || t.id === 'wZebatka' ? t : null);
   });
   // WRÓĆ (telefon): dokładnie to samo co B na padzie — klik w ukrytą zakładkę „graj"
   document.getElementById('panelBack').onclick = () =>
     document.querySelector('.tab[data-tab="graj"]').click();
+  menuInit();                                      // menu A „Warzywniak": skala, strzałki, klawiatura, odsłonięcia
   // pauza
   document.getElementById('pauseBtn').onclick = () => togglePause(!G.paused);
   document.getElementById('btnResume').onclick = () => togglePause(false);
@@ -13184,12 +14164,27 @@ if (loadTip) {
     get log() { return G.zdarzenia; },
     get gc() { return STATY.log; }, koniecBiegu,   // K9: log wywołań GoatCounter (DEV nic nie wysyła)
     cfg: CFG_BIEG, WIECZOR, falaTeraz, liczZywych, zadajDmg, dmgNum, chestReward, startKarabin, odpalSmrod,
-    get trudnosc() { return { t: G.time, hpScale: +hpScale().toFixed(3), spdScale: +spdScale().toFixed(3), dmgMul: +dmgMul().toFixed(3), elita: +szansaElity().toFixed(3) }; },
+    // TRUDNOŚĆ v2: HORDA.trudnosc('v1'|'v2') przełącza preset CFG_TRUDNOSC; HORDA.trudnosc() = bieżący stan
+    trudnosc(v) { if (v) ustawTrudnosc(v); return { preset: CFG_TRUDNOSC.akt, t: G.time, hpScale: +hpScale().toFixed(3), spdScale: +spdScale().toFixed(3), dmgMul: +dmgMul().toFixed(3), elita: +szansaElity().toFixed(3), fala: falaTeraz(G.time) }; },
+    CFG_TRUDNOSC,
     pomiar() { return G.probki; },
     ruch(vx, vz) { _ruchDev = vx == null ? null : { x: vx, z: vz }; return _ruchDev; },
     bot: BOT, botBieg, skok: devSkok, BOT_PRESETY,
     dpsBroni, tabelaDps,                                   // E2 K0: pomiar DPS broni na manekinach
     KAWA, kawaDecyzja, pokazKawe, zamknijKawe,             // B12: prośba o kawę
+    // ---- E3 (spec 09 §7.3) ----
+    cfgM: CFG_MAPA,
+    // zrodzeni per typ od startu biegu (albo od `reset`) i realne udziały po limitach; `losowane` = wynik losujTyp PRZED limitami
+    mapaStat(o = {}) {
+      if (o.reset) { G.zrodzeni = {}; G.losowane = {}; }
+      const pro = src => { const s = Object.values(src || {}).reduce((a, b) => a + b, 0) || 1;
+        return Object.fromEntries(Object.entries(src || {}).map(([k, v]) => [k, +(v / s * 100).toFixed(1)])); };
+      return { mapa: mapKey, t: +G.time.toFixed(0), zrodzeni: { ...G.zrodzeni }, udzialy: pro(G.zrodzeni), losowane: pro(G.losowane) };
+    },
+    get wydLog() { return G.e3; },
+    sylwetki() { return G.enemies.filter(e => e.sylw).map(e => ({ typ: e.don ? 'don' : e.kapral ? 'kapral' + e.kapral : e.type + (e.elite ? ':elita' : ''),
+      d: +e.pos.distanceTo(P.pos).toFixed(1), strona: e.bb.mesh.material && e.bb.mesh.material.userData.hk ? e.bb.mesh.material.userData.hk.g.nazwa : '?' })); },
+    SYLW_GRUPY,
     // K7/K8: przywołaj kaprala nr 1–6 TERAZ (bez 1 s telegrafu) / Dona teraz (bez ciszy)
     kapral(nr) { bezZapisu = true; return spawnKapral(nr, true); },
     don() { bezZapisu = true; return wejscieDona(true); },
@@ -13233,4 +14228,6 @@ if (loadTip) {
                wgraneMB: MB(wgrane), wgraneStrony: n, stareMB: MB(ATLAS_STATS.stareBajty) };
     },
   };
+  if (DEV) Object.assign(window.HORDA, { menuAudyt, menuPodstaw, renderMenu, mapaOdbl, MENU, MAPA_GRAF });   // menu A (E4 K11)
+  if (DEV) Object.assign(window.HORDA, { KODY_NONNY, CFG_SPIZ, SPIZ_KOLEJNOSC, sklOdbl, sklMaxBiegu, cenaSpiz, KUP_MONETY, kodyTest: [] });   // Spiżarnia + Kod od Nonny (29.09)
 })();

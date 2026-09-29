@@ -693,7 +693,8 @@
      <link> stał w <head> nad <style>, każda stara reguła `.bigbtn` biłaby nową.
      Kolejność między plikami: tokeny → menu → HUD (HUD dokłada drugi agent). -->
 <link rel="stylesheet" href="ui-base.css?v=4">
-<link rel="stylesheet" href="ui-menu.css?v=3">
+<link rel="stylesheet" href="ui-menu.css?v=4">
+<link rel="stylesheet" href="ui-warzywniak.css?v=2">
 <link rel="stylesheet" href="ui-hud.css?v=21">
 </head>
 <body>
@@ -745,123 +746,107 @@
 <div id="padHud"></div>
 <div id="padFoot"></div>
 
-<!-- ================= MENU GŁÓWNE =================
-     HIERARCHIA (życzenie właściciela): logo → jeden duży GRAJ → drugorzędny rząd
-     wejść do paneli → drobne informacje na dole. #btnStart i podsumowanie wyboru
-     mapy/postaci NIE są już w panelu "p-graj" — siedzą tu, nad zakładkami, więc są
-     widoczne zawsze, niezależnie od tego, który panel jest otwarty. Zakładka "Graj"
-     zostaje w DOM (ukryta CSS-em) — main.js/gamepad (gpBack) nadal jej używają, żeby
-     wrócić do stanu domyślnego; #p-graj też zostaje w DOM (pusty), bo main.js robi
-     document.getElementById('p-'+tab).classList.add('on') bez sprawdzania istnienia. -->
+<!-- ================= MENU GŁÓWNE: A „WARZYWNIAK" (E4 K11a + K11, decyzja właściciela 24.09) =================
+     Makieta: dokumenty/menu-makiety/wariant-a-warzywniak.html, spec: dokumenty/badanie-gry/10-spec-E4.md §10.
+     • Wszystkie wymiary w `--p` = 1 px ekranu 812×375 × `--s` (main.js: menuSkala, min(szer/812, wys/375)).
+     • main.js ustawia `#startOv.style.display` INLINE — układ siedzi w dziecku `#warzywniak`.
+     • KOLEJNOŚĆ W DOM: GRAJ PIERWSZY (pad bierze `navItems()[0]`), wizualnie w prawym dolnym rogu.
+     • `.tab[data-tab]` = dawne zakładki: skrzynki na ladzie, zębatka w rogu, ukryte „graj" i „mapy"
+       (handler zakładek w main.js i gpBack działają bez zmian). Odsłanianie (klasy w-r0…w-r3) liczy main.js. -->
 <div id="startOv" class="ov">
-  <img id="logo" class="pxi" src="assets/logo.png" alt="VEGGIE FAMIGLIA — Brainrot Survivors">
+ <div id="warzywniak" class="w-r0">
+  <button class="bigbtn" id="btnStart"><span data-pl="GRAJ" data-en="PLAY">GRAJ</span><span class="wGl" data-mglif="graj"></span></button>
 
-  <!-- ================= UKŁAD „JAK W MEGABONKU" (decyzja właściciela 18.09) =================
-       JEDEN EKRAN: pasek ikon po lewej, scenka z postacią na wprost, panel po prawej.
-       DLACZEGO OSOBNY #menuUklad, A NIE SIATKA NA #startOv: main.js ustawia
-       `menu.style.display='flex'` INLINE (powrót z ekranu KONIEC i po komiksie),
-       a styl inline bije każdy arkusz — `display:grid` na #startOv żyłoby do
-       pierwszego powrotu z biegu. Siatka siedzi więc w dziecku.
-       KOLEJNOŚĆ W DOM: scenka (z GRAJ) PRZED paskiem zakładek, bo pad bierze
-       `navItems()[0]` jako domyślne zaznaczenie i ma nim być GRAJ. Wizualnie
-       pasek i tak stoi po lewej — ustawia go `grid-column`, nie kolejność. -->
-  <div id="menuUklad">
+  <div class="wMarkiza"></div>
+  <img id="logo" src="assets/logo.png" alt="VEGGIE FAMIGLIA — Brainrot Survivors">
 
-  <!-- SCENKA: portret na ladzie warzywniaka + kredowa tabliczka z opisem -->
-  <div id="heroStage">
-    <div id="heroScena">
-      <div id="heroBox">
-        <!-- src ustawia renderPick(): render 420 px, a gdy go nie ma — klatka ze sprite'a -->
-        <img id="heroPortret" class="pxi" alt="">
-        <div id="heroLada"></div>
-      </div>
-      <!-- kredowa tabliczka: imię, opis i cztery statystyki (dane z CHARS w main.js) -->
-      <div id="heroTab">
-        <div id="heroNm"></div>
-        <div id="heroDs"></div>
-        <div id="heroStat"></div>
-      </div>
-    </div>
-
-  <div id="playCta">
-    <!-- wiersz „Mapa: Łąki" jako tabliczka nad przyciskiem (treść z renderPick) -->
-    <div id="heroMapa"></div>
-    <button class="bigbtn" id="btnStart" data-pl="GRAJ" data-en="PLAY">GRAJ</button>
-    <!-- etykiety w osobnych <span>: `#wybor` NIE może dostać data-pl, bo zastosujJezyk()
-         nadpisuje innerHTML i skasowałoby <b id="selMapNm"> / <b id="selCharNm"> -->
-    <p id="wybor"><span data-pl="Mapa:" data-en="Map:">Mapa:</span> <b id="selMapNm">Łąki</b>
-       · <span data-pl="Postać:" data-en="Character:">Postać:</span> <b id="selCharNm">Kasia</b></p>
-    <!-- FABUŁA i KAWA w jednym rzędzie (kolumna dokładała ~45 px nad zakładkami na niskich telefonach) -->
-    <div id="ctaRow">
-      <!-- komiks wprowadzający na żądanie (przy pierwszym uruchomieniu leci sam) -->
-      <a id="fabulaBtn" class="btn2" href="#" data-pl="FABUŁA" data-en="STORY">FABUŁA</a>
-      <!-- link „postaw kawę" — adres ustawia main.js (KAWA_URL); bez adresu ukryty -->
-      <a id="kawaBtn" class="btn2" href="#" target="_blank" rel="noopener" style="display:none"
-         data-pl="POSTAW MI KAWĘ" data-en="BUY ME A COFFEE">POSTAW MI KAWĘ</a>
-    </div>
-    <!-- podpowiedź dla iPhone'a (pokazuje main.js raz — META.ui.pwaHint) -->
-    <div id="pwaHint">
-      <span data-pl="Pełny ekran na iPhone: <b>Udostępnij</b> → <b>Dodaj do ekranu początkowego</b>."
-            data-en="Fullscreen on iPhone: <b>Share</b> → <b>Add to Home Screen</b>.">Pełny ekran na iPhone: <b>Udostępnij</b> → <b>Dodaj do ekranu początkowego</b>.</span>
-      <span class="x" id="pwaHintX">X</span>
-    </div>
-  </div>
-  </div><!-- /#heroStage -->
-
-  <!-- PASEK IKON: pionowo po lewej (desktop, telefon w poziomie), poziomo na dole
-       na telefonie w pionie. Zakładki „Dźwięk" i „Sterowanie" scalone w JEDNE
-       USTAWIENIA (decyzja właściciela: dźwięk, ekran, język i sterowanie razem). -->
-  <div id="tabs">
-    <div class="tab sel" data-tab="graj" data-ico="play" data-pl="Graj" data-en="Play">Graj</div>
-
-    <div class="tab" data-tab="postacie" data-ico="postac" data-pl="Postacie" data-en="Heroes">Postacie</div>
-    <div class="tab" data-tab="mapy" data-ico="mapa" data-pl="Mapy" data-en="Maps">Mapy</div>
-    <div class="tab" data-tab="sklep" data-ico="sklep" data-pl="Sklep" data-en="Shop">Sklep</div>
-    <div class="tab" data-tab="bestia" data-ico="czaszka" data-pl="Bestiariusz" data-en="Bestiary">Bestiariusz</div>
-    <div class="tab" data-tab="staty" data-ico="wykres" data-pl="Statystyki" data-en="Stats">Statystyki</div>
-    <div class="tab" data-tab="ustawienia" data-ico="glosnik" data-pl="Ustawienia" data-en="Settings">Ustawienia</div>
+  <!-- RÓG: [Paczka Nonny — E5, ukryta] · monety (od 1. biegu) · zębatka = Ustawienia -->
+  <div id="wRog">
+    <button id="paczkaBtn" hidden></button>
+    <div id="wMonety" class="w-papier"></div>
+    <div class="tab wNav" data-tab="ustawienia" id="wZebatka" data-pl="Ustawienia" data-en="Settings" data-attr="aria-label" aria-label="Ustawienia"><i></i></div>
   </div>
 
-  <!-- PRAWA KOLUMNA: panele jako kredowe tablice obok scenki (desktop) albo
-       zasłaniające ją (telefon). Pokazuje ją klasa `panel-open` na #startOv,
-       którą dokłada handler zakładek w main.js — dzięki temu zamknięty panel
-       ma szerokość 0 i scenka stoi na środku ekranu. -->
+  <!-- POSTAĆ za ladą (render HD albo klatka ze sprite'a — renderPick) + staty tylko na PC -->
+  <div id="heroBox"><img id="heroPortret" class="pxi" alt=""></div>
+  <div id="heroStat"></div>
+
+  <!-- TABLICA „DZIŚ U NONNY" albo liścik Nonny w 1. sesji (renderTablica) -->
+  <div id="tablica"></div>
+  <!-- jednorazowy liścik z zapowiedzią odsłonięcia (6 s albo dotknięcie) -->
+  <div id="wZapowiedz" hidden></div>
+
+  <!-- WYBÓR MAPY (+ Pikantność — E4 K4, dziś ukryta) -->
+  <div id="wWybor"><div id="heroMapa"></div><div id="wPikant" hidden></div></div>
+
+  <!-- LADA: szyld postaci ‹ › · skrzynki · (miejsce GRAJ) -->
+  <div id="lada">
+    <div id="wSzyld">
+      <button class="wNav wStrz" id="wPostL" aria-label="‹"><span>‹</span><span class="wGl" data-mglif="postL"></span></button>
+      <div id="wSzyldNm" class="w-papier"><div id="heroNm"></div><div id="heroDs"></div></div>
+      <button class="wNav wStrz" id="wPostP" aria-label="›"><span>›</span><span class="wGl" data-mglif="postP"></span></button>
+    </div>
+    <div id="tabs">
+      <div class="tab skr" data-tab="postacie" data-ik="postac"><span data-pl="Postacie" data-en="Heroes">Postacie</span></div>
+      <div class="tab skr" data-tab="sklep" data-ik="sklep"><span data-pl="Sklep" data-en="Shop">Sklep</span></div>
+      <!-- ZESZYT NONNY — E4 K2, do tego czasu ukryty (E4_GOTOWE.zeszyt w main.js) -->
+      <div class="tab skr" data-tab="zeszyt" data-ik="zeszyt" hidden><span data-pl="Zeszyt" data-en="Notebook">Zeszyt</span></div>
+      <div class="tab skr" data-tab="ksiazka" data-ik="ksiazka"><span data-pl="Książka" data-en="Cookbook">Książka</span></div>
+      <div class="tab skr" data-tab="akta" data-ik="teczka"><span data-pl="Akta" data-en="Files">Akta</span></div>
+      <div class="tab" data-tab="graj" hidden></div>
+      <div class="tab" data-tab="mapy" hidden></div>
+    </div>
+  </div>
+
+  <!-- podpowiedź dla iPhone'a (pokazuje main.js raz — META.ui.pwaHint) -->
+  <div id="pwaHint">
+    <span data-pl="Pełny ekran na iPhone: <b>Udostępnij</b> → <b>Dodaj do ekranu początkowego</b>."
+          data-en="Fullscreen on iPhone: <b>Share</b> → <b>Add to Home Screen</b>.">Pełny ekran na iPhone: <b>Udostępnij</b> → <b>Dodaj do ekranu początkowego</b>.</span>
+    <span class="x" id="pwaHintX">X</span>
+  </div>
+
+  <!-- PANELE: kredowa tablica nad sceną (klasa `panel-open` na #startOv z handlera zakładek).
+       Panel Map (`panel-mapy`) = pełny ekran z mapą osiedla we mgle. -->
   <div id="panele">
-    <!-- WRÓĆ: jeden przycisk dla WSZYSTKICH paneli (zamiast dokładania go do
-         każdego z osobna); klika ukrytą zakładkę „graj", czyli robi dokładnie to
-         samo co B na padzie. Widoczny tylko na telefonie — na desktopie panel
-         stoi obok scenki i nie ma z czego wracać. -->
-    <button class="btn2" id="panelBack" data-pl="WRÓĆ" data-en="BACK">WRÓĆ</button>
+    <button class="btn2" id="panelBack" data-pl="‹ WRÓĆ" data-en="‹ BACK">‹ WRÓĆ</button>
 
   <div class="panel on" id="p-graj"></div>
 
-  <div class="panel" id="p-mapy"><h2 data-pl="MAPY" data-en="MAPS">MAPY</h2><div class="grid" id="mapGrid"></div></div>
-  <div class="panel" id="p-postacie"><h2 data-pl="POSTACIE" data-en="HEROES">POSTACIE</h2><div class="grid" id="charGrid"></div></div>
-  <div class="panel" id="p-bestia">
-    <h2 data-pl="BESTIARIUSZ" data-en="BESTIARY">BESTIARIUSZ</h2>
+  <div class="panel" id="p-mapy">
+    <div id="mapGrid"></div>
+  </div>
+  <div class="panel" id="p-postacie"><h2 data-pl="POSTACIE" data-en="HEROES">POSTACIE</h2>
+    <div id="postStat"></div>
+    <div class="grid" id="charGrid"></div></div>
+  <!-- AKTA FAMIGLII = bestiariusz + statystyki (dawne dwie zakładki) -->
+  <div class="panel" id="p-akta">
+    <h2 data-pl="AKTA FAMIGLII" data-en="FAMIGLIA FILES">AKTA FAMIGLII</h2>
     <p class="lore" data-pl="Osiedle Grządkowo żyło spokojnie, aż przyjechała La Famiglia Snackoni — mafia przekąsek Dona Chipso. Plan: sól, cukier i automat w miejscu warzywniaka. Warzywa na to: „nie na moim osiedlu”. Broń: witaminy." data-en="the Blockyard was quiet until La Famiglia Snackoni rolled in — Don Chipso’s snack mafia. The plan: salt, sugar and a vending machine where the veggie stand stood. The vegetables said “not on my block.” Weapon: vitamins.">Osiedle Grządkowo żyło spokojnie, aż przyjechała La Famiglia Snackoni — mafia przekąsek Dona Chipso. Plan: sól, cukier i automat w miejscu warzywniaka. Warzywa na to: „nie na moim osiedlu”. Broń: witaminy.</p>
     <p><span data-pl="Encyklopedia hordy. Wpis odblokowuje się po PIERWSZYM zabiciu danego typu. Odkryto:"
              data-en="An encyclopedia of the horde. An entry unlocks the FIRST time you kill that type. Discovered:">Encyklopedia hordy. Wpis odblokowuje się po PIERWSZYM zabiciu danego typu.
        Odkryto:</span> <b id="bestProg">0/0</b></p>
     <div class="grid" id="bestGrid"></div>
+    <h3 class="sekcja"><span data-pl="SKŁADNIKI NONNY" data-en="NONNA'S INGREDIENTS">SKŁADNIKI NONNY</span> <b id="aktaSklProg"></b></h3>
+    <div id="aktaSkl"></div>
+    <h3 class="sekcja" data-pl="STATYSTYKI" data-en="STATS">STATYSTYKI</h3>
+    <div id="statsList"></div>
   </div>
+  <div class="panel" id="p-ksiazka"><h2 data-pl="KSIĄŻKA NONNY" data-en="NONNA'S COOKBOOK">KSIĄŻKA NONNY</h2><div id="menuKsiazka"></div></div>
+  <!-- ZESZYT NONNY — miejsce na E4 K2 (logika jeszcze nie istnieje) -->
+  <div class="panel" id="p-zeszyt"><h2 data-pl="ZESZYT NONNY" data-en="NONNA'S NOTEBOOK">ZESZYT NONNY</h2>
+    <p data-pl="Wkrótce." data-en="Coming soon.">Wkrótce.</p></div>
   <div class="panel" id="p-sklep">
     <h2 data-pl="SKLEP" data-en="SHOP">SKLEP</h2>
     <p><span data-pl="Monety zbierasz w biegach — zostają po śmierci. Masz:"
              data-en="You earn coins in runs — they survive your death. You have:">Monety zbierasz w biegach — zostają po śmierci. Masz:</span> <b id="shopCoins">0</b></p>
-    <div id="kodBox">
-      <input id="kodInput" type="text" placeholder="wpisz kod" autocomplete="off" spellcheck="false" maxlength="24"
-             data-pl="wpisz kod" data-en="enter a code" data-attr="placeholder">
-      <button class="btn2" id="kodBtn" data-pl="UŻYJ KODU" data-en="USE CODE">UŻYJ KODU</button>
-      <div id="kodInfo"></div>
-    </div>
     <div class="grid" id="shopItems"></div>
+    <!-- SPIŻARNIA NONNY (29.09): 5 składników do kupienia raz + Większy słoik; tabliczka o wsparciu (main.js renderSpizarnia) -->
+    <h3 class="sekcja" id="spizNaglowek"><span data-pl="SPIŻARNIA NONNY" data-en="NONNA'S PANTRY">SPIŻARNIA NONNY</span> <b id="spizLicz"></b></h3>
+    <p class="spizOpis" data-pl="Składnik kupujesz raz, na zawsze — dopiero wtedy trafia do kart w biegu. Każdy kolejny jest droższy."
+       data-en="Buy an ingredient once and keep it forever — only then does it show up on cards in a run. Each one costs more than the last.">Składnik kupujesz raz, na zawsze — dopiero wtedy trafia do kart w biegu. Każdy kolejny jest droższy.</p>
+    <div class="grid" id="spizItems"></div>
+    <div class="nonnaTab" id="nonnaSklep"></div>
   </div>
-  <!-- ================= USTAWIENIA (jeden panel na wszystko) =================
-       Właściciel 18.09: „dźwięk, ekran, sterowanie, język RAZEM". Dawne panele
-       `#p-dzwiek` i `#p-sterowanie` zostały scalone TUTAJ — markup przeniesiony
-       bez zmian, WSZYSTKIE id zostają (#sndBox, #volMuz…, #langBox, #ekranBox,
-       #ctrlBox), bo wiszą na nich audio.js, initEkranUI i renderSterowanie. -->
   <div class="panel" id="p-ustawienia">
     <h2 data-pl="USTAWIENIA" data-en="SETTINGS">USTAWIENIA</h2>
 
@@ -917,22 +902,25 @@
        Telefon: lewa połowa ekranu = joystick, prawa = obrót kamery, skok przyciskiem po prawej.<br>
        Podpowiedzi pada same dopasują się do jego rodziny (Xbox, PlayStation, Switch, Steam Deck).</p>
     <div id="ctrlBox"></div>
+    <!-- KOD OD NONNY (29.09): kody na monety dla wspierających — widoczne zawsze (nie tylko DEV); w źródle tylko hashe (kody.json) -->
+    <h3 class="sekcja" data-pl="KOD OD NONNY" data-en="A CODE FROM NONNA">KOD OD NONNY</h3>
+    <div id="kodBox">
+      <input id="kodInput" type="text" placeholder="XXXX-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="24"
+             aria-label="Kod od Nonny" data-pl="Kod od Nonny" data-en="A code from Nonna" data-attr="aria-label">
+      <button class="btn2" id="kodBtn" data-pl="UŻYJ KODU" data-en="USE CODE">UŻYJ KODU</button>
+      <div id="kodInfo"></div>
+    </div>
+    <div class="nonnaTab" id="nonnaKod"></div>
+    <!-- FABUŁA i KAWA przeniesione z ekranu głównego (audyt: cele dotyku 20 px). Kawa tylko web — main.js (KAWA_URL, JEST_APKA). -->
+    <h3 class="sekcja" data-pl="FABUŁA" data-en="STORY">FABUŁA</h3>
+    <div id="wFabulaBox">
+      <a id="fabulaBtn" class="btn2" href="#" data-pl="OBEJRZYJ KOMIKS" data-en="WATCH THE COMIC">OBEJRZYJ KOMIKS</a>
+      <a id="kawaBtn" class="btn2" href="#" target="_blank" rel="noopener" style="display:none"
+         data-pl="POSTAW MI KAWĘ" data-en="BUY ME A COFFEE">POSTAW MI KAWĘ</a>
+    </div>
   </div>
-  <div class="panel" id="p-staty"><h2 data-pl="STATYSTYKI" data-en="STATS">STATYSTYKI</h2><div id="statsList"></div></div>
   </div><!-- /#panele -->
-  </div><!-- /#menuUklad -->
-
-  <!-- PL | EN — obsługa w main.js (ustawJezyk); klasa `sel` na aktywnym języku.
-       CELOWO NA KOŃCU #startOv, mimo że wizualnie siedzi w prawym górnym rogu
-       (position:absolute): pad bierze `navItems()[0]` jako domyślne zaznaczenie,
-       a tym ma być GRAJ, nie przełącznik języka. Ruch padem jest geometryczny,
-       więc kolejność w DOM nie psuje nawigacji D-padem. -->
-  <div id="langSw"><button class="btn2" id="langPl">PL</button><button class="btn2" id="langEn">EN</button></div>
-
-  <!-- JEDNA LINIA: pełna instrukcja sterowania przeniosła się do zakładki
-       USTAWIENIA (sekcja STEROWANIE), a czterowierszowa stopka zjadała na
-       telefonie miejsce potrzebne scence i paskowi ikon. -->
-  <p id="startFoot"></p>
+ </div><!-- /#warzywniak -->
 </div>
 
 <!-- ================= EKRANY W GRZE ================= -->
@@ -1033,6 +1021,6 @@
     addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
   }
 </script>
-<script type="module" src="main.js?v=282"></script>
+<script type="module" src="main.js?v=295"></script>
 </body>
 </html>
