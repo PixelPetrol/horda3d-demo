@@ -4969,6 +4969,10 @@ const camDrag = { on: false, id: null, lx: 0, ly: 0 };
 // Escape zwalnia kursor (i przy okazji pauzuje — to samo, czego gracz oczekuje).
 // Przeciaganie zostaje jako awaryjne, gdy przegladarka odmowi blokady.
 let myszLock = false;
+// 30.09 (opinia testera z itch): po kliknięciu karty trzeba było drugi raz kliknąć w obraz, a na ekranie końca
+// kursor był zablokowany (Esc, żeby kliknąć JESZCZE RAZ). Overlay zapamiętuje, że mysz była przechwycona, a po
+// zamknięciu (w tym samym geście kliknięcia/klawisza) przechwytuje ją z powrotem.
+let myszWrac = false;
 const MYSZ_CZULOSC = 0.0032;           // rad na piksel ruchu
 function chwycMysz() {
   if (!G.running || G.paused || G.dying) return;
@@ -6369,6 +6373,9 @@ const CFG_TRUDNOSC = {
                                                    // rozgrzewki i z HP ×2 bot nieśmiertelny przy ×1 miał ~450 żywych w 3:00
       paczka: 2.5, paczkaMax: 36, strony: 2,
       obrecze: [15, 45],
+      // 30.09 Piotr po v305: „trochę za trudne, trochę mniej przeciwników na końcu" — od 5:30 w dół do ×0,78 w 9:00
+      // (podłoga 9:00 440 → ~340, tempo ×0,78); początek bez zmian
+      koniec: [[330, 1], [450, 0.85], [540, 0.78]],
       hp: { zwykly: 2, elita: 1.5, kapral: 1.5, don: 1.5 },
       lagodny: false, rekaPierwszy: true,
     },
@@ -6454,14 +6461,15 @@ function krzywaZalewu(K, t) {
 }
 // ZALEW: tabela fal presetu × nakładka Z → nowa tabela [start, tempo, paczka, podłoga] z punktami obu (falaTeraz bez zmian)
 function faleZalewu(F, Z) {
-  const czasy = [...new Set([...F.map(w => w[0]), ...(Z.podloga || []).map(p => p[0]), ...(Z.tempo || []).map(p => p[0])])].sort((a, b) => a - b);
+  const czasy = [...new Set([...F.map(w => w[0]), ...(Z.podloga || []).map(p => p[0]), ...(Z.tempo || []).map(p => p[0]), ...(Z.koniec || []).map(p => p[0])])].sort((a, b) => a - b);
   return czasy.map(t => {
     let i = F.length - 1;
     while (i > 0 && F[i][0] > t) i--;
     const a = F[i], b = F[i + 1], k = b ? Math.min(1, Math.max(0, (t - a[0]) / (b[0] - a[0]))) : 0;
     const tempo = (b ? _lin(a[1], b[1], k) : a[1]) * (krzywaZalewu(Z.tempo, t) ?? 1);
-    const podl = Math.max(b ? _lin(a[3], b[3], k) : a[3], krzywaZalewu(Z.podloga, t) ?? 0);
-    return [t, +tempo.toFixed(2), Math.min(Z.paczkaMax || 1e9, Math.round(a[2] * (Z.paczka || 1))), Math.min(460, Math.round(podl))];
+    const kn = krzywaZalewu(Z.koniec, t) ?? 1;     // 30.09: „trochę mniej przeciwników na końcu" — tempo i podłoga × kn
+    const podl = Math.max(b ? _lin(a[3], b[3], k) : a[3], krzywaZalewu(Z.podloga, t) ?? 0) * kn;
+    return [t, +(tempo * kn).toFixed(2), Math.min(Z.paczkaMax || 1e9, Math.round(a[2] * (Z.paczka || 1))), Math.min(460, Math.round(podl))];
   });
 }
 function zastosujZalew(Z) {
@@ -7718,9 +7726,25 @@ let pigulkaMat = null, pigulkaAspect = 1;
 let czosnekMat = null, czosnekAspect = 1;
 // E1: pigułki, monety, iskry, okruchy, puffy, fale i plamy to nośniki (Object3D poza sceną);
 // rysuje je `syncInstancje()` — po jednym draw callu na rodzaj
+// 30.09 (opinia testera z itch: „dropy chowają się w trawie, witaminy i złoto trudno dostrzec"): pigułki i monety
+// wiszą wyżej, są trochę większe i w shaderze przesuwają się o DROP_BIAS j. ku kamerze — kępy trawy wokół
+// nie zasłaniają ich, a blok/regał/skała dalej tak (to nie depthTest: false). Wzorzec jak sylwetki (E3 K2).
+const DROP_BIAS = 1.1, DROP_Y = { gem: 0.55, coin: 0.6 }, DROP_SKALA = 1.25;
+function dropNadTrawa(m, klucz) {
+  const stary = m.onBeforeCompile;
+  m.onBeforeCompile = (sh, r) => {
+    if (stary) stary.call(m, sh, r);
+    sh.vertexShader = sh.vertexShader.replace('#include <project_vertex>',
+      `#include <project_vertex>
+       mvPosition.xyz += normalize(-mvPosition.xyz) * ${DROP_BIAS.toFixed(2)};
+       gl_Position = projectionMatrix * mvPosition;`);
+  };
+  m.customProgramCacheKey = () => 'dropNadTrawa-' + klucz;
+  return m;
+}
 function makeGem(x, z, val) {
   const m = new THREE.Object3D();
-  m.scale.set(0.5 * pigulkaAspect, 0.5, 1);
+  m.scale.set(0.5 * DROP_SKALA * pigulkaAspect, 0.5 * DROP_SKALA, 1);
   m.position.set(x, terrainH(x, z) + 0.1, z);
   return { mesh: m, pos: new THREE.Vector3(x, 0, z), val, t: Math.random() * 6 };
 }
@@ -7751,7 +7775,7 @@ function coinMat4Val(val) {
 function makeCoin(x, z, val = 1) {
   // nośnik z materiałem tylko po to, żeby pula wzięła z niego kolor (instanceColor)
   const m = new THREE.Mesh(unitGeo, val > 1 ? coinMat4Val(val) : coinMat);
-  const s = val >= 10 ? 0.8 : (val >= 4 ? 0.62 : 0.5);
+  const s = (val >= 10 ? 0.8 : (val >= 4 ? 0.62 : 0.5)) * DROP_SKALA;
   m.scale.set(s, s, 1);
   m.position.set(x, terrainH(x, z) + 0.1, z);
   return { mesh: m, pos: new THREE.Vector3(x, 0, z), t: Math.random() * 6, val };
@@ -9863,6 +9887,7 @@ const ovWidoczny = () =>
   document.getElementById('swapOv').style.display === 'flex' ||
   document.getElementById('skrzyniaOv').style.display === 'flex';   // E2 K4: jackpot złotej skrzyni
 function pchnijOverlay(fn) {
+  if (myszLock) myszWrac = true;                   // po zamknięciu wszystkich overlayów wrócimy do przechwyconej myszy
   puscMysz();                                      // karty klika sie kursorem
   // TRUP NIE AWANSUJE: obrazenia od spadajacego regalu i od Sodina wolaja `startDeath()`
   // BEZ `return`, wiec ta sama klatka leciala dalej do petli pigulek i mogla otworzyc
@@ -9886,6 +9911,7 @@ function zamknijOverlay(id) {
   const nast = OV_Q.shift();
   if (nast) { G.paused = true; nast(); return; }   // pauza trwa dalej dla następnego
   G.paused = false;
+  if (myszWrac) { myszWrac = false; setTimeout(chwycMysz, 0); }   // wciąż w geście gracza (aktywacja trwa kilka s)
 }
 function showCards(o = {}) {
   if (!o.zrodlo) G.oknoAwansu = false;              // AWANS CO 3: okno awansu z kolejki właśnie się otwiera
@@ -13074,7 +13100,7 @@ function update(dt) {
     const g = G.gems[i]; g.t += dt;
     const d = g.pos.distanceTo(P.pos);
     if (d < mag) g.pos.addScaledVector(_doGracza.copy(P.pos).sub(g.pos).normalize(), Math.max(14 - d, 8) * dt);
-    g.mesh.position.set(g.pos.x, terrainH(g.pos.x, g.pos.z) + 0.25 + Math.sin(g.t * 4) * 0.12, g.pos.z);
+    g.mesh.position.set(g.pos.x, terrainH(g.pos.x, g.pos.z) + DROP_Y.gem + Math.sin(g.t * 4) * 0.12, g.pos.z);
     g.mesh.rotation.set(0, camYaw, g.t * 2);
     // porzucone dropy znikaja: mapa jest nieskonczona, wiec bez tego wszystko
     // zostawione za plecami zostaje na zawsze (zmierzone: 299 pigulek po 4:43)
@@ -13095,7 +13121,7 @@ function update(dt) {
     const c = G.coins[i]; c.t += dt;
     const d = c.pos.distanceTo(P.pos);
     if (d < mag) c.pos.addScaledVector(_doGracza.copy(P.pos).sub(c.pos).normalize(), Math.max(14 - d, 8) * dt);
-    c.mesh.position.set(c.pos.x, terrainH(c.pos.x, c.pos.z) + 0.3 + Math.sin(c.t * 5) * 0.1, c.pos.z);
+    c.mesh.position.set(c.pos.x, terrainH(c.pos.x, c.pos.z) + DROP_Y.coin + Math.sin(c.t * 5) * 0.1, c.pos.z);
     c.mesh.rotation.y = camYaw;
     if (c.t > 60 && d > mag * 3) { scene.remove(c.mesh); G.coins.splice(i, 1); continue; }
     if (d < 0.7) {
@@ -13460,6 +13486,8 @@ function koniecBiegu(powod = 'smierc') {
 // PC szerzej): lewa = czas, „prawie", sprawca, liczniki, monety z mnożnikiem, następny cel; prawa = bronie.
 // Liczby lecą tickerem (~0,9 s) — cały wynik widać w < 3 s (biblia).
 function pokazEkranKonca(wygrana, d, o) {
+  if (myszLock) myszWrac = true;
+  puscMysz();                                      // 30.09: JESZCZE RAZ / Menu klikalne od razu, bez Esc
   const h1 = document.querySelector('#overOv h1');
   h1.textContent = wygrana ? T('WIECZÓR WYGRANY!', 'EVENING WON!') : T('KONIEC', 'GAME OVER');
   h1.classList.toggle('wygrana', wygrana);
@@ -13952,8 +13980,8 @@ function syncInstancje() {
     const gm = glowMat.clone(); gm.opacity = 1;      // krycie 0.85 siedzi w `a` puffa
     pulaPuff = new InstPula(unitGeo, gm, { kolor: true, alfa: true, cap: 48, nazwa: 'puffy' });
     pulaFala = new InstPula(blobGeo, ringMat.clone(), { alfa: true, cap: 32, nazwa: 'fale' });
-    pulaGemy = new InstPula(unitGeo, pigulkaMat.clone(), { cap: 128, nazwa: 'pigułki' });
-    pulaMonety = new InstPula(unitGeo, coinMat.clone(), { kolor: true, cap: 32, nazwa: 'monety' });
+    pulaGemy = new InstPula(unitGeo, dropNadTrawa(pigulkaMat.clone(), 'gemy'), { cap: 128, nazwa: 'pigułki' });
+    pulaMonety = new InstPula(unitGeo, dropNadTrawa(coinMat.clone(), 'monety'), { kolor: true, cap: 32, nazwa: 'monety' });
     // E1-bieg K7/K8: telegrafy (depthTest:false, renderOrder nad wszystkim w świecie) i pociski Dona
     pulaTelDysk = new InstPula(blobGeo, telMat(telDyskTexture()), { kolor: true, alfa: true, renderOrder: 950, cap: 16, nazwa: 'telegrafy: dyski' });
     pulaTelPas = new InstPula(pasGeo(), telMat(telPasTexture()), { kolor: true, alfa: true, renderOrder: 950, cap: 8, nazwa: 'telegrafy: pasy' });
@@ -14647,8 +14675,10 @@ if (loadTip) {
     zamknijKawe();
     document.getElementById('overOv').style.display = 'none';
     newGame();
+    if (myszWrac) { myszWrac = false; setTimeout(chwycMysz, 0); }   // grał myszą — od razu z powrotem, bez klikania w obraz
   };
   document.getElementById('btnMenu').onclick = () => {
+    myszWrac = false;
     zamknijKawe();
     document.getElementById('overOv').style.display = 'none';
     menu.style.display = 'flex';
