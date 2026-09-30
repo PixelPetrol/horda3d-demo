@@ -1,4 +1,9 @@
 {
   "_opis": "Kody od Nonny: tylko SHA-256 kodu (z solą z main.js KODY_NONNY.SOL) i liczba monet. Dopisuje narzedzia/kod_monet.py. Jawne kody NIE trafiają do repo.",
-  "kody": []
+  "kody": [
+    {
+      "h": "1fbe5943ebde9e1f6de60b865903b30736ec7a0614f6f8ab79b488516766eaee",
+      "m": 2000
+    }
+  ]
 }

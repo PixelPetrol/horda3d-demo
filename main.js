@@ -6376,6 +6376,9 @@ const CFG_TRUDNOSC = {
       // 30.09 Piotr po v305: „trochę za trudne, trochę mniej przeciwników na końcu" — od 5:30 w dół do ×0,78 w 9:00
       // (podłoga 9:00 440 → ~340, tempo ×0,78); początek bez zmian
       koniec: [[330, 1], [450, 0.85], [540, 0.78]],
+      // 30.09 wieczór, Piotr po v307: „trochę za trudne, daj mniej wrogów o 1/3 na początku, bo nie mogę dotrzeć do 5 min"
+      // → do 3:00 tempo i podłoga ×0,67 (1:00: 80 → 54 żywych, 2:00: 130 → 87), potem liniowo do ×1 w 5:00
+      start: [[0, 0.67], [180, 0.67], [300, 1]],
       hp: { zwykly: 2, elita: 1.5, kapral: 1.5, don: 1.5 },
       lagodny: false, rekaPierwszy: true,
     },
@@ -6461,13 +6464,13 @@ function krzywaZalewu(K, t) {
 }
 // ZALEW: tabela fal presetu × nakładka Z → nowa tabela [start, tempo, paczka, podłoga] z punktami obu (falaTeraz bez zmian)
 function faleZalewu(F, Z) {
-  const czasy = [...new Set([...F.map(w => w[0]), ...(Z.podloga || []).map(p => p[0]), ...(Z.tempo || []).map(p => p[0]), ...(Z.koniec || []).map(p => p[0])])].sort((a, b) => a - b);
+  const czasy = [...new Set([...F.map(w => w[0]), ...(Z.podloga || []).map(p => p[0]), ...(Z.tempo || []).map(p => p[0]), ...(Z.koniec || []).map(p => p[0]), ...(Z.start || []).map(p => p[0])])].sort((a, b) => a - b);
   return czasy.map(t => {
     let i = F.length - 1;
     while (i > 0 && F[i][0] > t) i--;
     const a = F[i], b = F[i + 1], k = b ? Math.min(1, Math.max(0, (t - a[0]) / (b[0] - a[0]))) : 0;
     const tempo = (b ? _lin(a[1], b[1], k) : a[1]) * (krzywaZalewu(Z.tempo, t) ?? 1);
-    const kn = krzywaZalewu(Z.koniec, t) ?? 1;     // 30.09: „trochę mniej przeciwników na końcu" — tempo i podłoga × kn
+    const kn = (krzywaZalewu(Z.koniec, t) ?? 1) * (krzywaZalewu(Z.start, t) ?? 1);   // 30.09: końcówka i start — tempo i podłoga × kn
     const podl = Math.max(b ? _lin(a[3], b[3], k) : a[3], krzywaZalewu(Z.podloga, t) ?? 0) * kn;
     return [t, +(tempo * kn).toFixed(2), Math.min(Z.paczkaMax || 1e9, Math.round(a[2] * (Z.paczka || 1))), Math.min(460, Math.round(podl))];
   });
