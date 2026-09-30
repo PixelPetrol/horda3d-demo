@@ -12,6 +12,9 @@ import * as TO from './lib/teren-osiedle.js?v=2';  // mapa „Osiedle": układ k
 // (ten sam kontrakt), zamień ścieżkę na './lib/osiedle-rekwizyty.js'. Reszta kodu woła tylko `OSR.*`.
 import * as OSR from './lib/osiedle-rekwizyty.js?v=2';   // 30.09: prawdziwe modele (zaślepki: lib/osiedle-zaslepki.js)
 import * as MS from './lib/modele-skrzynie.js?v=1';     // 30.09: skrzynie i kapliczki 3D (sekcja „SKRZYNIE I KAPLICZKI 3D" niżej)
+import * as ML from './lib/modele-laki.js?v=1';         // 30.09: stosy skrzyń, podesty, schody na Łąkach/Wąwozach (sekcja „ŁĄKI — MODELE 3D")
+import * as MM from './lib/modele-market.js?v=2';       // 30.09: Market — modele, atlas towaru, posadzka w shaderze (sekcja „MARKET — PRZEBUDOWA")
+import * as UM from './lib/uklad-marketu.js?v=2';       // 30.09: Market — układ chunka (strefy, alejki, hale, plamy)
 
 // ============================== JĘZYK (PL / EN) ==============================
 // Decyzja właściciela (18.09): dwa języki, start w języku przeglądarki, przełącznik w menu,
@@ -80,7 +83,7 @@ const MAPS = {
             sky: 0x9cc8ec, fog: [80, 190], water: true, indoor: false, rzeki: true, price: 0 },
   market: { nm: T('Market', 'Supermarket'), ico: 'market',
             ds: T('Ciasne alejki, regały, śliska rozlana woda', 'Tight aisles, shelves, slippery spills'),
-            sky: 0xb8bfc7, fog: [34, 95], water: false, indoor: true, price: 0 },
+            sky: 0xefe9df, fog: [34, 95], water: false, indoor: true, price: 0 },   // 30.09: ciepła, jasna hala (było 0xb8bfc7)
 };
 let mapKey = 'laki';
 
@@ -469,7 +472,7 @@ const SKY = {
   laki:   { dol: 0x9cc8ec, srodek: 0x7fb6e6, gora: 0x4a86cf, slonce: 0xfff0c4, pasy: 16 },
   // osiedle: jaśniejsze, lekko zamglone niebo nad blokami (dół = MAPS.osiedle.sky = kolor mgły)
   osiedle: { dol: 0xb3cde6, srodek: 0x8dbbe6, gora: 0x5189cc, slonce: 0xffe7bd, pasy: 16 },
-  market: { dol: 0xb8bfc7, srodek: 0xacb4bd, gora: 0x939ba5, slonce: 0xd8d8d0, pasy: 0 },
+  market: { dol: 0xefe9df, srodek: 0xebe4d8, gora: 0xe3dacb, slonce: 0xfff6e6, pasy: 0 },
 };
 const skyU = {
   uDol:    { value: new THREE.Color(SKY.laki.dol) },
@@ -873,67 +876,45 @@ function shelfTexture() {
 }
 let shelfMat = null, coolerMat = null;   // tworzone w boot
 const shelfGeo = new THREE.BoxGeometry(1, 1, 1);
-// Sześć osobnych bryłek na regał (a regałów jest ~850) dawało 5100 mesh'y
-// i 610 draw calli tylko na market — pomiar audytu: 4.73 ms renderu przy PUSTEJ
-// arenie i wzrost do 6.44 ms po ZMNIEJSZENIU okna, czyli koszt siedzi w liczbie
-// obiektów, nie w pikselach. Scalamy więc bryłki w jedną geometrię i wystawiamy
-// je jako INSTANCJE per chunk: 3 draw calle na chunk zamiast 3 na regał.
-// Geometrię budujemy dla kier = +1; kier = -1 to ta sama bryła obrócona o 180°.
-function scalBryly(bryly) {
-  const poz = [], nor = [], uv = [], idx = [];
-  for (const b of bryly) {
-    const g = new THREE.BoxGeometry(b.sx, b.sy, b.sz);
-    g.translate(0, b.ly, b.lz);
-    const p = g.attributes.position, n = g.attributes.normal, u = g.attributes.uv, ind = g.index;
-    const off = poz.length / 3;
-    for (let i = 0; i < p.count; i++) {
-      poz.push(p.getX(i), p.getY(i), p.getZ(i));
-      nor.push(n.getX(i), n.getY(i), n.getZ(i));
-      uv.push(u.getX(i), u.getY(i));
-    }
-    for (let i = 0; i < ind.count; i++) idx.push(ind.getX(i) + off);
-    g.dispose();
-  }
-  const out = new THREE.BufferGeometry();
-  out.setAttribute('position', new THREE.Float32BufferAttribute(poz, 3));
-  out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-  out.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  out.setIndex(idx);
-  return out;
-}
-let regalGeo = null;          // { korpus, polkiDol, polkiGora }
-function initRegalGeo() {
-  const len = 7, O = -0.8;                        // O = przesunięcie względem pivotu (krawędź podstawy)
-  regalGeo = {
-    korpus: scalBryly([{ sx: len, sy: SHELF_H, sz: 1.6, ly: SHELF_H / 2, lz: O }]),
-    // dolne półki + blat: to, co zostaje widoczne po przewróceniu
-    polkiDol: scalBryly([
-      { sx: len, sy: 0.14, sz: 0.6, ly: 0.8, lz: 1.05 + O },
-      { sx: len, sy: 0.14, sz: 0.6, ly: 1.6, lz: 1.05 + O },
-      { sx: len + 0.3, sy: 0.16, sz: 2.1, ly: SHELF_H + 0.08, lz: O },
-    ]),
-    // te dwie po obrocie STAJĄ PIONOWO i wystają na 2.15 j., więc na czas
-    // leżenia chowamy je (zerowa skala instancji)
-    polkiGora: scalBryly([
-      { sx: len, sy: 0.14, sz: 0.6, ly: 0.8, lz: -1.05 + O },
-      { sx: len, sy: 0.14, sz: 0.6, ly: 1.6, lz: -1.05 + O },
-    ]),
-  };
-}
+// ═══ MARKET — PRZEBUDOWA (30.09): regał = moduł 4 j. z lib/modele-market.js, JEDNA InstancedMesh na chunk ═══
+// (dawniej 3 InstancedMesh na chunk + osobne Mesh palet i lad: ~550 draw calli na pustej arenie).
+// Macierz instancji = T(pivot) · Ry(yaw) · Rx(kąt upadku) — Euler 'YXZ'. Stare `new Euler(kąt, yaw, 0)` (XYZ = Rx·Ry)
+// obracało regał z kier −1 W PODŁOGĘ: wrak zapadał się pod posadzkę i zostawał z niego sam blat (zrzut przed/po).
+// instanceColor = (stan 0 stoi / 1 pada / 2 leży, dział 0..7, wariant 0/1) — shader wybiera cień kontaktowy stojącego
+// albo leżącego regału i pas towaru działu. `s.poZ` = regał pada wzdłuż Z (długość wzdłuż X); `s.piv` = współrzędna
+// krawędzi podstawy od strony upadku na osi upadku, `s.a`/`s.b` = środek na osi upadku / wzdłuż długości.
 const _rm = new THREE.Matrix4(), _rq = new THREE.Quaternion(), _rp = new THREE.Vector3(), _rs = new THREE.Vector3(1, 1, 1);
-const _rzero = new THREE.Vector3(0, 0, 0);
-// zapisuje macierz instancji regału (obrót przewracania + yaw dla kierunku)
+const _re = new THREE.Euler(0, 0, 0, 'YXZ');
+const STAN_REGALU = { stoi: 0, pada: 1, lezy: 2 };
 function ustawRegal(s, kat) {
-  _rp.set(s.x, s.g0, s.pivotZ);
-  _rq.setFromEuler(new THREE.Euler(kat, s.kier === 1 ? 0 : Math.PI, 0));
+  if (s.poZ) { _rp.set(s.x, s.g0, s.piv); _re.set(kat, s.kier > 0 ? 0 : Math.PI, 0); }
+  else { _rp.set(s.piv, s.g0, s.z); _re.set(kat, s.kier > 0 ? Math.PI / 2 : -Math.PI / 2, 0); }
+  _rq.setFromEuler(_re);
   _rm.compose(_rp, _rq, _rs);
-  s.inst.korpus.setMatrixAt(s.i, _rm);
-  s.inst.polkiDol.setMatrixAt(s.i, _rm);
-  if (s.stan === 'lezy') { _rm.compose(_rp, _rq, _rzero); }      // schowane górne półki
-  s.inst.polkiGora.setMatrixAt(s.i, _rm);
-  s.inst.korpus.instanceMatrix.needsUpdate = true;
-  s.inst.polkiDol.instanceMatrix.needsUpdate = true;
-  s.inst.polkiGora.instanceMatrix.needsUpdate = true;
+  s.im.setMatrixAt(s.i, _rm);
+  s.im.instanceMatrix.needsUpdate = true;
+  const c = s.im.instanceColor.array;
+  c[s.i * 3] = STAN_REGALU[s.stan]; c[s.i * 3 + 1] = s.kat; c[s.i * 3 + 2] = s.war;
+  s.im.instanceColor.needsUpdate = true;
+}
+// punkt świata z (a = oś upadku, b = wzdłuż regału) → _rpk
+const _rpk = { x: 0, z: 0 };
+function regPkt(s, a, b) { if (s.poZ) { _rpk.x = b; _rpk.z = a; } else { _rpk.x = a; _rpk.z = b; } return _rpk; }
+const REG_HL = UM.REGAL.hl;                      // pół-grubość bryły stojącego regału: 1,1 (głębokość 1,6 + zapas, jak dawniej) — sprite
+                                                 // gracza pochylony do kamery o ~22° wchodził głową w regał za plecami i znikał do pasa
+// bryła kolizji: stojący regał = ściana 2,46 j. (trzeba 🦘🦘 albo obejść); leżący = rumowisko 1,55 j. do wskoczenia
+function brylaRegalu(s, lezy) {
+  const S = s.solid;
+  if (!lezy) {
+    S.x = s.x; S.z = s.z; S.top = s.g0 + SHELF_H + 0.16;
+    if (s.poZ) { S.hw = s.len / 2; S.hl = REG_HL; } else { S.hw = REG_HL; S.hl = s.len / 2; }
+  } else {
+    // Szczyt MUSI zgadzać się z płaszczyzną wraku (1,6), inaczej stoi się w powietrzu albo po pas w deskach.
+    // 1,55 = ledwo pod nią, a apeks skoku (1,461) + tolerancja 0,25 nadal łapie wejście.
+    const c = s.piv + s.kier * 1.23;
+    if (s.poZ) { S.x = s.x; S.z = c; S.hw = s.len / 2 + 0.15; S.hl = 1.23; } else { S.x = c; S.z = s.z; S.hw = 1.23; S.hl = s.len / 2 + 0.15; }
+    S.top = s.g0 + 1.55;
+  }
 }
 
 const SHELF_H = 2.3;   // za wysoko na 1 skok — trzeba 🦘🦘 albo obejść
@@ -6035,6 +6016,7 @@ function spawnEnemy(type, angle = null, przy = null, opcje = {}) {
     bb: new Billboard(T.char || type, T.scale * (elite ? 1.45 : 1) * (opcje.skala || 1), false, true),   // true = instancja (E1); skala: kapral ×1,9
   };
   if (MAPS[mapKey].osiedle) osPoprawPunkt(e.pos);   // osiedle: nigdy w bryle bloku/garażu (pierścienie, ściany, paczki)
+  else if (MAPS[mapKey].indoor) mkPoprawPunkt(e.pos);   // market: nie w regale / na palecie
   e.ty = terrainH(e.pos.x, e.pos.z);
   if (elite) {                              // fioletowa obwódka pod elitą (instancja w `pulaKrag`, poza sceną)
     e.ring = new THREE.Object3D();
@@ -6843,6 +6825,7 @@ function recyklingDalekich() {
     const r = rZaKadrem(a, R[0] + Math.random() * (R[1] - R[0]));
     e.pos.set(P.pos.x + Math.sin(a) * r, 0, P.pos.z + Math.cos(a) * r);
     if (MAPS[mapKey].osiedle) osPoprawPunkt(e.pos);   // osiedle: nie w bryle
+    else if (MAPS[mapKey].indoor) mkPoprawPunkt(e.pos);
     e.ty = terrainH(e.pos.x, e.pos.z); e.vy = 0;
     e.kb.set(0, 0, 0); e.faz = null; e.szarzaCd = null; e.sciana = null;
     if (e.T.szarzuje || e.T.wiruje) e.bb.mesh.scale.set(e.bb.h, e.bb.h, 1);
@@ -7006,6 +6989,7 @@ function spawnKapral(nr, natychmiast = false) {
   let x = P.pos.x + Math.sin(a) * r, z = P.pos.z + Math.cos(a) * r;
   // osiedle: telegraf i kapral w tym samym, wolnym miejscu (spawnEnemy i tak by go wypchnął — ale krąg zostałby w bloku)
   if (MAPS[mapKey].osiedle) { _osP.set(x, 0, z); osPoprawPunkt(_osP); x = _osP.x; z = _osP.z; }
+  else if (MAPS[mapKey].indoor) { _osP.set(x, 0, z); mkPoprawPunkt(_osP); x = _osP.x; z = _osP.z; }   // market: krąg i kapral poza regałem
   if (natychmiast) return zrodzKaprala(nr, x, z);
   // 1 s pulsującego fioletowego kręgu PRZED pojawieniem (telegraf miejsca) — ozdoba, nie strefa ciosu
   telegraf('krag', x, z, { r: 1.8, kolor: 0xb070ff, dur: KC.telegraf, puls: true, strefa: false });
@@ -10617,122 +10601,80 @@ function buildChunk(cx, cz) {
   let grass = null;
 
   if (MAPS[mapKey].indoor) {
-    // ======== MARKET: rozlana woda (ŚLISKO!) ========
-    const nPlam = rng() < 0.75 ? 1 + Math.floor(rng() * 3) : 0;
-    for (let i = 0; i < nPlam; i++) {
-      const x = wx0 + (rng() - 0.5) * CHUNK, z = wz0 + (rng() - 0.5) * CHUNK;
-      if (Math.abs(x) < 7 && Math.abs(z) < 7) continue;
-      const r = 4.0 + rng() * 4.5;
-      const m = new THREE.Mesh(blobGeo, spillMat);
-      m.scale.set(r * 2, 1, r * 2);
-      m.position.set(x, terrainH(x, z) + 0.03, z);
-      scene.add(m);
-      rocks.push(m);
-      spills.push({ x, z, r });
+    // ======== MARKET (30.09, sekcja „MARKET — PRZEBUDOWA" w INFO-PROJEKT.md) ========
+    // Układ chunka (strefa: regały / mrożonki / warzywa / kasy / promocja, alejki, hale, plamy) liczy
+    // lib/uklad-marketu.js z `rng` chunka; wygląd — lib/modele-market.js. Siatka terenu z góry funkcji zostaje
+    // obiektem chunka, ale dostaje geometrię CAŁEGO statycznego marketu: posadzka (płytki, pasy alejek, odbicia lamp
+    // liczone w shaderze), rekwizyty, cienie kontaktowe i rozlana woda = 1 draw call. Szkło lad i folia palet =
+    // 2. siatka (przezroczysta), regały = 3. (InstancedMesh modułów 4 j., przewracane — `ustawRegal`).
+    mkInit();
+    const U = UM.ukladChunka(cx, cz, rng);
+    const g0 = terrainH(wx0, wz0);
+    const B = MM.zbudujChunk(THREE, U, g0, CHUNK);
+    geo.dispose();                                   // płaska siatka 20 × 20 z góry funkcji nie jest potrzebna
+    mesh.geometry = B.geo; mesh.material = MK.mat;
+    mesh.userData.mk = { strefa: U.strefa, v: B.wierzcholki };
+    if (B.geoSzkla) {
+      const sz = new THREE.Mesh(B.geoSzkla, MK.matSzkla);
+      sz.position.copy(mesh.position); sz.wlasnaGeo = true;
+      scene.add(sz); rocks.push(sz);
     }
-    // ======== MARKET: regały (2 poziomy półek), palety, lady, ciasne alejki ========
-    for (let rowZ = -CHUNK / 2 + 4; rowZ < CHUNK / 2; rowZ += 8) {
-      for (let sx = -CHUNK / 2 + 5; sx < CHUNK / 2 - 3; sx += 10) {
-        const x = wx0 + sx, z = wz0 + rowZ;
-        if (Math.abs(x) < 7 && Math.abs(z) < 7) continue;   // czysty spawn
-        const g0 = terrainH(x, z);
-        const co = rng();
-        if (co < 0.22) {
-          // PALETA ze skrzynkami — NISKA (0.95), wskoczysz bez podwójnego skoku
-          const pal = new THREE.Mesh(shelfGeo, plankMat);
-          pal.scale.set(3.4, 0.35, 2.6);
-          pal.position.set(x, g0 + 0.175, z);
-          scene.add(pal); rocks.push(pal);
-          const box = new THREE.Mesh(shelfGeo, crateMat);
-          box.scale.set(2.6, 0.6, 2);
-          box.position.set(x, g0 + 0.65, z);
-          scene.add(box); rocks.push(box);
-          solids.push({ x, z, hw: 1.7, hl: 1.3, top: g0 + 0.95 });
-        } else if (co < 0.34) {
-          // LADA / stoisko chłodnicze — średnia (1.5), przeskok ze skoku z rozbiegu
-          const lada = new THREE.Mesh(shelfGeo, coolerMat);
-          lada.scale.set(6, 1.5, 2.2);
-          lada.position.set(x, g0 + 0.75, z);
-          scene.add(lada); rocks.push(lada);
-          solids.push({ x, z, hw: 3, hl: 1.1, top: g0 + 1.5 });
-        } else if (co < 0.62) {
-          continue;                               // przerwa = przejście w alejce
-        } else {
-          // REGAŁ: korpus + 2 wystające półki (bryły) = lepiej czytelny.
-          // Wszystkie części siedzą w GRUPIE, której pivot leży na KRAWĘDZI
-          // podstawy od strony upadku — dzięki temu przewracanie to jeden obrót
-          // `rotation.x`, a nie ręczne przeliczanie pozycji pięciu bryłek.
-          const len = 7;
-          const kier = rng() < 0.5 ? 1 : -1;               // w którą stronę się przewróci
-          // PARA PLECAMI DO SIEBIE (40% miejsc): przewrócony regał sięga 2.3 j.,
-          // a rzędy stoją 8 j. od siebie — bez pary DOMINO nie ma czego trącić.
-          // Oba regały w parze padają w TĘ SAMĄ stronę, więc pierwszy wywala drugi.
-          const para = rng() < 0.4;
-          const offs = para ? [-1.25 * kier, 1.25 * kier] : [0];
-          for (const oz of offs) {
-            const zz = z + oz;
-            const pivotZ = zz + kier * 0.8;                // krawędź podstawy od strony upadku
-            const solid = { x, z: zz, hw: len / 2, hl: 1.1, top: g0 + SHELF_H + 0.16 };
-            solids.push(solid);
-            shelves.push({ solid, x, z: zz, g0, len, kier, pivotZ, t: 0, stan: 'stoi' });
-          }
-        }
-      }
+    // bryły rekwizytów: palety/stoiska ~0,9–0,95, wózki 1,05, kasy 1,0, lady 1,5 — wszystko do wskoczenia
+    for (const o of U.obiekty) { const b = UM.brylaObiektu(o); solids.push({ x: b.x, z: b.z, hw: b.hw, hl: b.hl, top: g0 + b.top }); }
+    for (const p of U.plamy) spills.push({ x: p.x, z: p.z, r: p.r });
+    if (U.regaly.length) {
+      const im = new THREE.InstancedMesh(MK.geoRegalu, MK.matRegal, U.regaly.length);
+      im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(U.regaly.length * 3), 3);
+      // własna sfera (chunk + wraki ≤ 2,5 j. poza obrys) → frustum culling działa także dla instancji
+      im.boundingSphere = new THREE.Sphere(new THREE.Vector3(wx0, g0 + 1.2, wz0), 31);
+      scene.add(im); rocks.push(im);
+      mesh.userData.mk.im = im;                      // mkKlatka: wariant materiału z przycinaniem przy kamerze
+      U.regaly.forEach((r, i) => {
+        const a = r.poZ ? r.z : r.x, b = r.poZ ? r.x : r.z;
+        const sh = { solid: {}, x: r.x, z: r.z, g0, len: UM.REGAL.dl, kier: r.kier, poZ: r.poZ, a, b, piv: a + r.kier * UM.REGAL.gl / 2,
+                     kat: r.kat, war: r.war, t: 0, stan: 'stoi', im, i };
+        brylaRegalu(sh, false);
+        solids.push(sh.solid);
+        shelves.push(sh);
+        ustawRegal(sh, 0);
+      });
     }
-    // ======== REGAŁY JAKO INSTANCJE: 3 draw calle na chunk zamiast 3 na regał ========
-    if (shelves.length) {
-      if (!regalGeo) initRegalGeo();
-      const inst = {
-        korpus: new THREE.InstancedMesh(regalGeo.korpus, shelfMat, shelves.length),
-        polkiDol: new THREE.InstancedMesh(regalGeo.polkiDol, plankMat, shelves.length),
-        polkiGora: new THREE.InstancedMesh(regalGeo.polkiGora, plankMat, shelves.length),
-      };
-      for (const im of [inst.korpus, inst.polkiDol, inst.polkiGora]) {
-        im.frustumCulled = false;                  // regały sięgają poza pudełko chunka
-        scene.add(im); rocks.push(im);
-      }
-      shelves.forEach((sh, i) => { sh.inst = inst; sh.i = i; ustawRegal(sh, 0); });
-    }
+    // SIATKA BRYŁ: solveSolids/supportY pytają tylko o komórkę 4 × 4 j. punktu (~3 bryły zamiast ~50 na chunk)
+    solids.siatka = mkSiatkaBryl(solids, shelves, wx0, wz0);
+    // MASKA DLA POLA PRZEPŁYWU HORDY (to samo TO.Nawigacja co na osiedlu): stojący regał = ściana, leżący regał
+    // i rekwizyty (≤ 1,5 j.) = „niskie" (droższe, horda woli obejść, ale wejdzie). Odświeżana, gdy regał padnie/wstanie.
+    const maska = () => OS.maski.set(osKlucz(cx, cz), TO.maskiKolizji(
+      solids.map(b => ({ x: b.x, z: b.z, hw: b.hw, hl: b.hl, wys: b.top - g0 })), wx0 - CHUNK / 2, wz0 - CHUNK / 2));
+    maska();
+    for (const sh of shelves) sh.maska = maska;
   } else {
-    // ======== ŁĄKI: struktury do wskakiwania (proste bryły) ========
+    // ======== ŁĄKI: struktury do wskakiwania — MODELE 3D (lib/modele-laki.js, sekcja „ŁĄKI — MODELE 3D") ========
+    // Kolizje (`solids`: pozycje, hw/hl, top) i liczba wywołań rng() BEZ ZMIAN względem prostych brył sprzed 30.09.
+    // Wygląd: stos skrzyń na warzywa / taras na palach / kamienne schody — cała struktura chunka = JEDNA scalona
+    // siatka (`flushLaki`: 1 draw call + 1 w cieniu; dawniej 3 / 6 / 3 Meshe bez cieni).
+    const laki = new ML.Zbior();
+    let lakiDawniej = 0;                           // ile Meshy stawiała stara wersja (strumień bota — patrz flushLaki)
     const rr = rng();
     if (rr < 0.30) {
       // STOSY SKRZYŃ — schodki 0.9 / 1.7 (wskakujesz bez podwójnego skoku)
       const x = wx0 + (rng() - 0.5) * CHUNK * 0.7, z = wz0 + (rng() - 0.5) * CHUNK * 0.7;
       if (terrainH(x, z) > wodaY(x, z) + 0.4) {
         const g0 = terrainH(x, z);
-        const uklad = [[0, 0, 0.9], [1.5, 0.3, 1.7], [0.7, 1.6, 1.3]];
+        const uklad = ML.WYMIARY.stos, obroty = [];   // [[0, 0, 0.9], [1.5, 0.3, 1.7], [0.7, 1.6, 1.3]]
         for (const [ox, oz, h] of uklad) {
-          const m = new THREE.Mesh(shelfGeo, crateMat);
-          m.scale.set(1.4, h, 1.4);
-          m.position.set(x + ox, g0 + h / 2, z + oz);
-          m.rotation.y = rng() * 0.5;
-          scene.add(m); rocks.push(m);
+          obroty.push(rng());                      // dawniej rotation.y = rng() * 0.5 (tylko wygląd — kolizja i tak osiowa)
           solids.push({ x: x + ox, z: z + oz, hw: 0.7, hl: 0.7, top: g0 + h });
         }
+        laki.stos(x, z, g0, obroty); lakiDawniej += 3;
       }
     } else if (rr < 0.48) {
       // DREWNIANY PODEST NA PALACH — wysoki taras (2.1), wejście po skrzyni obok
       const x = wx0 + (rng() - 0.5) * CHUNK * 0.7, z = wz0 + (rng() - 0.5) * CHUNK * 0.7;
       if (terrainH(x, z) > wodaY(x, z) + 0.4) {
         const g0 = terrainH(x, z), H = 2.1;
-        const deck = new THREE.Mesh(shelfGeo, plankMat);
-        deck.scale.set(5.4, 0.35, 5.4);
-        deck.position.set(x, g0 + H, z);
-        scene.add(deck); rocks.push(deck);
         solids.push({ x, z, hw: 2.7, hl: 2.7, top: g0 + H + 0.18 });
-        for (const [px, pz] of [[-2.3, -2.3], [2.3, -2.3], [-2.3, 2.3], [2.3, 2.3]]) {
-          const p2 = new THREE.Mesh(shelfGeo, plankMat);
-          p2.scale.set(0.4, H, 0.4);
-          p2.position.set(x + px, g0 + H / 2, z + pz);
-          scene.add(p2); rocks.push(p2);
-        }
-        // stopień wejściowy
-        const st = new THREE.Mesh(shelfGeo, crateMat);
-        st.scale.set(1.6, 1.1, 1.6);
-        st.position.set(x + 3.6, g0 + 0.55, z);
-        scene.add(st); rocks.push(st);
-        solids.push({ x: x + 3.6, z, hw: 0.8, hl: 0.8, top: g0 + 1.1 });
+        solids.push({ x: x + 3.6, z, hw: 0.8, hl: 0.8, top: g0 + 1.1 });   // stopień wejściowy (skrzynia)
+        laki.podest(x, z, g0); lakiDawniej += 6;
       }
     } else if (rr < 0.60) {
       // KAMIENNE SCHODY na wzniesienie (3 stopnie)
@@ -10741,14 +10683,12 @@ function buildChunk(cx, cz) {
         const g0 = terrainH(x, z);
         for (let s2 = 0; s2 < 3; s2++) {
           const h = 0.6 + s2 * 0.6;
-          const m = new THREE.Mesh(shelfGeo, stoneMat);
-          m.scale.set(3, h, 1.5);
-          m.position.set(x, g0 + h / 2, z + s2 * 1.5);
-          scene.add(m); rocks.push(m);
           solids.push({ x, z: z + s2 * 1.5, hw: 1.5, hl: 0.75, top: g0 + h });
         }
+        laki.schody(x, z, g0); lakiDawniej += 3;
       }
     }
+    flushLaki(laki, rocks, lakiDawniej);
     // ======== ŁĄKI: DRZEWA (pnie + bryły koron), PIEŃKI, KŁODY, GŁAZY + dekoracje ========
     // Wszystkie bryły chunka idą do akumulatora i wychodzą jako po JEDNYM InstancedMeshu
     // na rodzaj: pnie, stożki, korony (per paleta, max 2 na chunk), głazy, plamki cienia.
@@ -10907,6 +10847,156 @@ function wodaChunka(cx, cz, rocks) {
   m.wlasnaGeo = true;                              // ensureChunks zwolni geometrię
   scene.add(m); rocks.push(m);
   return m;
+}
+
+// ═══════════════════════════════ ŁĄKI — MODELE 3D (30.09, lib/modele-laki.js) ═══════════════════════════════
+// Stosy skrzyń, tarasy na palach i kamienne schody (Łąki i Wąwozy — ta sama gałąź buildChunk). Kolizje liczy
+// buildChunk jak dawniej; tu tylko wygląd: prefaby z modułu (cache) przepisane do świata → JEDNA siatka na chunk,
+// stopy (podstawy stojące na ziemi) zjeżdżają do rysowanego gruntu (`gruntDoSadzenia`) — na stoku nic nie wisi.
+// Materiał wspólny (toon + ton cienia + wiatr trawy/naci/chorągiewek + cień chmur liczony w nim, NIE addCloudShadow).
+const LAKI = { chunki: 0, tris: 0, ms: 0, msMax: 0, rozgrzewka: null };   // DEV: HORDA.laki3D()
+let _lakiMat = null;
+function lakiMat() {
+  if (!_lakiMat) {
+    _lakiMat = ML.materialLak(THREE, { czas: windU, chmury: { tex: cloudShadowU, off: cloudOffU, skala: CLOUD_SCALE } });
+    // wszystkie warianty prefabów od razu (pierwszy chunk = ekran ładowania / zmiana mapy): zimny prefab to do ~16 ms,
+    // a nowy wariant wpadałby w bieg przy przekroczeniu granicy chunka. Bez obiektów three → bez Math.random.
+    LAKI.rozgrzewka = ML.rozgrzej();
+  }
+  return _lakiMat;
+}
+// `dawniej` = ile Meshy stawiała w tym chunku stara wersja (3 skrzynie / pomost + 4 pale + stopień / 3 stopnie).
+// ⚠️ STRUMIEŃ BOTA: każdy obiekt three bierze na UUID 4 × Math.random, a botBieg podmienia Math.random na seed.
+// Stara wersja zużywała 4 × `dawniej`, nowa 8 (geometria + Mesh) — różnicę dobieramy pustymi losowaniami,
+// żeby biegi bota z tym samym seedem dawały te same wyniki co przed modelami (sprawdzone: Łąki i Wąwozy).
+function flushLaki(zb, rocks, dawniej) {
+  let m = null;
+  if (!zb.pusty) {
+    const mat = lakiMat(), t0 = performance.now();   // materiał (+ rozgrzewka prefabów) poza pomiarem budowy chunka
+    const geo = zb.geo(THREE, gruntDoSadzenia);
+    m = new THREE.Mesh(geo, mat);
+    m.castShadow = true; m.receiveShadow = true;
+    m.wlasnaGeo = true;                            // ensureChunks zwolni geometrię razem z chunkiem
+    m.userData.laki3D = true;                      // dcRaport: 'laki:struktury'
+    scene.add(m); rocks.push(m);
+    const ms = performance.now() - t0;
+    LAKI.chunki++; LAKI.tris += geo.attributes.position.count / 3; LAKI.ms += ms; LAKI.msMax = Math.max(LAKI.msMax, ms);
+  }
+  for (let i = 4 * dawniej - (m ? 8 : 0); i > 0; i--) Math.random();
+  return m;
+}
+
+// ═══════════════════════════════ MARKET — PRZEBUDOWA (30.09) ═══════════════════════════════
+// Układ: lib/uklad-marketu.js (strefy, alejki różnej szerokości, hale, kasy, plamy), wygląd: lib/modele-market.js
+// (atlas towaru, posadzka i odbicia lamp w shaderze, rekwizyty). Chunk = 1 siatka statyczna + ≤ 1 szkło + 1 InstancedMesh
+// regałów. Tu: materiały (raz), zasięg rysowania (mgła), spawn poza bryłami, omijanie ścian przez bota DEV.
+let MK = null;
+// poleHordy: horda idzie polem przepływu (obchodzi rzędy regałów). Bot śmiertelny (8 ziaren): z polem średnio 39 s,
+// bez pola ~59 s, stary market ~49 s — patrz INFO-PROJEKT „MARKET — PRZEBUDOWA". DEV: HORDA.MK_OPCJE.poleHordy = false.
+const MK_OPCJE = { poleHordy: true };
+const mkCutA = { value: new THREE.Vector3() }, mkCutB = { value: new THREE.Vector3() };   // odcinek kamera → pierś gracza
+function mkInit() {
+  if (MK) return;
+  // osobny egzemplarz materiału dla instancji: three przełączałby program (instancing tak/nie) przy KAŻDYM draw callu
+  // na przemian siatka chunka / regały (getParameters + klucz programu co obiekt); ten sam kod shadera = ten sam program
+  MK = { mat: MM.materialMarketu(THREE, { czas: windU }), matRegal: MM.materialMarketu(THREE, { czas: windU, nowy: true }),
+         matRegalCut: MM.materialMarketu(THREE, { czas: windU, nowy: true, ciecie: { a: mkCutA, b: mkCutB } }),
+         matSzkla: MM.materialSzkla(THREE), geoRegalu: MM.geoRegalu(THREE) };
+}
+// co render (scene.onBeforeRender): chunk, którego środek jest dalej niż mgła + 30 j. od kamery, nie rysuje się
+// (w 9 × 9 chunkach połowa stoi za mgłą — frustum ich nie odrzuca, bo kamera patrzy w dal)
+// + PRZYCINANIE: regały chunków przy odcinku kamera → gracz dostają wariant materiału z ażurem (gracz za rzędem regałów
+// był widoczny tylko od głowy w górę); reszta chunków rysuje się bez `discard`.
+const _mkF = { x: 0, z: 0, f2: 0, cut: false, x0: 0, x1: 0, z0: 0, z1: 0 };
+function mkKlatkaChunk(ch) {
+  const dx = ch.cx * CHUNK - _mkF.x, dz = ch.cz * CHUNK - _mkF.z, w = dx * dx + dz * dz < _mkF.f2;
+  if (ch.mesh.visible !== w) { ch.mesh.visible = w; for (const m of ch.rocks) m.visible = w; }
+  const mk = ch.mesh.userData.mk;
+  if (!mk || !mk.im) return;
+  const X0 = ch.cx * CHUNK - CHUNK / 2 - 3, Z0 = ch.cz * CHUNK - CHUNK / 2 - 3, F = _mkF;
+  const m = F.cut && X0 < F.x1 && X0 + CHUNK + 6 > F.x0 && Z0 < F.z1 && Z0 + CHUNK + 6 > F.z0 ? MK.matRegalCut : MK.matRegal;
+  if (mk.im.material !== m) mk.im.material = m;
+}
+function mkKlatka() {
+  if (!MK || !MAPS[mapKey].indoor) return;
+  const far = MAPS[mapKey].fog[1] + 30, cam = camera.position, F = _mkF;
+  F.x = cam.x; F.z = cam.z; F.f2 = far * far;
+  F.cut = G.running && !(G.fps && G.fps.on);            // z oczu (karabin) i w menu nie przycinamy
+  mkCutA.value.copy(cam); mkCutB.value.set(P.pos.x, P.y + 1.15, P.pos.z);
+  F.x0 = Math.min(cam.x, P.pos.x); F.x1 = Math.max(cam.x, P.pos.x); F.z0 = Math.min(cam.z, P.pos.z); F.z1 = Math.max(cam.z, P.pos.z);
+  chunkMap.forEach(mkKlatkaChunk);
+}
+// SIATKA BRYŁ CHUNKA (10 × 10 komórek po 4 j.). Komórka trzyma bryły, które sięgają w nią z marginesem 1,5 j.
+// (≥ promień pytań: gracz 0,4, wróg 0,35, landSpot 0,7 — także dla punktu tuż za krawędzią chunka, rzutowanego na
+// skrajną komórkę); regał — sumę obrysu stojącego i leżącego, bo jego bryła zmienia się w miejscu przy upadku.
+// Zmierzone (400 wrogów, CPU): update 7,1 ms → patrz INFO-PROJEKT „MARKET — PRZEBUDOWA" (bez siatki każdy wróg
+// sprawdzał ~450 brył z 3 × 3 chunków dwa razy na klatkę; stary market miał ~15 brył na chunk).
+const MK_KOM = 4, MK_N = 10, MK_MARG = 1.5, _mkPusta = [];
+function mkSiatkaBryl(solids, shelves, wx0, wz0) {
+  const x0 = wx0 - CHUNK / 2, z0 = wz0 - CHUNK / 2, kom = [];
+  for (let i = 0; i < MK_N * MK_N; i++) kom.push([]);
+  const dodaj = (s, ax0, az0, ax1, az1) => {
+    const i0 = Math.max(0, Math.floor((ax0 - MK_MARG - x0) / MK_KOM)), i1 = Math.min(MK_N - 1, Math.floor((ax1 + MK_MARG - x0) / MK_KOM));
+    const j0 = Math.max(0, Math.floor((az0 - MK_MARG - z0) / MK_KOM)), j1 = Math.min(MK_N - 1, Math.floor((az1 + MK_MARG - z0) / MK_KOM));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) kom[j * MK_N + i].push(s);
+  };
+  const reg = new Map();
+  for (const sh of shelves) reg.set(sh.solid, sh);
+  for (const s of solids) {
+    const sh = reg.get(s);
+    if (sh) {
+      brylaRegalu(sh, true);
+      const lx0 = s.x - s.hw, lz0 = s.z - s.hl, lx1 = s.x + s.hw, lz1 = s.z + s.hl;
+      brylaRegalu(sh, sh.stan === 'lezy');
+      dodaj(s, Math.min(lx0, s.x - s.hw), Math.min(lz0, s.z - s.hl), Math.max(lx1, s.x + s.hw), Math.max(lz1, s.z + s.hl));
+    } else dodaj(s, s.x - s.hw, s.z - s.hl, s.x + s.hw, s.z + s.hl);
+  }
+  return { x0, z0, kom };
+}
+function mkKomorka(sg, x, z) {
+  let i = Math.floor((x - sg.x0) / MK_KOM), j = Math.floor((z - sg.z0) / MK_KOM);
+  if (i < -1 || j < -1 || i > MK_N || j > MK_N) return _mkPusta;           // punkt daleko poza tym chunkiem
+  i = i < 0 ? 0 : i >= MK_N ? MK_N - 1 : i; j = j < 0 ? 0 : j >= MK_N ? MK_N - 1 : j;
+  return sg.kom[j * MK_N + i];
+}
+// SPAWN / RECYKLING NIE W BRYLE: wypchnięcie po najkrótszej osi z marginesem (alejki ≥ 2,8 j., wyspy hal ≥ 1,8 j.
+// od siebie, więc 1–2 przejścia wystarczają). Dawniej wróg rodził się w regale i wypychała go dopiero kolizja.
+function mkPoprawPunkt(pos) {
+  for (let k = 0; k < 4; k++) {
+    let ruch = false;
+    for (const ch of chunkiWokol(Math.floor(pos.x / CHUNK), Math.floor(pos.z / CHUNK))) for (const s of (ch.solids.siatka ? mkKomorka(ch.solids.siatka, pos.x, pos.z) : ch.solids)) {
+      if (s.c) continue;
+      const dx = pos.x - s.x, dz = pos.z - s.z, ox = s.hw + 0.55 - Math.abs(dx), oz = s.hl + 0.55 - Math.abs(dz);
+      if (ox > 0 && oz > 0) { if (ox < oz) pos.x += dx > 0 ? ox : -ox; else pos.z += dz > 0 ? oz : -oz; ruch = true; }
+    }
+    if (!ruch) return;
+  }
+}
+// DEV/bot: bot nie skacze, więc każda bryła wyższa od jego stóp jest ścianą; omija ją jak na osiedlu + wychodzi z utknięcia
+function mkWBryle(x, z, m) {
+  for (const ch of chunkiWokol(Math.floor(x / CHUNK), Math.floor(z / CHUNK)))
+    for (const s of (ch.solids.siatka ? mkKomorka(ch.solids.siatka, x, z) : ch.solids)) if (!s.c && s.top > P.y + 0.3 && Math.abs(x - s.x) < s.hw + m && Math.abs(z - s.z) < s.hl + m) return true;
+  return false;
+}
+const _botMk = { t: 0, px: 0, pz: 0, uc: 0, ux: 0, uz: 0 };
+function mkBotOmin(wx, wz) {
+  const l = Math.hypot(wx, wz) || 1;
+  let ux = wx / l, uz = wz / l;
+  if (G.time < _botMk.t) _botMk.t = _botMk.uc = 0;           // nowy bieg
+  if (G.time - _botMk.t > 1) {                               // co 1 s: czy ruszył się choć o 0,8 j.?
+    if (Math.hypot(P.pos.x - _botMk.px, P.pos.z - _botMk.pz) < 0.8 && _botMk.t > 0) {
+      const a = Math.random() * Math.PI * 2; _botMk.uc = 1.2; _botMk.ux = Math.sin(a); _botMk.uz = Math.cos(a);
+    }
+    _botMk.t = G.time; _botMk.px = P.pos.x; _botMk.pz = P.pos.z;
+  }
+  if (_botMk.uc > 0) { _botMk.uc -= 1 / 30; ux = _botMk.ux; uz = _botMk.uz; }
+  for (const a of [0, 0.5, -0.5, 1.0, -1.0, 1.6, -1.6, 2.2, -2.2, 3.1]) {
+    const c = Math.cos(a * BOT.kier), sn = Math.sin(a * BOT.kier), dx = ux * c - uz * sn, dz = ux * sn + uz * c;
+    if (mkWBryle(P.pos.x + dx * 0.9, P.pos.z + dz * 0.9, 0.45) || mkWBryle(P.pos.x + dx * 1.8, P.pos.z + dz * 1.8, 0.45)) continue;
+    if (a && _botMk.uc > 0) { _botMk.ux = dx; _botMk.uz = dz; }
+    return { x: dx, z: dz };
+  }
+  return { x: ux, z: uz };
 }
 
 // ═══════════════════════════════ MAPA OSIEDLE (30.09) ═══════════════════════════════
@@ -11412,8 +11502,9 @@ function onSpill(x, z) {
 function solveSolids(pos, r, feetY) {
   let blockTop = 0;
   for (const ch of chunkiWokol(Math.floor(pos.x / CHUNK), Math.floor(pos.z / CHUNK))) {
-    if (!ch.solids.length) continue;
-    for (const s of ch.solids) {
+    const lista = ch.solids.siatka ? mkKomorka(ch.solids.siatka, pos.x, pos.z) : ch.solids;   // market: siatka brył
+    if (!lista.length) continue;
+    for (const s of lista) {
       if (feetY > s.top - 0.25) continue;         // jesteś NAD przeszkodą
       if (s.c) {
         const dx = pos.x - s.x, dz = pos.z - s.z, rr = s.r + r;
@@ -11441,8 +11532,9 @@ function solveSolids(pos, r, feetY) {
 function supportY(x, z, feetY) {
   let g = terrainH(x, z);
   for (const ch of chunkiWokol(Math.floor(x / CHUNK), Math.floor(z / CHUNK))) {
-    if (!ch.solids.length) continue;
-    for (const s of ch.solids) {
+    const lista = ch.solids.siatka ? mkKomorka(ch.solids.siatka, x, z) : ch.solids;   // market: siatka brył
+    if (!lista.length) continue;
+    for (const s of lista) {
       if (s.c || s.top > feetY + 0.25) continue;
       if (Math.abs(x - s.x) < s.hw && Math.abs(z - s.z) < s.hl) g = Math.max(g, s.top);
     }
@@ -11490,9 +11582,9 @@ function setMap(key) {
 }
 // `natychmiast` = wszystko w tej klatce (start, zmiana mapy). Osiedle w biegu: chunki dalej niż 2 od gracza idą
 // do kolejki (1 na klatkę) — chunk osiedla to kilka tysięcy wierzchołków do przepisania, a przejście granicy
-// dokłada rząd 9 chunków naraz. Pozostałe mapy bez zmian.
+// dokłada rząd 9 chunków naraz. Market (30.09) tak samo: chunk ~0,6 ms, rząd 9 chunków = ~6 ms naraz. Pozostałe mapy bez zmian.
 function ensureChunks(natychmiast = false) {
-  const kolejkuj = !natychmiast && MAPS[mapKey].osiedle;
+  const kolejkuj = !natychmiast && (MAPS[mapKey].osiedle || MAPS[mapKey].indoor);
   if (kolejkuj && OS.kolejka.length) osBudujZKolejki();
   const pcx = Math.round(P.pos.x / CHUNK), pcz = Math.round(P.pos.z / CHUNK);
   const cc = pcx + ',' + pcz;
@@ -11509,7 +11601,7 @@ function ensureChunks(natychmiast = false) {
     }
   for (const [key, ch] of chunkMap) {
     if (keep.has(key)) continue;
-    if (ch.osiedle) OS.maski.delete(osKlucz(ch.cx, ch.cz));
+    if (ch.osiedle || ch.mesh.userData.mk) OS.maski.delete(osKlucz(ch.cx, ch.cz));   // market (30.09) też ma maski pola hordy
     scene.remove(ch.mesh); ch.mesh.geometry.dispose();
     for (const m of ch.deco) scene.remove(m);
     // InstancedMesh trzyma wlasny instanceMatrix w buforze GL, ktorego samo `remove`
@@ -12285,10 +12377,10 @@ function przewrocRegaly(x, z, r, opoznienie = 0) {
     for (const s of ch.shelves) {
       if (s.stan !== 'stoi') continue;
       // odległość do PROSTOKĄTA regału, nie do środka — inaczej fala u końca
-      // siedmiometrowego regału nie ruszałaby go wcale
-      const dx = Math.max(0, Math.abs(x - s.x) - s.len / 2);
-      const dz = Math.max(0, Math.abs(z - s.z) - 1.1);
-      if (dx * dx + dz * dz > r * r) continue;
+      // regału nie ruszałaby go wcale (a = oś upadku, b = wzdłuż regału; market 30.09: regały w obu osiach)
+      const da = Math.max(0, Math.abs((s.poZ ? z : x) - s.a) - REG_HL);
+      const db = Math.max(0, Math.abs((s.poZ ? x : z) - s.b) - s.len / 2);
+      if (da * da + db * db > r * r) continue;
       s.stan = 'pada'; s.t = -opoznienie; s.zadal = false;
       G.padajace.push(s);
       ile++;
@@ -12312,26 +12404,23 @@ function updateRestock(dt) {
       if (s.tLezy < RESTOCK_T) continue;
       if (Math.hypot(s.x - P.pos.x, s.z - P.pos.z) < 22) continue;
       s.stan = 'stoi'; s.t = 0; s.zadal = false; s.tLezy = 0;
-      ustawRegal(s, 0);                              // wraca pionowo, górne półki widoczne
-      s.solid.z = s.z; s.solid.hl = 1.1; s.solid.hw = s.len / 2;
-      s.solid.top = s.g0 + SHELF_H + 0.16;
+      ustawRegal(s, 0);                              // wraca pionowo (stan 0 → cień kontaktowy stojącego)
+      brylaRegalu(s, false);
+      if (s.maska) s.maska();                        // pole hordy: znów ściana
     }
   }
 }
 function updatePadajace(dt) {
   for (let i = G.padajace.length - 1; i >= 0; i--) {
     const s = G.padajace[i];
-    if (!s.inst || !s.inst.korpus.parent) { G.padajace.splice(i, 1); continue; }  // chunk zniknął
+    if (!s.im || !s.im.parent) { G.padajace.splice(i, 1); continue; }  // chunk zniknął
     s.t += dt;
     if (s.t < 0) continue;                                        // czeka na swoją kolej (domino)
     const k = Math.min(1, s.t / PAD_T);
     const kat = (Math.PI / 2) * k * k;                            // przyspiesza jak pod grawitacją
     ustawRegal(s, kat);                                           // obrót zapisany w macierzy instancji
-    // ŻADNEGO PODNOSZENIA GRUPY. Pivot siedzi na KRAWĘDZI podstawy, a dzieci są
-    // odsunięte o -kier*0.8, więc korpus leży w lokalnym Z od -1.6 do 0 i po
-    // obrocie ląduje w Y od 0 do 1.6 — cały NAD posadzką. Wcześniejsze
-    // podnoszenie o 0.45 sprawiało, że wrak lewitował, a gracz stał 0.8 j.
-    // pod płaszczyzną desek (wystawały mu tylko liście).
+    // ŻADNEGO PODNOSZENIA. Pivot siedzi na KRAWĘDZI podstawy, bryła modułu leży w lokalnym Z od −1,6 do 0
+    // i po obrocie ląduje w Y od 0 do 1,6 — cała NAD posadzką (plecy regału z towarem do góry).
     if (!s.zadal && k > 0.55) {                                   // moment uderzenia w podłogę
       s.zadal = true;
       // Obrażenia PRZYCZEPIONE DO CZASU BIEGU, nie do buildu. Zmierzone: przy
@@ -12345,55 +12434,53 @@ function updatePadajace(dt) {
       for (let j = G.enemies.length - 1; j >= 0; j--) {
         const e = G.enemies[j];
         if (e.dying) continue;
-        if (Math.abs(e.pos.x - s.x) > s.len / 2 + 0.7) continue;
-        const wzdluz = (e.pos.z - s.pivotZ) * s.kier;             // leży od pivotu w stronę upadku
+        if (Math.abs((s.poZ ? e.pos.x : e.pos.z) - s.b) > s.len / 2 + 0.7) continue;
+        const wzdluz = ((s.poZ ? e.pos.z : e.pos.x) - s.piv) * s.kier;   // leży od pivotu w stronę upadku
         if (wzdluz < -0.7 || wzdluz > SHELF_H + 0.7) continue;
         // K4: przez zadajDmg (źródło 'regal', bez skali — już ×SKALA_WROGA; bez krytyka byłoby
         // wierniej, ale regał jest „bronią mapy" i krytyk Pieprzu Nonny działa tu jak wszędzie)
         zadajDmg(e, dmg, { bezSkali: true, zr: 'regal', col: '#ffd75e', sc: 1.5 });
-        if (!e.T.bezKb) e.kb.set(0, 0, s.kier * 3);
+        if (!e.T.bezKb) { if (s.poZ) e.kb.set(0, 0, s.kier * 3); else e.kb.set(s.kier * 3, 0, 0); }
         przygnieceni++;
       }
       // NAGRODA za dobre ustawienie regału — bez niej przewrócenie nie dawało
       // graczowi nic mierzalnego poza hałasem
       if (przygnieceni >= 3) {
-        dmgPop(s.x, s.g0 + 2.2, s.pivotZ, T('ROZWALKA x', 'PILE-UP x') + przygnieceni, '#ffd75e', 2.2);
-        G.coins.push(makeCoin(s.x, s.pivotZ + s.kier * 1.2, 3));
+        const pp = regPkt(s, s.piv, s.b);
+        dmgPop(pp.x, s.g0 + 2.2, pp.z, T('ROZWALKA x', 'PILE-UP x') + przygnieceni, '#ffd75e', 2.2);
+        const pm = regPkt(s, s.piv + s.kier * 1.2, s.b);
+        G.coins.push(makeCoin(pm.x, pm.z, 3));
         G.hitstop = Math.max(G.hitstop, 0.06);
       }
       // gracz też dostanie, jeśli stoi w linii upadku — regały nie wybierają
-      if (Math.abs(P.pos.x - s.x) < s.len / 2 + 0.6 && P.iframes <= 0 && !P.airborne) {
-        const wzdluz = (P.pos.z - s.pivotZ) * s.kier;
+      if (Math.abs((s.poZ ? P.pos.x : P.pos.z) - s.b) < s.len / 2 + 0.6 && P.iframes <= 0 && !P.airborne) {
+        const wzdluz = ((s.poZ ? P.pos.z : P.pos.x) - s.piv) * s.kier;
         if (wzdluz > -0.6 && wzdluz < SHELF_H + 0.6)
           ranGracza(HP_SERCA, 'regal', { nietyk: 1.1, shake: 0.5 });   // element mapy: stałe 1 serce
       }
       AUDIO.sfx('wybuch');
       G.shake = Math.max(G.shake, 0.4);
       G.hitstop = Math.max(G.hitstop, 0.05);
-      okruchy(s.x, s.g0 + 0.5, s.pivotZ + s.kier * SHELF_H * 0.5, 0xb98a4e, 8);   // drewno
-      // rozsypany TOWAR — bez tego przewrócony regał to sama deska
-      for (const kol of [0xd94f4f, 0x4f8fd9, 0xf2c14a])
-        okruchy(s.x + (Math.random() - 0.5) * s.len, s.g0 + 1.2, s.pivotZ, kol, 3);
-      puff(s.x, s.g0 + 0.4, s.pivotZ + s.kier * SHELF_H * 0.5, 0xd8c49a, 3.5);
-      novaRing(s.x, s.pivotZ + s.kier * SHELF_H * 0.5, 3);
-      // DOMINO: koniec leżącego regału trąca to, co tam stoi (para plecami do siebie)
-      przewrocRegaly(s.x, s.pivotZ + s.kier * SHELF_H, 1.0, 0.08);
+      const ps = regPkt(s, s.piv + s.kier * SHELF_H * 0.5, s.b), psx = ps.x, psz = ps.z;
+      okruchy(psx, s.g0 + 0.5, psz, 0xe4e8ec, 8);                 // blacha regału
+      // rozsypany TOWAR (kolory działu i paczek) — tyle samo losowań co dawniej (strumień bota)
+      for (const kol of [0xd94f4f, 0x4f8fd9, 0xf2c14a]) {
+        const pt = regPkt(s, s.piv, s.b + (Math.random() - 0.5) * s.len);
+        okruchy(pt.x, s.g0 + 1.2, pt.z, kol, 3);
+      }
+      puff(psx, s.g0 + 0.4, psz, 0xe8dcc8, 3.5);
+      novaRing(psx, psz, 3);
+      // DOMINO: koniec leżącego regału trąca to, co stoi za alejką (alejki ≤ 3,4 j. przenoszą upadek dalej)
+      const pd = regPkt(s, s.piv + s.kier * SHELF_H, s.b);
+      przewrocRegaly(pd.x, pd.z, 1.0, 0.08);
     }
     if (k >= 1) {
       s.stan = 'lezy';
       s.tLezy = 0;
-      // Dwie półki po obrocie STAJĄ PIONOWO i wystają na 2.15 j. — leżący regał
-      // wyglądał przez to jak drabina, a nie jak wrak. Chowamy je; zostaje korpus
-      // (płaszczyzna 1.6) i blat, który robi się ładnym progiem na końcu.
-      ustawRegal(s, Math.PI / 2);                    // `stan` już 'lezy' → górne półki znikają
-      // Bryła kolizji z pionowej ściany (top 2.46) robi się RUMOWISKIEM, na które
-      // wskoczysz jednym skokiem. Szczyt MUSI zgadzać się z płaszczyzną korpusu
-      // (1.6), inaczej stoi się w powietrzu albo po pas w deskach. 1.55 = ledwo
-      // pod deskami, a apeks skoku (1.461) + tolerancja 0.25 nadal łapie wejście.
-      s.solid.z = s.pivotZ + s.kier * 1.23;
-      s.solid.hl = 1.23;
-      s.solid.hw = s.len / 2 + 0.15;
-      s.solid.top = s.g0 + 1.55;
+      ustawRegal(s, Math.PI / 2);                    // `stan` już 'lezy' → cień kontaktowy leżącego
+      // Bryła kolizji z pionowej ściany (top 2,46) robi się RUMOWISKIEM, na które wskoczysz jednym skokiem
+      brylaRegalu(s, true);
+      if (s.maska) s.maska();                        // pole hordy: wrak jest „niski" — horda przez niego przełazi
       // KTO ZOSTAŁ POD REGAŁEM, LĄDUJE NA NIM. Bez tego stoi się WEWNĄTRZ świeżej
       // bryły kolizji: przy parze regałów dwie bryły stoją stykiem, więc
       // wypchnięcia z obu stron znoszą się i nie ma gdzie uciec — stąd przenikanie.
@@ -12567,7 +12654,9 @@ function update(dt) {
 
   // ---- E1-bieg: SPAWNER WIECZORU (tabela fal, paczki, podłoga, recykling, zdarzenia) ----
   // Zastępuje interwał + `batch`, fale okrążające co 30 s i bossów co 2 min (`bossAt` usunięte).
-  const osNav = !!MAPS[mapKey].osiedle;
+  // market (30.09): to samo pole przepływu (maski z regałów) — horda obchodzi rzędy zamiast stać przy plecach regału;
+  // pociski i „utknął w bryle" dalej tylko na osiedlu (osWBryle patrzy na flagę `os`, której bryły marketu nie mają)
+  const osNav = !!(MAPS[mapKey].osiedle || (MAPS[mapKey].indoor && MK_OPCJE.poleHordy));
   if (osNav) osNawigacjaTick(dt);                  // Osiedle: pole przepływu hordy PRZED spawnem (spawn szuka wolnej komórki)
   if (!STRES && !G.dpsTest) spawnerWieczoru(dt);   // STRES (DEV) = własny dosyp; E2 dpsBroni = same manekiny
 
@@ -13971,6 +14060,7 @@ let pulaTelKrag = null, pulaTelDysk = null, pulaTelPas = null, pulaChipsy = null
 const _kotwica = new THREE.Vector3();
 function syncInstancje() {
   osKlatka();                                      // osiedle: zasięg chunków + przycinanie przy kamerze (przed KAŻDYM renderem)
+  mkKlatka();                                      // market: chunki za mgłą nie rysują się
   if (!coinMat || !glowMat || !ringMat || !eliteRingMat || !pigulkaMat) return;   // przed bootem
   if (!pulaCien) {
     pulaCien = new InstPula(blobGeo, blobMat, { cap: 512, nazwa: 'cienie wrogów' });
@@ -14065,7 +14155,7 @@ function dcRaport() {
     }
     let p = o, et = null;
     while (p && !(et = etyk.get(p))) p = p.parent;
-    et = et || ('inne:' + (o.isInstancedMesh ? 'inst:' : '') + (o.geometry && o.geometry.type));
+    et = et || (o.userData.laki3D ? 'laki:struktury' : 'inne:' + (o.isInstancedMesh ? 'inst:' : '') + (o.geometry && o.geometry.type));
     wynik[et] = (wynik[et] || 0) + 1; razem++;
   });
   return { razem, dc: renderer.info.render.calls, ...Object.fromEntries(Object.entries(wynik).sort((a, b) => b[1] - a[1])) };
@@ -14204,6 +14294,7 @@ function botRuch() {                              // zwraca kierunek w ŚWIECIE 
     wx = wx * 0.5 + dx / d * k; wz = wz * 0.5 + dz / d * k;
   }
   if (MAPS[mapKey].osiedle) return osBotOmin(wx, wz);   // osiedle: omijanie ścian i wyjście z utknięcia
+  if (MAPS[mapKey].indoor) return mkBotOmin(wx, wz);     // market: to samo (regały, lady, kasy)
   const l = Math.hypot(wx, wz) || 1;
   return { x: wx / l, z: wz / l };
 }
@@ -14831,7 +14922,8 @@ if (loadTip) {
     get tr() { return { trBuf, TR_RES, TR_SPAN, TR_ST, trCx, trCz, trAktywne, trKatU }; },
     updateTrample,
     render() { renderer.render(scene, camera); },
-    PAD, pollPads, get camYaw() { return camYaw; }, get gpSel() { return gpSel; },
+    PAD, pollPads, get camYaw() { return camYaw; }, set camYaw(v) { camYaw = +v || 0; }, get gpSel() { return gpSel; },
+    get mapKey() { return mapKey; },                       // 30.09 (modele łąk): zrzuty z kamery gry pod zadanym kątem
     padGlyph, padRodzina, padWibruj, navItems, topOverlay, renderSterowanie,
     // komiks: `pokazKomiks()` do scenariuszy testera, `initKomiks` do podmiany T()
     // (podgląd podpisów po angielsku bez przeładowania i bez ruszania META)
@@ -14963,8 +15055,31 @@ if (loadTip) {
     get wydLog() { return G.e3; },
     // 30.09 MAPA OSIEDLE: moduły, stan (chunki, kolejka, pole hordy, czasy budowy), układ chunka do podglądu
     TO, OSR, OS,
+    // 30.09 MARKET — PRZEBUDOWA: moduły, materiały; market() = chunki, strefy, draw calle i wierzchołki
+    MM, UM, get MK() { return MK; }, MK_OPCJE, mkPoprawPunkt,
+    market() {
+      const strefy = {}; let n = 0, v = 0, wid = 0, reg = 0, lez = 0, szklo = 0;
+      for (const ch of chunkMap.values()) {
+        const m = ch.mesh.userData.mk; if (!m) continue;
+        n++; v += m.v; strefy[m.strefa] = (strefy[m.strefa] || 0) + 1; if (ch.mesh.visible) wid++;
+        for (const s of ch.shelves) { reg++; if (s.stan !== 'stoi') lez++; }
+        for (const r of ch.rocks) if (r.material === MK.matSzkla) szklo++;
+      }
+      return { mapa: mapKey, chunki: n, widoczne: wid, strefy, wierzcholki: v, regaly: reg, przewrocone: lez, szkla: szklo, prefaby: MM.statystyki(),
+               dc: renderer.info.render.calls, tri: renderer.info.render.triangles };
+    },
     // 30.09 SKRZYNIE I KAPLICZKI 3D: moduł, zestawy instancji, otwierane kufry; skrzynie3D() = draw calle i trójkąty (z cieniem x2)
     MS, get SK() { return SK; }, SK_OTW, otworzKufer3D, postawSkrzynieKaprala, syncSkrzynie3D, updateSkrzynie3D,
+    // 30.09 ŁĄKI — MODELE 3D: moduł, materiał; laki3D() = siatki struktur w świecie, trójkąty, czasy budowy chunka
+    // (bez rozgrzewki prefabów; `{ reset: true }` = liczniki od zera), czas rozgrzewki
+    ML, lakiMat,
+    laki3D(o = {}) {
+      if (o.reset) Object.assign(LAKI, { chunki: 0, tris: 0, ms: 0, msMax: 0 });   // pomiar budowy od teraz (bez rozgrzewki w starcie)
+      let n = 0, tri = 0;
+      for (const ch of chunkMap.values()) for (const m of ch.rocks) if (m.userData.laki3D) { n++; tri += m.geometry.attributes.position.count / 3; }
+      return { siatki: n, tris: tri, trisSzt: ML.liczTrojkaty(), zbudowane: LAKI.chunki, msSr: +(LAKI.ms / Math.max(1, LAKI.chunki)).toFixed(3),
+               msMax: +LAKI.msMax.toFixed(2), rozgrzewka: LAKI.rozgrzewka };
+    },
     skrzynie3D() {
       if (!SK) return null;
       const z = {}; let dc = 0, tri = 0, dcCien = 0;
