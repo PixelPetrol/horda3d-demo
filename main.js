@@ -3655,9 +3655,14 @@ const META = loadMeta();
 // 30.09 MIGRACJA „OSIEDLE": kolejność map zmieniła się na Łąki → Osiedle → Wąwozy → Market (Wąwozy po 5:00 na Osiedlu).
 // Kto miał Wąwozy otwarte po staremu (5:00 na Łąkach albo już tam grał), ZACHOWUJE je i dostaje też Osiedle.
 // Raz na zapis: `st.mapyOtw` powstaje przy pierwszym wczytaniu po zmianie i zapisuje się z resztą `st`.
-if (!META.st.mapyOtw) {
-  const b = META.st.bestMapa || {}, laki = b.laki != null ? b.laki : META.st.best || 0;
-  META.st.mapyOtw = (laki >= 300 || b.wawozy > 0 || b.market > 0) ? { osiedle: 1, wawozy: 1 } : {};
+// Poprawka z przeglądu (30.09): pierwsza wersja brała `bestMapa.laki`, gdy już istniało — a pierwszy bieg po v299
+// (nawet szybkie „Do menu") wpisywał tam np. 95 s i stary rekord 8:00 przestawał się liczyć → weteran z demo v299/v301
+// dostawał same Łąki. Druga migracja na nowym kluczu bierze MAX z obu i tylko DOKŁADA (niczego nie zamyka).
+if (!META.st.mapyOtw2) {
+  const b = META.st.bestMapa || {}, laki = Math.max(b.laki || 0, META.st.best || 0);
+  META.st.mapyOtw = META.st.mapyOtw || {};
+  if (laki >= 300 || b.wawozy > 0 || b.market > 0) Object.assign(META.st.mapyOtw, { osiedle: 1, wawozy: 1 });
+  META.st.mapyOtw2 = 1;
 }
 // B12: „nie w pierwszej sesji" = ta karta wystartowała bez żadnego pełnego biegu w zapisie (sesja = jedno załadowanie strony)
 const KAWA_PIERWSZA_SESJA = !(META.st.pelne > 0);
@@ -3825,6 +3830,7 @@ const KUP_MONETY = { wlaczone: false, paczki: [], kup: null };
 // SOL + kod po normalizacji: wielkie litery, bez myślników/spacji (alfabet bez 0/O, 1/I/L). Generator dla Piotra:
 // `python3 narzedzia/kod_monet.py 5000 "notatka"` (jawne kody tylko lokalnie w narzedzia/kody-wydane.txt, .gitignore).
 // DEV: `HORDA.kodyTest = [{ h, m }]` dokłada wpisy bez ruszania pliku (test bez działającego kodu w repo).
+const KODY_ZDALNE = 'https://pixelpetrol.github.io/horda3d-demo/kody.json';   // jedno źródło kodów dla demo, itch i apki
 const KODY_NONNY = {
   SOL: 'veggie-famiglia/kod-nonny/v1:',
   ALFABET: 'ABCDEFGHJKMNPQRSTUVWXYZ23456789',
@@ -3849,12 +3855,16 @@ const KODY_NONNY = {
     if (!(window.crypto && crypto.subtle)) return { ok: false, powod: 'https' };
     const h = await K.hash(kod), klucz = h.slice(0, 16);
     if (META.kody[klucz]) return { ok: false, powod: 'uzyty' };
-    let lista;
-    try {
-      const r = await fetch('kody.json?cb=' + Date.now(), { cache: 'no-store' });
-      if (!r.ok) throw new Error(r.status);
-      lista = (await r.json()).kody || [];
-    } catch { return { ok: false, powod: 'siec' }; }
+    // Przegląd 30.09: paczka na itch ma kody.json zamrożony w zipie — kod wydany po wgraniu zipa nie działał.
+    // Najpierw lista z demo na Pages (CORS: *), potem lokalna; wystarczy, że jedna się uda.
+    let lista = [], ok = false;
+    for (const u of [KODY_ZDALNE, 'kody.json']) {
+      try {
+        const r = await fetch(u + '?cb=' + Date.now(), { cache: 'no-store' });
+        if (r.ok) { lista = lista.concat((await r.json()).kody || []); ok = true; }
+      } catch {}
+    }
+    if (!ok) return { ok: false, powod: 'siec' };
     if (DEV && Array.isArray(window.HORDA?.kodyTest)) lista = lista.concat(window.HORDA.kodyTest);
     const wpis = lista.find(x => x && x.h === h);
     if (!wpis) return zly();
@@ -4305,7 +4315,7 @@ function menuOdslon() {
   saveMeta();
   // stary zapis (≥ 3 biegi, żadnego odsłonięcia w zapisie) = od razu stan pełny, bez animacji
   if (pierwszy && r >= 3 && nowe.length === 3) {   // przegląd 29.09: stary zapis zna już mapy — bez „mgła schodzi"
-    META.ui.mapyWidz = { laki: 1, osiedle: 1, wawozy: 1, market: 1 }; saveMeta(); return;
+    META.ui.mapyWidz = Object.fromEntries(Object.keys(MAPS).filter(mapaOdbl).map(k => [k, 1])); saveMeta(); return;   // tylko OTWARTE (przegląd 30.09)
   }
   for (const k of nowe) STATY.zdarzenie('menu/odsl/' + k, 'Menu: odsłonięcie ' + k);
   let i = 0;
@@ -6250,7 +6260,9 @@ const CFG_BIEG = {
   // B8 (28.09): monety z hordy — zwykły wróg `zwykly` szansy na 1 monetę, elita 1 moneta; od `od` s szansa ×(od/t)^`wykl`
   // (4:00 ×1, 6:00 ×0,36, 8:00 ×0,18, 10:00 ×0,11). Kapral 50, Don 10×20 + 100, wygrana ×1,5 (don.mnozWygranej).
   // Cel: wygrana ~1,5–2,5 tys., śmierć w 5:00 ~0,4–0,8 tys. (sklep z postaciami ~39 tys. = ~20 biegów).
-  monety: { zwykly: 0.16, elita: 1, kapral: 50, od: 240, wykl: 2.5 },
+  // 30.09 Piotr „zwiększyć ilość zbieranych monet” (po zalewie bot zbierał 5–31 na bieg): zwykły 0,16 → 0,40, elita 1 → 3,
+  // kapral 50 → 120, spadek od 4:00 → 6:00 i łagodniejszy (wykl 2,5 → 1,5)
+  monety: { zwykly: 0.40, elita: 3, kapral: 120, od: 360, wykl: 1.5 },
   xpKrzywa: XP_KRZ,                                // K11: współczynniki xpDoNast
   litosc: 0.34, serceElity: 0.08,                  // normalny bieg: drugie serce z bossa/kaprala przy HP ≤ 34%, serce z elity 8%
   // ROZGRZEWKA (24.09, szybkie złagodzenie; pełne strojenie K10/K11): mnożnik w 0:00 rośnie do 1 w `do`
@@ -6403,7 +6415,7 @@ const CFG_TRUDNOSC = {
     // 2:00 / 5:00 / 10:00: 146 / 2 475 / 7 943 → 112 / 1 570 / 4 010. Ranga to jedyne źródło, które rośnie do końca biegu
     // (48 w 10:00 = ×5,0), dlatego 10:00 tnie się mocniej niż 5:00; 0,5 dawało 10:00 = 3 344 (za mocno), wzrostBron 0,75 —
     // 5:00 = 467 (przepisy po 5:00). Sekcja „WZROST W BIEGU" w INFO-PROJEKT.md.
-    wzrost: 0.55,
+    wzrost: 0.75,                                    // 30.09 Piotr „trochę wzmocnić gracza”: 0,55 → 0,75
     // łagodny pierwszy bieg bliżej normalnego (stare → nowe)
     lagodny: {
       L: { hp: 0.65, spd: 0.02, elita: 0.4, tempo: 0.55 },   // { hp 0,50, spd 0, elita 0,2, tempo 0,35 }
@@ -6426,7 +6438,7 @@ const CFG_TRUDNOSC = {
       rosolRegen: 0.5,                               // regeneracja Rosołu: 0,006 → 0,003 serca/s na jednostkę (5 j.: 1 serce co 33 → 67 s)
       rosolLecz: 0.5,                                // leczenie przy wzięciu Rosołu: do pełna → połowa brakujących (w górę, nowe serce zawsze pełne)
       beetLecz: 0.5,                                 // wysysanie Beetina (Buraczane Ciśnienie): 1 serce co 5 → 10 s
-      xp: 0.5,                                       // wartość pigułki XP (liczba pigułek bez zmian; fontanna piniaty 0,6 → 0,3 poziomu); krzywa XP bez zmian
+      xp: 0.7,                                       // 30.09 „trochę wzmocnić”: 0,5 → 0,7. Wartość pigułki XP (liczba pigułek bez zmian; fontanna piniaty 0,6 → 0,3 poziomu); krzywa XP bez zmian
       bronCena: 4,                                   // odblokowania BRONI w sklepie meta ×4 (Piorun 150 → 600 … Kernello 350 → 1 400); skok/torba bez zmian
     },
   },
@@ -8293,7 +8305,7 @@ const WEAPONS = {
       // ciosem — i to on daje pierwsze 30 sekund „mam moc". Okno zamyka się samo,
       // bo `hpScale` rośnie: w 2. minucie Chipsetti ma już ~6.6 HP i trzeba ulepszeń.
       const dmg = [3.2, 3.9, 4.6, 5.4, 6.2][w.lvl - 1];
-      const osW = MAPS[mapKey].osiedle && OS.pociskiStop;   // osiedle: kule rozbijają się o bloki → celuj w tych, których widać
+      const osW = MAPS[mapKey].osiedle && OS.pociskiStop && !OS.nav.scianaW(P.pos.x, P.pos.z);   // gracz na dachu garażu widzi wszystkich   // osiedle: kule rozbijają się o bloki → celuj w tych, których widać
       let targets = G.enemies.filter(e => !e.dying)
         .map(e => ({ e, d: e.pos.distanceTo(P.pos) }))
         .filter(o => o.d < rangeF() && (!osW || OS.nav.widac(P.pos.x, P.pos.z, o.e.pos.x, o.e.pos.z)))
@@ -10885,7 +10897,7 @@ const OS = {
   // false = przelatują przez bryły jak przez regały w Markecie (DEV: HORDA.OS.pociskiStop = false)
   pociskiStop: true,
 };
-const OS_PREFABY = 64, OS_G0 = 1.55;
+const OS_PREFABY = 256, OS_G0 = 1.55;   // przegląd 30.09: 64 był stale pełny → modele liczone od nowa przy każdym starcie
 const osKlucz = (cx, cz) => (cx + 32768) * 65536 + (cz + 32768);
 const osPobierzMaske = (cx, cz) => OS.maski.get(osKlucz(cx, cz)) || null;
 const osCutA = { value: new THREE.Vector3() }, osCutB = { value: new THREE.Vector3() }, osGruntU = { value: null };
@@ -10919,7 +10931,12 @@ function osLatka(m, cut) {
   const stary = m.onBeforeCompile;
   m.onBeforeCompile = (sh, r) => {
     if (stary) stary.call(m, sh, r);
-    if (!sh.vertexShader.includes('#include <fog_vertex>') || !sh.fragmentShader.includes('#include <map_fragment>')) return;   // nie wbudowany materiał — bez łatek
+    // 30.09: materiał z lib/osiedle-rekwizyty.js sam podmienia <map_fragment> (próbka atlasu `_tx` + maska) — wtedy
+    // łatka gruntu wchodzi w JEGO próbkę. Dawniej wymagaliśmy <map_fragment> i przy prawdziwych modelach łatka
+    // po cichu odpadała: grunt bez tekstury (sama zieleń) i bez przycinania przy kamerze.
+    const REK_TX = 'vec4 _tx = texture2D( map, vMapUv );';
+    const maMap = sh.fragmentShader.includes('#include <map_fragment>'), maRek = sh.fragmentShader.includes(REK_TX);
+    if (!sh.vertexShader.includes('#include <fog_vertex>') || !(maMap || maRek)) return;   // nie wbudowany materiał — bez łatek
     sh.uniforms.uCutA = osCutA; sh.uniforms.uCutB = osCutB; sh.uniforms.uOsGrunt = osGruntU;
     sh.vertexShader = 'attribute float aGrunt;\nvarying float vGrunt;\nvarying vec3 vOsW;\n' + sh.vertexShader.replace('#include <fog_vertex>',
       `#include <fog_vertex>
@@ -10946,14 +10963,17 @@ function osLatka(m, cut) {
           if (k * 0.9 > b) discard;
         }
       }`);
-    sh.fragmentShader = f.replace('#include <map_fragment>', `if (vGrunt > 0.5) {
-        float kom = vGrunt - 1.0;
-        // kafel (kom % 2, kom / 2) liczony od GÓRY płótna — tekstura ma flipY, stąd 1 − wiersz
-        vec2 uvG = (vec2(mod(kom, 2.0), 1.0 - floor(kom * 0.5)) + clamp(fract(vOsW.xz * 0.25), 0.008, 0.992)) * 0.5;
+    // kafel (kom % 2, kom / 2) liczony od GÓRY płótna — tekstura ma flipY, stąd 1 − wiersz
+    const UVG = `float kom = max(vGrunt - 1.0, 0.0);
+        vec2 uvG = (vec2(mod(kom, 2.0), 1.0 - floor(kom * 0.5)) + clamp(fract(vOsW.xz * 0.25), 0.008, 0.992)) * 0.5;`;
+    sh.fragmentShader = maMap ? f.replace('#include <map_fragment>', `if (vGrunt > 0.5) {
+        ${UVG}
         diffuseColor.rgb *= texture2D(uOsGrunt, uvG).rgb;
       } else {
         #include <map_fragment>
-      }`);
+      }`)
+      : f.replace(REK_TX, `${UVG}
+        vec4 _tx = vGrunt > 0.5 ? vec4(texture2D(uOsGrunt, uvG).rgb, 1.0) : texture2D( map, vMapUv );`);
   };
   m.customProgramCacheKey = () => 'osiedle-' + (cut ? 'cut' : 'pel');
   m.needsUpdate = true;
@@ -11069,9 +11089,12 @@ function osBudujZKolejki() {
   }
 }
 // ściana osiedla (blok, garaż, wiata) w punkcie — test ścisły, `m` = margines
-function osWBryle(x, z, m = 0) {
+// `y` (30.09, przegląd): wysokość punktu — kto stoi/leci NAD wierzchem bryły (dach garażu 2,6 j., wiata 2,2 j.),
+// nie jest „w bryle". Bez tego wróg na dachu garażu był teleportowany na ziemię (gracz na dachu = nietykalny),
+// a pociski nad garażem ginęły na każdej wysokości.
+function osWBryle(x, z, m = 0, y = -Infinity) {
   for (const ch of chunkiWokol(Math.floor(x / CHUNK), Math.floor(z / CHUNK)))
-    for (const s of ch.solids) if (s.os && Math.abs(x - s.x) < s.hw + m && Math.abs(z - s.z) < s.hl + m) return true;
+    for (const s of ch.solids) if (s.os && y < s.top - 0.25 && Math.abs(x - s.x) < s.hw + m && Math.abs(z - s.z) < s.hl + m) return true;
   return false;
 }
 // SPAWN / RECYKLING NIGDY W BRYLE: najbliższa wolna i OSIĄGALNA komórka pola (okno wokół gracza);
@@ -11972,7 +11995,7 @@ function updateKarabinPoc(dt) {
     s.mesh.quaternion.copy(camera.quaternion);       // ziarno zawsze twarzą do kamery
     const px = s.mesh.position.x, py = s.mesh.position.y, pz = s.mesh.position.z;
     let dead = s.t > KARABIN_ZYCIE || py < terrainH(px, pz) - 0.2;
-    if (!dead && MAPS[mapKey].osiedle && OS.pociskiStop && py < 29 && OS.nav.scianaW(px, pz)) dead = true;   // Osiedle: ziarno rozbija się o blok
+    if (!dead && MAPS[mapKey].osiedle && OS.pociskiStop && OS.nav.scianaW(px, pz) && osWBryle(px, pz, 0, py)) dead = true;   // Osiedle: ziarno rozbija się o blok
     if (!dead) for (let j = G.enemies.length - 1; j >= 0; j--) {
       const e = G.enemies[j];
       if (e.dying || s.hit.has(e)) continue;
@@ -12616,7 +12639,7 @@ function update(dt) {
     const blockTop = solveSolids(e.pos, 0.35, e.ty);
     // osiedle: wepchnięty GŁĘBOKO w bryłę (odrzut, Ręka Nonny, styk dwóch brył) — solveSolids potrafi go
     // przerzucać między sąsiednimi bryłami; wtedy na najbliższą wolną komórkę (maska ścian = tani filtr)
-    if (osNav && OS.nav.scianaW(e.pos.x, e.pos.z) && osWBryle(e.pos.x, e.pos.z) && OS.nav.najblizszyWolny(e.pos.x, e.pos.z, 10, _osK)) {
+    if (osNav && OS.nav.scianaW(e.pos.x, e.pos.z) && osWBryle(e.pos.x, e.pos.z, 0, e.ty) && OS.nav.najblizszyWolny(e.pos.x, e.pos.z, 10, _osK)) {
       e.pos.x = _osK.x; e.pos.z = _osK.z;
     }
     const eGround = supportY(e.pos.x, e.pos.z, e.ty);
@@ -12696,7 +12719,7 @@ function update(dt) {
     }
     s.life -= dt;
     let dead = s.life <= 0;
-    if (!dead && osNav && OS.pociskiStop && OS.nav.scianaW(s.mesh.position.x, s.mesh.position.z)) dead = true;   // osiedle: pocisk rozbija się o blok
+    if (!dead && osNav && OS.pociskiStop && OS.nav.scianaW(s.mesh.position.x, s.mesh.position.z) && osWBryle(s.mesh.position.x, s.mesh.position.z, 0, s.mesh.position.y)) dead = true;   // osiedle: pocisk rozbija się o blok
     if (!dead) for (let j = G.enemies.length - 1; j >= 0; j--) {
       const e = G.enemies[j];
       if (e.dying || s.hit.has(e)) continue;
@@ -13315,7 +13338,7 @@ function koniecBiegu(powod = 'smierc') {
   else if (doMenu) STATY.zdarzenie('run-end/menu/' + mapKey + '/min-' + minK, 'Koniec biegu (wyjście do menu): ' + fmtTime(G.time) + ', poziom ' + P.lvl);
   else if (G.donStart != null) STATY.zdarzenie('run-end/smierc-don/' + mapKey, 'Śmierć przy Donie: ' + fmtTime(G.time - G.donStart));
   else STATY.zdarzenie('run-end/smierc/' + mapKey + '/min-' + minK, 'Koniec biegu (śmierć): ' + fmtTime(G.time) + ', poziom ' + P.lvl + ', ' + G.kills + ' zabójstw');
-  if (G.lagodny) STATY.zdarzenie('pierwszy-bieg/' + (wygrana ? 'wygrana' : (doMenu ? 'menu-min-' : 'smierc-min-') + minK),
+  if (G.lagodny || G.pierwszyBieg) STATY.zdarzenie('pierwszy-bieg/' + (wygrana ? 'wygrana' : (doMenu ? 'menu-min-' : 'smierc-min-') + minK),
     'Łagodny bieg: ' + powod + ' ' + fmtTime(G.time) + (G.rekaNonny ? ' (Ręka Nonny użyta)' : ''));
   const kawa = doMenu ? false : kawaDecyzja(wygrana);   // B12: PRZED saveMeta (zapisuje historię biegów i dzień pokazu)
   saveMeta(); renderShop(); renderStats(); renderBestiary();
