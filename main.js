@@ -11,6 +11,7 @@ import * as TO from './lib/teren-osiedle.js?v=2';  // mapa „Osiedle": układ k
 // MODELE OSIEDLA — JEDNO MIEJSCE PRZEŁĄCZENIA. Dziś zaślepki (proste bryły); gdy dojdzie docelowy moduł
 // (ten sam kontrakt), zamień ścieżkę na './lib/osiedle-rekwizyty.js'. Reszta kodu woła tylko `OSR.*`.
 import * as OSR from './lib/osiedle-rekwizyty.js?v=2';   // 30.09: prawdziwe modele (zaślepki: lib/osiedle-zaslepki.js)
+import * as MS from './lib/modele-skrzynie.js?v=1';     // 30.09: skrzynie i kapliczki 3D (sekcja „SKRZYNIE I KAPLICZKI 3D" niżej)
 
 // ============================== JĘZYK (PL / EN) ==============================
 // Decyzja właściciela (18.09): dwa języki, start w języku przeglądarki, przełącznik w menu,
@@ -7284,15 +7285,18 @@ function nagrodaKaprala(e) {
 function nagrodaSkrzyniKaprala() {
   pchnijOverlay(() => otworzZlotaSkrzynie('kapral'));    // E2 K4: jackpot kaprala (przepis zawsze w środku, jeśli gotowy)
 }
-let kapSkrzMat = null, kapRingMat = null;
+let kapRingMat = null;
 function postawSkrzynieKaprala(x, z) {
-  if (!kapSkrzMat) {
-    kapSkrzMat = chestMats[0].clone(); kapSkrzMat.color.setHex(0xd2a0ff);   // skrzynia z bronią przefarbowana na fiolet
+  if (!kapRingMat) {
     kapRingMat = new THREE.MeshBasicMaterial({ map: ringTexture('rgba(192,123,255,0.95)'), transparent: true, depthWrite: false });
+    // STRUMIEŃ BOTA: dawniej tu powstawał klon materiału skrzyni (1 UUID three = 4 × Math.random). Bez tych
+    // 4 losowań seed bota rozjeżdżał się od pierwszego kaprala i pomiary sprzed modeli 3D przestawały się zgadzać.
+    for (let i = 0; i < 4; i++) Math.random();
   }
-  const mesh = new THREE.Mesh(unitGeo, kapSkrzMat), ring = new THREE.Mesh(blobGeo, kapRingMat);
-  mesh.scale.set(1.5, 1.5, 1); ring.scale.setScalar(3.4);
-  scene.add(mesh); scene.add(ring);                // najwyżej kilka na bieg — nie efekt masowy
+  // 30.09: model 3D „kapral" (ciemna śliwka + fiolet elit) rysuje syncSkrzynie3D; `mesh` = nośnik pozycji poza sceną
+  const mesh = new THREE.Object3D(), ring = new THREE.Mesh(blobGeo, kapRingMat);
+  ring.scale.setScalar(3.4);
+  scene.add(ring);                                 // najwyżej kilka na bieg — nie efekt masowy
   G.skrzynieKap.push({ mesh, ring, pos: new THREE.Vector3(x, 0, z), t: 0 });
 }
 function updateSkrzynieKaprala(dt) {
@@ -7303,8 +7307,7 @@ function updateSkrzynieKaprala(dt) {
     // „Nonna sprząta stół" (cisza 9:53, G.vacuum): niepodniesiona skrzynia leci do gracza — nagroda nie przepada
     if (G.vacuum > 0 && d > 0.5) c.pos.addScaledVector(_doGracza.copy(P.pos).sub(c.pos).setY(0).normalize(), Math.min(d, 16 * dt));
     const g = terrainH(c.pos.x, c.pos.z);
-    c.mesh.rotation.y = camYaw;
-    c.mesh.position.set(c.pos.x, g + 0.1 + Math.sin(c.t * 2.2) * 0.12, c.pos.z);
+    c.mesh.position.set(c.pos.x, g + MS.ANIM.unoszenie(c.t).dy, c.pos.z);
     c.ring.position.set(c.pos.x, g + 0.07, c.pos.z);
     c.ring.scale.setScalar(3.4 + Math.sin(c.t * 3) * 0.5);
     // E2 K5: nad Skrzynią Kaprala wisi złota ikona dania, gdy przepis jest gotowy — widać z daleka, że tam czeka danie
@@ -7322,7 +7325,7 @@ function updateSkrzynieKaprala(dt) {
       G.shake = Math.max(G.shake, 0.2);
       AUDIO.sfx('zlota');
       novaRing(c.pos.x, c.pos.z, 3);
-      nagrodaSkrzyniKaprala();
+      otworzKufer3D('kapral', c.pos, c.t, nagrodaSkrzyniKaprala);   // 30.09: wieko 3D, potem jackpot
     }
   }
 }
@@ -10359,6 +10362,7 @@ const obrazeniaWroga = baza => baza * HP_SERCA * dmgMul();
 function ranGracza(_sila, zr = 'inne', o = {}) {
   if (G.dying || !G.running || G.wygrana) return false;   // K8: po śmierci Dona gracz nietykalny do końca
   if (P.iframes > 0 || G.time < G.nonnaDo) return false;   // K10: 3 s po Ręce Nonny
+  if (G.time < (G.skrzOchr || -1)) return false;   // 30.09: otwiera się kufer 3D (≤ 0,3 s przed nakładką; dawniej nakładka pauzowała od razu)
   // DoT przy garnku albo w trybie karabinu: pochłonięte BEZ kosztu — inaczej sól zabierałaby życie trybu
   // karabinu (karabinZjadlCios) co 0,9 s
   if (o.dot && (G.buff.key === 'niet' || G.fps.on)) return false;
@@ -11490,22 +11494,162 @@ function ensureChunks(natychmiast = false) {
   rebuildBlobs();                                // plamki cienia wszystkich chunków = 1 InstancedMesh
 }
 
-// ============================== SKRZYNIE ==============================
-const chests = [];        // {mesh, pos, opened, t}
-let chestMats = null;     // 4 klatki chest0..3
+// ============================== SKRZYNIE I KAPLICZKI 3D (30.09, lib/modele-skrzynie.js) ==============================
+// Sprite'y skrzyń (chest0..3.png) i billboard garnka (garnek_nonny.png) zastąpione modelami 3D z kodu.
+// Logika gry bez zmian: obiekty dalej mają `mesh` (teraz NOŚNIK pozycji poza sceną, jak w pulach E1),
+// `pos`, `opened`/`active`/`cd`; rysuje je `syncSkrzynie3D()` w `syncInstancje` — instancjami
+// (1 draw call na część modelu: 9 skrzynek = 2 dc + 2 w cieniu). Otwarcie kufra (złota, kapral):
+// wieko odskakuje, świat na 0,3 s w hitstopie, a nakładka jackpotu/broni wchodzi dopiero po wieku.
+// W trybie „szybkim" (bot, prefers-reduced-motion, ?szybko=1) nakładka od razu, jak dotąd.
+let SK = null;                                     // { mat, ef, z: { skrzynka, zlota, kapral, garnek, witryna } } (boot)
+const SK_OTW = [];                                 // otwierane kufry: { m, x, y, z, yaw, dy0, t, cb, zrobione, znika }
+const SK_SKALA = { skrzynka: 1.25, zlota: 1.2, kapral: 1.2, garnek: 1.0, witryna: 1.0 };   // kopiec skrzynki musi wystawać ponad dywan trawy
+// LOSOWOŚĆ EFEKTÓW NIE BIERZE Math.random: bot podmienia Math.random na strumień z seedem (botBieg), a iskry i para
+// losują co klatkę — przesuwałyby ten strumień i wyniki bota przestałyby się zgadzać z pomiarami sprzed modeli 3D.
+let _skS = 0x2f6b5a1d;
+const skLos = () => { _skS = (_skS + 0x6D2B79F5) | 0; let t = Math.imul(_skS ^ (_skS >>> 15), 1 | _skS); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const skKat = (x, z) => { const h = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453; return (h - Math.floor(h)) * Math.PI * 2; };   // obrót z pozycji (bez losowania)
+function initSkrzynie3D() {
+  const mat = MS.materialSkrzyn(THREE, { czas: windU, chmury: { tex: cloudShadowU, off: cloudOffU, skala: CLOUD_SCALE } });
+  // pojemności z zapasem: wzrost zestawu = nowa InstancedMesh = UUID three = 4 × Math.random w czasie renderu (patrz „STRUMIEŃ BOTA")
+  const Z = (n, cap) => new MS.ZestawModeli(THREE, scene, MS.model(THREE, n), mat, { cap });
+  SK = { mat, ef: new MS.EfektySkrzyn(THREE, scene, { czas: windU }),
+         z: { skrzynka: Z('skrzynka', 12), zlota: Z('zlota', 4), kapral: Z('kapral', 14), garnek: Z('garnek', 6), witryna: Z('witryna', 6) } };
+}
+// najniższy grunt pod podstawą (środek + 4 rogi) — na stoku Wąwozów bryła wchodzi w zbocze zamiast wisieć
+function gruntPod(x, z, r) {
+  let h = terrainH(x, z);
+  for (const [dx, dz] of [[r, r], [-r, r], [r, -r], [-r, -r]]) h = Math.min(h, terrainH(x + dx * 0.7, z + dz * 0.7));
+  return h - 0.03;
+}
+// wysokość podstawy z pamięcią: liczona od nowa tylko, gdy obiekt zmienił miejsce (także gdy scenariusz testera
+// przestawi `pos` ręcznie, bez placeChest/placeTotem)
+function yPod(o, r) {
+  if (o._yx !== o.pos.x || o._yz !== o.pos.z) { o.y0 = gruntPod(o.pos.x, o.pos.z, r); o._yx = o.pos.x; o._yz = o.pos.z; }
+  return o.y0;
+}
+// kufer otwiera się TERAZ, `cb` (nakładka) po wieku; w trybie szybkim `cb` od razu (bot, reduced motion)
+function otworzKufer3D(m, pos, tIdle, cb) {
+  const szybko = skrzyniaSzybka(), u = MS.ANIM.unoszenie(tIdle);
+  // wysokość jak u unoszącego się kufra (terrainH), inaczej na stoku kufer podskakiwał o kilka cm w chwili zebrania
+  const o = { m, x: pos.x, z: pos.z, y: terrainH(pos.x, pos.z), yaw: camYaw + u.yaw, dy0: u.dy, t: szybko ? MS.ANIM.CZAS_OTWARCIA : 0,
+              cb, zrobione: szybko, znika: -1 };
+  SK_OTW.push(o);
+  if (SK) {
+    const kol = m === 'kapral' ? MS.KOLORY.iskraKapral : MS.KOLORY.iskraZlota;
+    for (let k = 0; k < 20; k++) {
+      const a = k / 20 * Math.PI * 2;
+      SK.ef.emituj('iskra', pos.x, o.y + 1.0, pos.z, { vx: Math.cos(a) * 2.4, vz: Math.sin(a) * 2.4, vy: 2 + skLos() * 1.6, s0: 0.26, s1: 0.12, zycie: 0.9, kol, a: 1.3 });
+    }
+  }
+  if (szybko) { cb(); return; }
+  G.hitstop = Math.max(G.hitstop, MS.ANIM.CZAS_OTWARCIA + 0.02);   // świat prawie staje, wieko leci w czasie realnym
+  G.skrzOchr = Math.max(G.skrzOchr || -1, G.time + 0.1);   // w hitstopie ≈ 0,7 s realnie: kontakt z hordą nie zabiera serca, zanim wejdzie nakładka
+}
+// co klatkę `update` (czas REALNY, bez hitstopu): otwarcia, emisja pary i iskier, ruch cząstek
+function updateSkrzynie3D(dtR) {
+  if (!SK) return;
+  for (let i = SK_OTW.length - 1; i >= 0; i--) {
+    const o = SK_OTW[i];
+    if (o.zrobione && o.znika < 0) o.znika = 0;    // pierwsza klatka PO nakładce (albo gdy nakładka nie weszła)
+    o.t += dtR;
+    if (!o.zrobione && o.t >= MS.ANIM.CZAS_OTWARCIA) { o.zrobione = true; o.cb(); }
+    if (o.znika >= 0 && (o.znika += dtR) > 0.45) SK_OTW.splice(i, 1);
+  }
+  const ef = SK.ef, R = skLos;
+  if (wchest.active) {                             // iskry wokół złotej
+    if (R() < dtR * 7) { const a = R() * 6.283, r = 0.6 + R() * 0.7; ef.emituj('iskra', wchest.pos.x + Math.cos(a) * r, wchest.y0 + 0.3 + R() * 1.0, wchest.pos.z + Math.sin(a) * r, { vy: 0.7, s0: 0.16, s1: 0.22, zycie: 1.1, kol: MS.KOLORY.iskraZlota, a: 1 }); }
+  }
+  for (const c of G.skrzynieKap) if (R() < dtR * 5) {
+    const a = R() * 6.283, r = 0.6 + R() * 0.6;
+    ef.emituj('iskra', c.pos.x + Math.cos(a) * r, terrainH(c.pos.x, c.pos.z) + 0.3 + R() * 1.0, c.pos.z + Math.sin(a) * r, { vy: 0.7, s0: 0.16, s1: 0.22, zycie: 1.1, kol: MS.KOLORY.iskraKapral, a: 1 });
+  }
+  const indoor = MAPS[mapKey].indoor, mdl = MS.model(THREE, 'garnek');
+  for (const t of totems) {
+    if (P.pos.distanceToSquared(t.pos) > 60 * 60) continue;
+    if (indoor) {                                  // witryna: chłodna mgiełka przy półce, gdy działa
+      if (t.cd <= 0 && R() < dtR * 2.5) ef.emituj('para', t.pos.x + Math.sin(t.yaw) * 0.55 + (R() - 0.5) * 1.2, t.y0 + 0.35, t.pos.z + Math.cos(t.yaw) * 0.55, { vy: 0.15, s0: 0.2, s1: 0.5, zycie: 1.8, a: 0.35, kol: 0xcfeeff });
+      continue;
+    }
+    if (t.cd > 0 && G.time - (t.dotyk || -9) > 1.2) continue;   // zgaszony garnek nie paruje
+    const c = Math.cos(t.yaw), s = Math.sin(t.yaw), p = mdl.para, w = MS.ANIM.pokrywka(windU.value, t.faza);
+    const px = t.pos.x + p[0] * c + p[2] * s, pz = t.pos.z - p[0] * s + p[2] * c;
+    if (R() < dtR * 3.2 || (w.buch && R() < 0.4)) ef.emituj('para', px + (R() - 0.5) * 0.3, t.y0 + p[1], pz + (R() - 0.5) * 0.3, { vy: 0.8 + R() * 0.4, s0: 0.2, s1: 0.58, zycie: 1.3, a: 0.62 });
+  }
+  ef.aktualizuj(dtR);
+}
+// rysowanie (przed KAŻDYM renderem, także na pauzie): stany → instancje
+function syncSkrzynie3D() {
+  if (!SK) return;
+  const A = MS.ANIM, tt = windU.value, Z = SK.z, ef = SK.ef, K = MS.KOLORY;
+  for (const k in Z) Z[k].begin();
+  ef.begin();
+  const bezCieni = MAPS[mapKey].indoor;            // market: bez mapy cieni → miękkie cienie kontaktowe pod bryłami
+  SK.mat.userData.U.uChmury.value = bezCieni ? 0 : 1;
+  // zwykłe skrzynki: kopiec warzyw podskakuje; po zebraniu kopiec wyskakuje i znika, skrzynka zostaje pusta
+  for (const c of chests) {
+    yPod(c, 0.7);
+    if (bezCieni) ef.cienKontaktowy(c.pos.x, c.y0 + 0.05, c.pos.z, 0.95, 0.72, c.yaw);
+    const s = { x: c.pos.x, y: c.y0, z: c.pos.z, yaw: c.yaw, skala: SK_SKALA.skrzynka, faza: c.faza, polysk: 0.5, czesci: {} };
+    if (c.opened) {
+      const p = A.podskok(c.t * 0.8), k = A.kopiecZebrany(c.t);
+      s.y += p.dy * 0.4; s.sy = p.sy; s.sxz = p.sxz;
+      s.czesci.zawartosc = k ? { dy: k.dy, s: k.s, sy: k.sy } : { ukryj: true };
+    } else { const k = A.kopiec(tt + c.faza * 3); s.czesci.zawartosc = { dy: k.dy, s: k.s, sy: k.sy }; }
+    Z.skrzynka.dodaj(s);
+  }
+  // złota i Skrzynie Kaprala: unoszą się, kołyszą frontem do kamery, co ~2,6 s uchylają wieko (światło z wnętrza)
+  const kufer = (m, x, y, z, t0, kol) => {
+    const u = A.unoszenie(t0);
+    if (bezCieni) ef.cienKontaktowy(x, y + 0.05, z, 0.85 - u.dy * 0.8, 0.6 - u.dy * 0.6, camYaw + u.yaw);   // cień maleje, gdy kufer się unosi
+    Z[m].dodaj({ x, y: y + u.dy, z, yaw: camYaw + u.yaw, skala: SK_SKALA[m], sw: u.sw, czesci: { wieko: { rx: u.wieko } } });
+    ef.blaskNaZiemi(x, y + 0.06, z, kol, 0.5 + 0.2 * u.sw, 2.0);
+    ef.promien(x, y, z, kol, 0.8 + 0.25 * Math.sin(tt * 3.1));
+  };
+  if (wchest.active) kufer('zlota', wchest.pos.x, wchest.y0, wchest.pos.z, wchest.t, K.zlota);
+  for (const c of G.skrzynieKap) kufer('kapral', c.pos.x, terrainH(c.pos.x, c.pos.z), c.pos.z, c.t, K.kapral);
+  for (const o of SK_OTW) {                        // otwierane: wieko odskakuje, błysk, po nakładce kurczy się i znika
+    const mdl = MS.model(THREE, o.m), p = A.podskok(o.t), bl = Math.max(0, 1 - o.t / 0.6), kol = o.m === 'kapral' ? K.kapral : K.zlota;
+    const zn = o.znika >= 0 ? Math.max(0, 1 - o.znika / 0.45) : 1, zs = zn * zn * (3 - 2 * zn);
+    Z[o.m].dodaj({ x: o.x, y: o.y + o.dy0 + p.dy + (1 - zs) * 0.5, z: o.z, yaw: o.yaw, skala: SK_SKALA[o.m] * zs, sy: p.sy, sxz: p.sxz, sw: 1.2 + 1.8 * bl,
+                   czesci: { wieko: { rx: A.wieko(o.t, mdl.zawias.otwarte) } } });
+    ef.blaskNaZiemi(o.x, o.y + 0.06, o.z, kol, (0.9 + 1.2 * bl) * zs, 2.2 + bl);
+    ef.promien(o.x, o.y, o.z, kol, (0.9 + 1.6 * bl) * zs, 0.45 + 0.35 * bl);
+  }
+  // Garnek Nonny (na Łąkach, Osiedlu, w Wąwozach) / witryna chłodnicza (Market)
+  const indoor = MAPS[mapKey].indoor, gm = MS.model(THREE, 'garnek');
+  for (const t of totems) {
+    yPod(t, 0.8);
+    const gotowy = t.cd <= 0, poDot = G.time - (t.dotyk || -9);
+    if (indoor) {
+      ef.cienKontaktowy(t.pos.x, t.y0 + 0.05, t.pos.z, 1.05, 0.7, t.yaw);
+      Z.witryna.dodaj({ x: t.pos.x, y: t.y0, z: t.pos.z, yaw: t.yaw, sw: gotowy ? 1 : 0.15, jas: gotowy ? 1 : 0.78 });
+      if (gotowy) ef.blaskNaZiemi(t.pos.x + Math.sin(t.yaw) * 0.8, t.y0 + 0.05, t.pos.z + Math.cos(t.yaw) * 0.8, K.chlod, 0.45, 1.5);
+      continue;
+    }
+    // ogień: pełny gdy gotowy; po dotknięciu gaśnie do żaru, w ostatnich 3 s odnowienia rozpala się z powrotem
+    const sila = gotowy ? 1 : Math.max(0.12, poDot < 0.6 ? 1 - poDot / 0.6 * 0.88 : 0.12, t.cd < 3 ? 1 - t.cd / 3 : 0);
+    const mig = 0.85 + 0.15 * Math.sin(tt * 13 + t.faza) * Math.sin(tt * 7.3);
+    const w = A.pokrywkaWybuch(poDot), r = gm.spoczynek.pokrywka, p = w || (gotowy ? A.pokrywka(tt, t.faza) : { dy: 0, rz: 0, rx: 0 });
+    Z.garnek.dodaj({ x: t.pos.x, y: t.y0, z: t.pos.z, yaw: t.yaw, sw: mig * (0.3 + 0.7 * sila), jas: gotowy ? 1 : 0.86,
+                     czesci: { pokrywka: { rz: r.rz + p.rz, rx: p.rx, dy: r.dy + p.dy }, ogien: { s: (0.92 + 0.1 * mig) * sila } } });
+    ef.blaskNaZiemi(t.pos.x, t.y0 + 0.06, t.pos.z, K.ogien, 0.75 * mig * sila, 2.1);
+  }
+  for (const k in Z) Z[k].end();
+  ef.end(camera);
+}
+const chests = [];        // {mesh (nośnik), pos, opened, t, y0, yaw, faza}
 function placeChest(c) {
   const s = landSpot(16, 70) || { x: P.pos.x + 20, z: P.pos.z + 20 };
   c.pos.set(s.x, 0, s.z);
-  c.opened = false; c.t = 0;
-  c.mesh.material = chestMats[0];
-  c.mesh.position.set(s.x, terrainH(s.x, s.z) - 0.02, s.z);
+  c.opened = false; c.t = 0; c.nagr = false;
+  c.y0 = gruntPod(s.x, s.z, 0.7);
+  c.yaw = skKat(s.x, s.z);
+  c.mesh.position.set(s.x, c.y0, s.z);
 }
 function spawnChests(n) {
   for (let i = 0; i < n; i++) {
-    const m = new THREE.Mesh(unitGeo, chestMats[0]);
-    m.scale.set(1.1, 1.1, 1);
-    scene.add(m);
-    const c = { mesh: m, pos: new THREE.Vector3(), opened: false, t: 0 };
+    const c = { mesh: new THREE.Object3D(), pos: new THREE.Vector3(), opened: false, t: 0, faza: i * 0.37 };
     placeChest(c);
     chests.push(c);
   }
@@ -11563,13 +11707,14 @@ function chestReward(c) {
 
 // ============================== ZŁOTA SKRZYNIA Z BRONIĄ 🎁 ==============================
 // Jedna naraz; po zabraniu następna pojawia się po chwili. Strzałka w HUD prowadzi do niej.
-const wchest = { mesh: null, ring: null, pos: new THREE.Vector3(), active: false, t: 0, wait: 0 };
+// `mesh` = nośnik pozycji (model 3D rysuje syncSkrzynie3D), `ring` = krąg na ziemi jak dotąd
+const wchest = { mesh: null, ring: null, pos: new THREE.Vector3(), active: false, t: 0, wait: 0, y0: 0 };
 function spawnWeaponChest() {
   const s = landSpot(22, 60);
   if (!s) { wchest.wait = 2; return; }
   wchest.pos.set(s.x, 0, s.z);
-  wchest.mesh.position.set(s.x, terrainH(s.x, s.z) - 0.02, s.z);
-  wchest.mesh.material = chestMats[0];
+  wchest.y0 = terrainH(s.x, s.z);
+  wchest.mesh.position.set(s.x, wchest.y0 - 0.02, s.z);
   wchest.ring.position.set(s.x, terrainH(s.x, s.z) + 0.07, s.z);
   wchest.mesh.visible = wchest.ring.visible = true;
   wchest.active = true;
@@ -11585,8 +11730,7 @@ function updateWeaponChest(dt) {
     if (wchest.wait <= 0) spawnWeaponChest();
   } else {
     wchest.t += dt;
-    wchest.mesh.rotation.y = camYaw;
-    wchest.mesh.position.y = terrainH(wchest.pos.x, wchest.pos.z) + 0.1 + Math.sin(wchest.t * 2.2) * 0.12;
+    wchest.mesh.position.y = wchest.y0 + MS.ANIM.unoszenie(wchest.t).dy;
     wchest.ring.scale.setScalar(3.4 + Math.sin(wchest.t * 3) * 0.5);
     if (wchest.pos.distanceTo(P.pos) < 1.6) {        // ZEBRANA
       wchest.active = false;
@@ -11598,7 +11742,8 @@ function updateWeaponChest(dt) {
       AUDIO.sfx('zlota');
       novaRing(wchest.pos.x, wchest.pos.z, 3);
       META.st.chests++; saveMeta();
-      pchnijOverlay(() => otworzZlotaSkrzynie('mapa'));
+      // 30.09: najpierw wieko 3D (≈ 0,28 s, świat w hitstopie), potem nakładka — w trybie szybkim od razu
+      otworzKufer3D('zlota', wchest.pos, wchest.t, () => pchnijOverlay(() => otworzZlotaSkrzynie('mapa')));
     }
   }
   // E1-bieg K7: strzałka prowadzi do BLIŻSZEJ z dwóch: Skrzyni Kaprala (fiolet) albo złotej. Dawniej fiolet
@@ -11641,41 +11786,9 @@ function pixTex(W, H, bryly, kontur = '#1b1b22') {
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
-// Sprite garnka od właściciela (biały garnek w czerwone kropki, para, ogień pod spodem).
-// `garnekTexture()` niżej zostaje jako awaryjny — ten sam wzorzec co salata/karabin.
-let garnekImgMat = null;
-async function ladujGarnek() {
-  try { garnekImgMat = (await flatMat('assets/garnek_nonny.png')).mat; }
-  catch { garnekImgMat = null; }
-}
-function garnekTexture() {
-  const b = [];
-  const r = (x, y, w, h, kol) => b.push([x, y, w, h, kol]);
-  r(9, 1, 3, 3, '#e4ecf5'); r(15, 0, 4, 3, '#d3dee9'); r(12, 4, 2, 2, '#e4ecf5');   // para
-  r(18, 4, 2, 2, '#d3dee9');
-  r(4, 8, 22, 3, '#6b727d');                                                        // rant
-  r(6, 10, 18, 2, '#8ec44f');                                                       // zawartość
-  r(9, 9, 4, 2, '#b6e26a'); r(16, 9, 3, 2, '#b6e26a');                              // bąble
-  for (let i = 0; i < 11; i++)                                                      // brzuch (schodki)
-    r(5 + Math.floor(i * 0.32), 11 + i, 20 - Math.floor(i * 0.64), 1, i % 4 === 3 ? '#4a4f58' : '#3b4048');
-  r(1, 11, 3, 3, '#6b727d'); r(26, 11, 3, 3, '#6b727d');                            // uchwyty
-  r(9, 22, 12, 3, '#ff8a2a'); r(12, 24, 7, 2, '#ffd75e');                           // ogień pod garnkiem
-  return pixTex(30, 27, b);
-}
-function witrynaTexture() {
-  const b = [];
-  const r = (x, y, w, h, kol) => b.push([x, y, w, h, kol]);
-  r(2, 2, 24, 26, '#c8ced6');                          // obudowa
-  r(4, 4, 20, 21, '#69a8c9');                          // szyba
-  r(5, 5, 4, 19, '#8fc6de');                           // refleks
-  r(4, 11, 20, 2, '#aeb6c0'); r(4, 18, 20, 2, '#aeb6c0');   // półki
-  r(6, 7, 4, 4, '#e05a5a'); r(12, 7, 3, 4, '#f2c14a'); r(18, 8, 4, 3, '#8ec44f');
-  r(6, 14, 3, 4, '#f0efe6'); r(11, 14, 5, 4, '#d98f3c'); r(19, 15, 3, 3, '#b06bd6');
-  r(7, 21, 5, 3, '#7ab648'); r(15, 21, 6, 3, '#e0873c');
-  r(2, 27, 24, 4, '#8f97a1');                          // podstawa
-  r(9, 28, 10, 2, '#6b727d');
-  return pixTex(28, 32, b);
-}
+// 30.09: garnek i witryna są MODELAMI 3D (lib/modele-skrzynie.js: 'garnek' — emaliowany garnek w czerwone kropki
+// jak na sprite'cie właściciela, na trójnogu nad ogniskiem; 'witryna' — chłodnia w markecie). Dawne tekstury
+// (`garnekTexture`, `witrynaTexture`, billboard z garnek_nonny.png) usunięte — plik PNG zostaje dla UI (menu, kawa).
 // Buffy: waga = jak często wypada. Nietykalność i mrożonki są RZADSZE, bo zdejmują
 // napięcie — a w survivors-like napięcie JEST rozgrywką. 6 s zamiast 10 z tego samego
 // powodu: ma być momentem, nie przerwą w grze.
@@ -11693,19 +11806,10 @@ function losujBuff() {
   for (const b of BUFFS) if ((r -= b.waga) <= 0) return b;
   return BUFFS[0];
 }
-let garnekTex = null, witrynaTex = null;
-// wygląd zależy od mapy — garnki powstają raz przy boocie, więc teksturę podmieniamy w setMap
+// wygląd zależy od mapy (garnek / witryna w markecie) — wybiera go syncSkrzynie3D wg MAPS[mapKey].indoor;
+// tu zostaje tylko kąt obrotu (witryna stoi frontem do gracza w chwili postawienia)
 function ustawWygladGarnkow(key) {
-  if (!garnekTex) { garnekTex = garnekTexture(); witrynaTex = witrynaTexture(); }
-  const indoor = MAPS[key] && MAPS[key].indoor;
-  // na Łąkach sprite właściciela, jeśli się wczytał; w markecie proceduralna witryna
-  const tex = indoor ? witrynaTex : ((garnekImgMat && garnekImgMat.map) || garnekTex);
-  const obr = tex.image.width / tex.image.height;
-  for (const t of totems) {
-    t.mat.map = tex;
-    t.mat.needsUpdate = true;
-    t.mesh.scale.set(2.2 * obr, 2.2, 1);
-  }
+  for (const t of totems) t.yaw = MAPS[key] && MAPS[key].indoor ? Math.atan2(P.pos.x - t.pos.x, P.pos.z - t.pos.z) : t.yaw;
 }
 function spawnTotems(n) {
   const ringTex = (() => {
@@ -11717,17 +11821,12 @@ function spawnTotems(n) {
     t.colorSpace = THREE.SRGBColorSpace;
     return t;
   })();
-  if (!garnekTex) { garnekTex = garnekTexture(); witrynaTex = witrynaTexture(); }
   for (let i = 0; i < n; i++) {
-    const mat = new THREE.MeshBasicMaterial({ map: garnekTex, transparent: true,
-      alphaTest: 0.4, side: THREE.DoubleSide });
-    const m = new THREE.Mesh(unitGeo, mat);
-    m.scale.set(2.2 * (garnekTex.image.width / garnekTex.image.height), 2.2, 1);
-    scene.add(m);
     const ring = new THREE.Mesh(blobGeo, new THREE.MeshBasicMaterial({ map: ringTex, transparent: true, depthWrite: false }));
     ring.scale.set(3, 1, 3);
     scene.add(ring);
-    const t = { mesh: m, ring, pos: new THREE.Vector3(), cd: 0, mat };
+    // `mesh` = nośnik pozycji (model rysuje syncSkrzynie3D); `mat.opacity` zostaje jako znacznik stanu dla scenariuszy testera
+    const t = { mesh: new THREE.Object3D(), ring, pos: new THREE.Vector3(), cd: 0, mat: { opacity: 1 }, yaw: 0, y0: 0, faza: i * 0.61, dotyk: -9 };
     placeTotem(t);
     totems.push(t);
   }
@@ -11735,9 +11834,11 @@ function spawnTotems(n) {
 function placeTotem(t) {
   const s = landSpot(18, 70) || { x: P.pos.x - 20, z: P.pos.z - 20 };
   t.pos.set(s.x, 0, s.z);
-  t.mesh.position.set(s.x, terrainH(s.x, s.z) - 0.02, s.z);
+  t.y0 = gruntPod(s.x, s.z, 0.8);
+  t.yaw = MAPS[mapKey].indoor ? Math.atan2(P.pos.x - s.x, P.pos.z - s.z) : skKat(s.x, s.z);
+  t.mesh.position.set(s.x, t.y0, s.z);
   t.ring.position.set(s.x, terrainH(s.x, s.z) + 0.06, s.z);
-  t.cd = 0; t.mat.opacity = 1; t.ring.visible = true;
+  t.cd = 0; t.mat.opacity = 1; t.ring.visible = true; t.dotyk = -9;
 }
 // `ikona` = nazwa z icons.js; bez niej zostaje czysty tekst (ZERO emoji w grze)
 function toastBuff(txt, ikona) {
@@ -12876,24 +12977,26 @@ function update(dt) {
   }
 
   // ---- skrzynie ----
+  // 30.09: kopiec warzyw wyskakuje (model 3D), nagroda 0,12 s później — monety lecą, gdy kopiec jest w górze
+  // (tryb szybki: od razu, jak dawniej)
   for (const c of chests) {
-    c.mesh.rotation.y = camYaw;
     if (!c.opened) {
       const cd = c.pos.distanceTo(P.pos);
       if (cd < 1.3) {
-        c.opened = true; c.t = 0;
-        chestReward(c);
+        c.opened = true; c.t = 0; c.nagr = false;
         G.shake = Math.max(G.shake, 0.15);
+        if (skrzyniaSzybka()) { c.nagr = true; chestReward(c); }   // bot / reduced motion: od razu i bez konfetti (okruchy losują z Math.random)
+        else for (const kol of [0xee4a3a, 0xf6922e, 0x86cf55, 0x9a5ad0]) okruchy(c.pos.x, c.y0 + 0.9, c.pos.z, kol, 4);
       } else if (cd > 95) placeChest(c);      // mapa nieskończona — skrzynia goni gracza
     } else {
       c.t += dt;
-      const f = Math.min(3, Math.floor(c.t * 8));
-      c.mesh.material = chestMats[f];
+      if (!c.nagr && c.t >= 0.12) { c.nagr = true; chestReward(c); }
       if (c.t > 45) placeChest(c);            // respawn gdzie indziej
     }
   }
 
   updateWeaponChest(dt);
+  updateSkrzynie3D(dtReal);                        // otwarcia kufrów, para, iskry — czas realny (wieko leci mimo hitstopu)
   if (G.padajace.length) updatePadajace(dt);
   if (MAPS[mapKey].indoor) updateRestock(dt);
   if (G.turrets.length) updateTurrets(dt);
@@ -12925,7 +13028,6 @@ function update(dt) {
 
   // ---- totemy ----
   for (const t of totems) {
-    t.mesh.rotation.y = camYaw;
     if (t.pos.distanceTo(P.pos) > 110) placeTotem(t);   // przenosiny bliżej gracza
     if (t.cd > 0) {
       t.cd -= dt;
@@ -12941,6 +13043,9 @@ function update(dt) {
         toastBuff(b.label, b.ico);
         t.cd = trudn().garnekCd;                     // TRUDNOŚĆ v2: 45 → 60 s (CFG_TRUDNOSC)
         novaRing(t.pos.x, t.pos.z, 4);
+        t.dotyk = G.time;                            // 30.09: pokrywka wyskakuje, bucha para, ogień przygasa do żaru
+        if (SK) for (let k = 0; k < 7; k++) SK.ef.emituj('para', t.pos.x + (skLos() - 0.5) * 1.0, t.y0 + 1.3, t.pos.z + (skLos() - 0.5) * 1.0,
+          { vy: 1.6 + skLos(), vx: skLos() - 0.5, s0: 0.3, s1: 0.9, zycie: 1.2, a: 0.7, kol: MAPS[mapKey].indoor ? 0xcfeeff : 0xffffff });
         // mrożonki i nietykalność to momenty — zasługują na wstrząs i błysk
         if (b.key === 'mroz' || b.key === 'niet') { G.shake = Math.max(G.shake, 0.35); fpsBlysk(0.4); }
       }
@@ -13704,7 +13809,9 @@ function clearWorld() {
   _stawStan = '';
   document.getElementById('buff').style.opacity = 0;
   for (const c of chests) placeChest(c);
-  for (const t of totems) { t.cd = 0; t.mat.opacity = 1; t.ring.visible = true; }
+  for (const t of totems) { t.cd = 0; t.mat.opacity = 1; t.ring.visible = true; t.dotyk = -9; }
+  SK_OTW.length = 0; G.skrzOchr = -1;              // 30.09: otwierane kufry 3D (nakładka z nich już nie wejdzie)
+  if (SK) SK.ef.wyczysc();
 }
 
 function newGame() {
@@ -13890,6 +13997,7 @@ function syncInstancje() {
   for (const g of HORDA_GRUPY) g.end();
   for (const g of SYLW_GRUPY) g.end();
   for (const p of PULE) p.end();
+  syncSkrzynie3D();                                // 30.09: skrzynie, kufry, garnki 3D + promienie, blaski, para, iskry
 }
 scene.onBeforeRender = syncInstancje;
 
@@ -14379,13 +14487,10 @@ if (loadTip) {
   ringMat = new THREE.MeshBasicMaterial({ map: ringTexture('rgba(255,235,150,0.95)'), transparent: true, depthWrite: false });
   // E1-bieg K6: FIOLET = ELITA (wzór DRG: Survivor); złoto zostaje dla skrzyń i monet
   eliteRingMat = new THREE.MeshBasicMaterial({ map: ringTexture('rgba(170,90,255,0.95)'), transparent: true, depthWrite: false });
-  chestMats = [];
-  for (let i = 0; i < 4; i++) chestMats.push((await flatMat('assets/chest' + i + '.png')).mat);
-  // złota skrzynia z bronią (ta sama grafika, złota poświata + pierścień)
-  wchest.mesh = new THREE.Mesh(unitGeo, chestMats[0]);
-  wchest.mesh.scale.set(1.5, 1.5, 1);
+  // złota skrzynia z bronią: model 3D „zlota" (syncSkrzynie3D) + złoty pierścień; `mesh` = nośnik pozycji poza sceną
+  // (chest0..3.png nie są już wczytywane — skrzynie to modele z lib/modele-skrzynie.js)
+  wchest.mesh = new THREE.Object3D();
   wchest.mesh.visible = false;
-  scene.add(wchest.mesh);
   wchest.ring = new THREE.Mesh(blobGeo, new THREE.MeshBasicMaterial({
     map: ringTexture('rgba(255,215,94,0.95)'), transparent: true, depthWrite: false }));
   wchest.ring.scale.setScalar(3.4);
@@ -14499,12 +14604,10 @@ if (loadTip) {
   resetStats();          // P.pos musi istnieć PRZED chunkami i skrzyniami
   setMap(mapKey);        // buduje świat + rozstawia skrzynie/totemy
   await ladowanie(T('Ukrywanie skrzyń…', 'Hiding the crates…'));
+  initSkrzynie3D();         // 30.09: modele skrzyń, kufrów i garnka (liczone z kodu, raz) + efekty
   spawnChests(9);
   await ladowanie(T('Stawianie garnków Nonny…', "Setting out Nonna's pots…"));
-  await ladujGarnek();      // sprite garnka; bez niego zostaje proceduralny
   spawnTotems(3);
-  // `setMap` poszedł WCZEŚNIEJ niż wczytanie sprite'a, a `spawnTotems` bierze teksturę
-  // proceduralną — bez tego wywołania garnek zostawał rysowany kodem.
   ustawWygladGarnkow(mapKey);
   drawHearts();
   await ladowanie(T('Otwieranie sklepu…', 'Opening the shop…'));
@@ -14827,6 +14930,19 @@ if (loadTip) {
     get wydLog() { return G.e3; },
     // 30.09 MAPA OSIEDLE: moduły, stan (chunki, kolejka, pole hordy, czasy budowy), układ chunka do podglądu
     TO, OSR, OS,
+    // 30.09 SKRZYNIE I KAPLICZKI 3D: moduł, zestawy instancji, otwierane kufry; skrzynie3D() = draw calle i trójkąty (z cieniem x2)
+    MS, get SK() { return SK; }, SK_OTW, otworzKufer3D, postawSkrzynieKaprala, syncSkrzynie3D, updateSkrzynie3D,
+    skrzynie3D() {
+      if (!SK) return null;
+      const z = {}; let dc = 0, tri = 0, dcCien = 0;
+      for (const [k, Zs] of Object.entries(SK.z)) {
+        const t = MS.liczTrojkaty(Zs.model);
+        z[k] = { n: Zs.n, dc: Zs.drawCalle, trisSzt: t.razem, tris: t.razem * Zs.n };
+        dc += Zs.drawCalle; tri += t.razem * Zs.n;
+        if (Zs.n) for (const cz of Zs.model.czesci) if (cz.cien !== false) dcCien++;
+      }
+      return { zestawy: z, dc, dcCien: MAPS[mapKey].indoor ? 0 : dcCien, dcEfekty: SK.ef.drawCalle, tris: tri, czastki: SK.ef.cz.length, otwierane: SK_OTW.length };
+    },
     osiedle() {
       let n = 0, v = 0, wid = 0, cut = 0;
       for (const ch of chunkMap.values()) if (ch.osiedle) { n++; v += ch.osiedle.v; if (ch.mesh.visible) wid++; if (ch.mesh.material === OS.matCut) cut++; }
