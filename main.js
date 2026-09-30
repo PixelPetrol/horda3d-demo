@@ -3754,6 +3754,11 @@ const SHOP_UNLOCKS = [
     ds: T('Sadzi się sam za Tobą i ostrzeliwuje pomidorami PO ŁUKU — bije ponad hordą',
           'Plants itself behind you and lobs tomatoes IN AN ARC — hits over the horde'), price: 300 },
 ];
+// CENA odblokowania (EKONOMIA 29.09, „bronie 4× droższe"): `price` wyżej = cena bazowa; BROŃ (klucz w WEAPONS) ×
+// trudn().ekon.bronCena (v2: ×4, v1: ×1), zdolności (Podwójny skok, Foliowa torba) bez zmian. Kupione wcześniej zostają
+// (META.unlocked[klucz] = 1 — cena liczy się tylko przy zakupie). Wszystkie miejsca z ceną idą przez tę funkcję.
+const jestBronia = it => !!WEAPONS[it.key];
+const cenaOdbl = it => jestBronia(it) ? Math.round(it.price * ekon('bronCena')) : it.price;
 // Cena rośnie nie tylko z poziomem POZYCJI, ale i z liczbą WSZYSTKICH zakupów
 // (+10% każdy). U Vampire Survivors 91% pełnego kosztu maksowania meta-sklepu to
 // sam narzut skalowania — to on robi całą długość gry, nie liczba pozycji.
@@ -4035,10 +4040,11 @@ function renderShop() {
     const d = document.createElement('div');
     d.className = 'tile' + (owned ? ' lock' : '');
     d.innerHTML = `<div class="ico">${ico(it.ico, 40)}</div><div class="nm">${it.nm}</div>
-      <div class="ds">${it.ds}</div><div class="pr">${owned ? T('MASZ', 'OWNED') : ico('moneta', 15) + ' ' + it.price}</div>`;
+      <div class="ds">${it.ds}</div><div class="pr">${owned ? T('MASZ', 'OWNED') : ico('moneta', 15) + ' ' + liczba(cenaOdbl(it))}</div>`;
     if (!owned) d.onclick = () => {
-      if (META.coins < it.price) return deny(d);
-      META.coins -= it.price; META.unlocked[it.key] = 1; saveMeta(); renderShop();
+      const pr = cenaOdbl(it);
+      if (META.coins < pr) return deny(d);
+      META.coins -= pr; META.unlocked[it.key] = 1; saveMeta(); renderShop();
     };
     wrap.appendChild(d);
   }
@@ -4187,8 +4193,9 @@ function celNajblizszy() {
     : T('Uzbieraj monety na postać', 'Save up coins for a hero'), n: META.coins, z: CHARS[kup].price, nagr: nagr(CHARS[kup].nm.split(' ')[0]) };
   if (!s.wins) return { t: T('Przetrwaj Wieczór i pokonaj Dona', 'Survive the Evening and beat the Don'),
     n: Math.min(s.best || 0, CZAS_WIECZORU), z: CZAS_WIECZORU, czas: true, nagr: nagr(T('monety ×1,5', 'coins ×1.5')) };
-  const it = SHOP_UNLOCKS.filter(i => !META.unlocked[i.key]).sort((a, b) => a.price - b.price)[0];
-  if (it) return { t: T('Kup w sklepie: ', 'Buy in the shop: ') + it.nm, n: META.coins, z: it.price, nagr: nagr(T('nowa broń', 'a new weapon')) };
+  const it = SHOP_UNLOCKS.filter(i => !META.unlocked[i.key]).sort((a, b) => cenaOdbl(a) - cenaOdbl(b))[0];
+  if (it) return { t: T('Kup w sklepie: ', 'Buy in the shop: ') + it.nm, n: META.coins, z: cenaOdbl(it),
+                   nagr: nagr(jestBronia(it) ? T('nowa broń', 'a new weapon') : T('nowa zdolność', 'a new ability')) };
   const sk = SPIZ_KOLEJNOSC.find(k => !sklOdbl(k));
   if (sk) return { t: T('Spiżarnia Nonny: ', "Nonna's Pantry: ") + PASSIVES[sk].nm, n: META.coins, z: cenaSpiz(), nagr: nagr(T('nowy składnik', 'a new ingredient')) };
   return { t: T('Wygraj kolejny Wieczór', 'Win another Evening'), n: s.wins, z: s.wins + 1, nagr: nagr(T('chwała Nonny', "Nonna's glory")) };
@@ -4200,7 +4207,7 @@ function kropkiMenu() {
   const st = menuStan(), c = META.coins, u = META.ui, out = [];
   if (st >= 1) {
     const ceny = SHOP.filter(it => META.up[it.key] < it.max).map(shopPrice)
-      .concat(SHOP_UNLOCKS.filter(it => !META.unlocked[it.key]).map(it => it.price))
+      .concat(SHOP_UNLOCKS.filter(it => !META.unlocked[it.key]).map(cenaOdbl))
       .concat(SPIZ_KOLEJNOSC.some(k => !sklOdbl(k)) ? [cenaSpiz()] : [], META.unlocked.sloik || !trudn().karty.sklBlokady ? [] : [CFG_SPIZ.sloik]);
     if (ceny.length && c >= Math.min(...ceny) && c > (u.krSklep ?? -1)) out.push('sklep');
     if (Object.keys(CHARS).some(k => !maszPostac(k) && CHARS[k].price > 0 && c >= CHARS[k].price) && c > (u.krPost ?? -1)) out.push('postacie');
@@ -4753,7 +4760,7 @@ function resetStats() {
     weapons: [{ key: CHARS[charKey].startWpn || 'kule', lvl: 1, t: 0, t0: 0 }],   // max 3 sloty; t0 = od kiedy (DPS broni)
     passives: {},                                // key -> poziom (E2: ile razy wzięto składnik)
     skl: [], sklU: {}, slotySkl: CFG_DECYZJE.slotySkl, regenAkum: 0,   // E2 K1: sloty składników, jednostki siły, Rosół
-    awanse: 0, awAuto: 0, wyklucz: new Set(),         // awAuto: AWANS CO 3 — liczba awansów z automatycznym wzmocnieniem                   // E2 K2/K3: licznik awansów (nauka rzadkości), wykluczone id kart
+    awanse: 0, awAuto: 0, awBron: 0, awBronAcc: null, wyklucz: new Set(),         // awAuto: AWANS CO 3 — liczba awansów z automatycznym wzmocnieniem                   // E2 K2/K3: licznik awansów (nauka rzadkości), wykluczone id kart
     nozeBonus: 0,                                    // E2 K8: noże Razoretty za krytyki
     wybory: { przelos: CFG_DECYZJE.wybory.przelos + (charKey === 'carrotello' ? 1 : 0),   // Carrotello: Wszechstronny (+1)
               pomin: CFG_DECYZJE.wybory.pomin, wyklucz: CFG_DECYZJE.wybory.wyklucz },
@@ -4771,8 +4778,13 @@ function resetStats() {
 // nadaza za krzywa trudnosci. Prog rosnie liniowo, wiec ranga nie ucieka w gore.
 const RANGA_CAP = 150;            // cap 40 wypadal w 8,5 min i od tego momentu hpScale rosl w pustke
 const rangaProg = r => 20 + 14 * r;               // ile zabojstw do NASTEPNEJ rangi
-const rangaDmg = () => 1 + 0.05 * G.ranga;        // +5% obrazen za range
-const rangaFire = () => 1 + 0.04 * Math.floor(G.ranga / 4);   // co 4. ranga tez +4% tempa
+// WZROST W BIEGU (29.09, uwaga właściciela „postać za szybko staje się bardzo silna — o połowę"): trudn().wzrost mnoży
+// przyrost z rangi (+5% obrażeń za rangę, +4% tempa co 4.) i z automatu awansu (+dmg/+tempo za awans). v1 = 1 (stare
+// zachowanie). Osobno trudn().wzrostBron (domyślnie 1) = tempo automatycznych poziomów broni — 0,75 zabijało przepisy przed
+// 5:00 (siła w 5:00 ×0,19), więc zostaje 1. CFG_TRUDNOSC.v2.wzrost, sekcja „WZROST W BIEGU" w INFO-PROJEKT.md.
+const wzrost = () => { const w = trudn().wzrost; return w == null ? 1 : w; };
+const rangaDmg = () => 1 + 0.05 * wzrost() * G.ranga;        // +5% obrazen za range (× wzrost)
+const rangaFire = () => 1 + 0.04 * wzrost() * Math.floor(G.ranga / 4);   // co 4. ranga tez +4% tempa (× wzrost)
 function sprawdzRange() {
   while (G.ranga < RANGA_CAP && G.rangaKille >= rangaProg(G.ranga)) {
     G.rangaKille -= rangaProg(G.ranga);
@@ -4813,8 +4825,8 @@ const xpDoNast = l => Math.round(XP_KRZ.a + XP_KRZ.b * l + XP_KRZ.c * l * l + XP
 const cisnienie = () => charKey === 'beetino' && P.hp > 0 && P.hp <= P.maxHp * 0.5;
 const BEET_LECZ_CD = 5.0;                         // s między sercami z wysysania (nerf 23.09: 3 s, 24.09: 5 s)
 // AWANS CO 3 (29.09): automatyczne wzmocnienie za każdy awans (P.awAuto = liczba awansów w biegu; CFG_TRUDNOSC.*.awans)
-const awansDmg  = () => 1 + trudn().awans.dmg * (P.awAuto || 0);
-const awansTempo = () => 1 + trudn().awans.tempo * (P.awAuto || 0);
+const awansDmg  = () => 1 + trudn().awans.dmg * wzrost() * (P.awAuto || 0);
+const awansTempo = () => 1 + trudn().awans.tempo * wzrost() * (P.awAuto || 0);
 const dmgAll  = () => CHARS[charKey].dmg * (1 + 0.10 * META.up.dmg) * Math.pow(1.15, U('moc')) * (1 + 0.03 * (P.repeat.sol || 0)) * (G.buff.key === 'dmg' ? 2 : 1) * rangaDmg() * awansDmg();   // Ciśnienie Beetina bez bonusu obrażeń (24.09; było 1.25 → 1.20)
 const fireMul = () => Math.pow(1.12, U('tempo')) * (1 + 0.03 * (P.repeat.oliwa || 0)) * rangaFire() * awansTempo();
 // clamp 0.75: pasyw daje najwyżej 0.50, ale „Pieprz Nonny” jest bez limitu i bez
@@ -5914,7 +5926,8 @@ const L_BIEG = { hp: 1, spd: 0.035, dmgA: 0.06, dmgB: 0.004, elita: 1, tempo: 1 
 const L_NORMALNY = { ...L_BIEG };                  // E1-bieg K10: newGame przywraca te wartości w normalnym biegu
 // K10: mnożnik łagodnego biegu dla pola `k` z CFG_BIEG.trybLagodny (1 w normalnym biegu)
 const lag = k => G.lagodny ? CFG_BIEG.trybLagodny[k] : 1;
-const hpScale = (t = G.time) => { const m = t / 60; return (1 + 0.45 * m + 0.025 * m * m) * (1 + 0.10 * klatwa()) * L_BIEG.hp * rozgrz('hp', t); };
+// ZALEW (29.09 wieczór): × zalew().hp.zwykly (v2 ×2) — zwykli, potomki, Chiamata i regał (8 × hpScale) razem; elity w spawnEnemy
+const hpScale = (t = G.time) => { const m = t / 60; return (1 + 0.45 * m + 0.025 * m * m) * (1 + 0.10 * klatwa()) * L_BIEG.hp * rozgrz('hp', t) * zalew().hp.zwykly; };
 const spdScale = () => Math.min(1.5, 1 + L_BIEG.spd * G.time / 60);
 // mnożnik obrażeń wrogów: 5:00 ×1,40 · 10:00 ×2,00 — od 25.09 TYLKO w ciosach w Sokowirówkę (gracz: 1 cios = 1 serce)
 const dmgMul = () => { const m = G.time / 60; return (1 + L_BIEG.dmgA * m + L_BIEG.dmgB * m * m) * rozgrz('dmg'); };
@@ -5954,16 +5967,17 @@ function spawnEnemy(type, angle = null, przy = null, opcje = {}) {
   const hpMul = hpScale();
   const el = opcje.elita || 'los';
   const elite = el === 'tak' || (el === 'los' && !T.boss && Math.random() < szansaElity());
+  const mnEl = elite ? 6 * zalew().hp.elita / zalew().hp.zwykly : 1;   // ZALEW: elita ×1,5 (nie ×2 jak zwykli)
   const e = {
     type, T, elite,
     pos: przy ? new THREE.Vector3(przy.x, 0, przy.z)
               : new THREE.Vector3(P.pos.x + Math.sin(a) * r, 0, P.pos.z + Math.cos(a) * r),
     // Boss dotad NIE skalowal sie wcale: w 20. minucie mial 90 HP, gdy szeregowy
     // mial 108, a elita 648. Teraz rosnie jak wszyscy (bez mnoznika elity).
-    hp: T.hp * SKALA_WROGA * hpMul * (elite ? 6 : 1),
+    hp: T.hp * SKALA_WROGA * hpMul * mnEl,
     // `maxHp` NIE ISTNIALO na wrogach — pasek HP bossa liczyl „100 / NaN".
     // Ustawiamy je od razu przy spawnie: potrzebne do kazdego paska i do procentow.
-    maxHp: T.hp * SKALA_WROGA * hpMul * (elite ? 6 : 1),
+    maxHp: T.hp * SKALA_WROGA * hpMul * mnEl,
     dying: false, hitCd: 0, kb: new THREE.Vector3(), orbCd: 0, climbing: false,
     ty: 0, vy: 0, jumpCd: 1 + Math.random() * 3, faza: Math.random() * 6.28,
     bb: new Billboard(T.char || type, T.scale * (elite ? 1.45 : 1) * (opcje.skala || 1), false, true),   // true = instancja (E1); skala: kapral ×1,9
@@ -6073,14 +6087,15 @@ function killEnemyDropy(e) {
   // Przy udziale elit rosnacym o 1.5%/min (14% w 5. min, 21% w 10.) leczenie sypalo
   // sie tak gestio, ze utrata serca przestawala cokolwiek znaczyc — a to ona jest
   // jedyna realna kara w tej grze. Teraz: boss 1 (drugie tylko gdy naprawde boli),
-  // elita 8%.
+  // elita 8%. EKONOMIA (29.09): w normalnym biegu jeszcze × trudn().ekon — elita 4% → 2%, boss/kapral 1 (+1) → 0,5 (+0,5).
+  // (Gałąź `e.T.boss` dziś martwa: jedyny boss to Don, a on idzie przez zwyciestwo() — zostaje spójna z kapralem.)
   if (e.T.boss) {
     // GWARANTOWANA NAGRODA: dotad boss placil mniej niz zwykla skrzynia, wiec zabicie
     // najtwardszego przeciwnika w grze bylo slabsza nagroda niz podejscie do pudelka.
     wchest.wait = Math.min(wchest.wait, 0.4);      // zlota skrzynia (bron) prawie natychmiast
-    G.hps.push(makeHeart(e.pos.x, e.pos.z));
-    if (P.hp <= P.maxHp * (G.lagodny ? CFG_BIEG.trybLagodny.litosc : CFG_BIEG.litosc)) G.hps.push(makeHeart(e.pos.x + 0.8, e.pos.z));   // litosc przy 1/3 zycia (łagodny: 1/2)
-  } else if (e.elite && Math.random() < (G.lagodny ? CFG_BIEG.trybLagodny.serceElity : CFG_BIEG.serceElity)) G.hps.push(makeHeart(e.pos.x, e.pos.z));
+    const nS = ileLos((1 + (P.hp <= P.maxHp * (G.lagodny ? CFG_BIEG.trybLagodny.litosc : CFG_BIEG.litosc) ? 1 : 0)) * ekonBieg('serceKapral'));
+    for (let k = 0; k < nS; k++) G.hps.push(makeHeart(e.pos.x + k * 0.8, e.pos.z));   // litosc przy 1/3 zycia (łagodny: 1/2)
+  } else if (e.elite && Math.random() < (G.lagodny ? CFG_BIEG.trybLagodny.serceElity : CFG_BIEG.serceElity * ekon('serceElity'))) G.hps.push(makeHeart(e.pos.x, e.pos.z));
   // Marshmallini po śmierci DZIELI SIĘ na dwa mniejsze (wg biblii)
   // E1-bieg: podział może wejść w rezerwę skryptu (do MAX_WROGOW), nigdy wyżej — wtedy zamiast
   // potomków 2 pigułki XP po 2 (twardy warunek: żywych nigdy > MAX_WROGOW)
@@ -6261,6 +6276,10 @@ const _faleV2 = CFG_BIEG.fale.map(([t, tempo, paczka, podl]) => {
 const CFG_TRUDNOSC = {
   akt: 'v2',
   v1: {
+    // ZALEW (29.09 wieczór): v1 = jak dotąd — rozgrzewka i fale z `bieg`, HP ×1, paczka z jednej strony, bez obręczy 0:15/0:45,
+    // łagodny pierwszy bieg włączony, Ręka Nonny tylko w nim. Opis pól: CFG_TRUDNOSC.v2.zalew
+    zalew: { rozgrzewka: null, podloga: null, tempo: null, paczka: 1, paczkaMax: 1e9, strony: 1, obrecze: [],
+             hp: { zwykly: 1, elita: 1, kapral: 1, don: 1 }, lagodny: true, rekaPierwszy: false },
     bieg: _kopia({ fale: CFG_BIEG.fale, rozgrzewka: CFG_BIEG.rozgrzewka, xpPigulki: CFG_BIEG.xpPigulki,
                    serceElity: CFG_BIEG.serceElity, litosc: CFG_BIEG.litosc, nietyk: CFG_BIEG.nietyk,
                    ketchup: CFG_BIEG.ketchup, ketchupMap: CFG_BIEG.ketchupMap }),
@@ -6270,8 +6289,32 @@ const CFG_TRUDNOSC = {
     karty: { sklBlokady: false, sklWaga: 1, sklRz: 1, sklMax: 5 },
     // AWANS (29.09 wieczór): v1 = karty przy KAŻDYM awansie, bez automatycznego wzmocnienia
     awans: { kartyOd: 2, kartyCo: 1, dmg: 0, tempo: 0, bron: false },
+    wzrost: 1,                                       // WZROST W BIEGU: v1 = pełny przyrost z rangi i automatu
+    // EKONOMIA (29.09 wieczór): v1 = jak dotąd — pełne serca, pełna wartość pigułek XP, ceny broni w sklepie ×1
+    ekon: { serceElity: 1, serceKapral: 1, rosolRegen: 1, rosolLecz: 1, beetLecz: 1, xp: 1, bronCena: 1 },
   },
   v2: {
+    // ZALEW (29.09 wieczór; Piotr po v300: „mało wrogów, zwłaszcza na początku — ma być zalewany", „stanowczo za prosta",
+    // „mogę stać i wszystko dookoła wybijam na 1 rundzie", „bardziej wytrzymali wrogowie"). Nakładka na resztę v2 — `bieg`
+    // niżej zostaje, zastosujZalew() przelicza z niego CFG_BIEG.fale/rozgrzewka. Pola:
+    //   rozgrzewka — zastępuje bieg.rozgrzewka ({ do: 0 } = brak; null = bez zmian)
+    //   podloga    — [t s, min. żywych] liniowo, po ostatnim punkcie stała; podłoga = max(tabela v2, ta krzywa), sufit 460
+    //   tempo      — [t s, mnożnik tempa tabeli v2] liniowo · paczka — mnożnik paczki (sufit paczkaMax)
+    //   strony     — paczka dzielona na tyle grup z różnych stron (1 = jedna strona jak dotąd)
+    //   obrecze    — dodatkowe małe obręcze (s) przed kalendarzową 1:15 · hp — mnożniki HP (zwykli / elity / kaprale / Don)
+    //   lagodny    — łagodny pierwszy bieg (false = nigdy; DEV ?lagodny=1 i botBieg({ lagodny }) dalej wymuszają)
+    //   rekaPierwszy — Ręka Nonny w PIERWSZYM biegu w życiu (META.st.pelne === 0), niezależnie od trybu łagodnego
+    zalew: {
+      rozgrzewka: { do: 30, wykl: 3, hp: 0.5 },    // tylko HP przez 30 s (×0,5 → ×1): pierwsze ~15 s kula poz. 1 kładzie Chipsettiego
+                                                   // jednym strzałem; tempo, podłoga, zdarzenia, elity ×1 od 0:00
+      podloga: [[0, 25], [15, 40], [60, 80], [120, 130], [180, 200], [240, 220], [300, 240], [420, 270], [480, 300]],
+      tempo: [[0, 1], [120, 1], [180, 0.75], [210, 0.8], [240, 1]],   // 2:00–4:00 lekko w dół (i tak ≥ realne tempo v300) — bez
+                                                   // rozgrzewki i z HP ×2 bot nieśmiertelny przy ×1 miał ~450 żywych w 3:00
+      paczka: 2.5, paczkaMax: 36, strony: 2,
+      obrecze: [15, 45],
+      hp: { zwykly: 2, elita: 1.5, kapral: 1.5, don: 1.5 },
+      lagodny: false, rekaPierwszy: true,
+    },
     bieg: {
       fale: _faleV2,                                 // tempo (przed rozgrzewką) 1:00 3,0 → 3,9 wr/s · 3:00 7,5 → 9,75 · 6:00 21 → 25,2; podłoga 0:00 10 → 16, 1:00 20 → 32, 2:00 35 → 56, 3:00 50 → 65, 5:00 110 → 138, 9:00 420 → 460
       // stare { do: 300, wykl: 2.5, tempo: 0.10, zdarzenia: 0.40, hp: 0.50, dmg: 0.30, elita: 0.20 } → nowe niżej:
@@ -6310,6 +6353,13 @@ const CFG_TRUDNOSC = {
     // Pomiar (bot-średni Carrotello, Łąki, N=40): przed 3/40 do 10:00, mediana śmierci 4:05, okna do 5:00/10:00 17/26;
     // po 5/40, 4:23, okna 6/9. Z tempo 0 → 0/40, 2:37 (bot kruchy w 1:30–3:00). Sekcja „AWANS CO 3" w INFO-PROJEKT.md.
     awans: { kartyOd: 2, kartyCo: 3, dmg: 0.01, tempo: 0.005, bron: true },
+    // WZROST W BIEGU (uwaga właściciela 29.09: „postać za szybko staje się bardzo silna — o połowę"): mnoży przyrost z RANGI
+    // (+5% → +2,75% obrażeń za rangę, +4% → +2,2% tempa co 4.) i z automatu awansu (+1% → +0,55% obrażeń, +0,5% → +0,275% tempa).
+    // Karty, skrzynie, poziomy broni z automatu, przepisy, sklep meta i wrogowie bez zmian. Siła broni (bot-średni, N=24, mediana)
+    // 2:00 / 5:00 / 10:00: 146 / 2 475 / 7 943 → 112 / 1 570 / 4 010. Ranga to jedyne źródło, które rośnie do końca biegu
+    // (48 w 10:00 = ×5,0), dlatego 10:00 tnie się mocniej niż 5:00; 0,5 dawało 10:00 = 3 344 (za mocno), wzrostBron 0,75 —
+    // 5:00 = 467 (przepisy po 5:00). Sekcja „WZROST W BIEGU" w INFO-PROJEKT.md.
+    wzrost: 0.55,
     // łagodny pierwszy bieg bliżej normalnego (stare → nowe)
     lagodny: {
       L: { hp: 0.65, spd: 0.02, elita: 0.4, tempo: 0.55 },   // { hp 0,50, spd 0, elita 0,2, tempo 0,35 }
@@ -6323,12 +6373,51 @@ const CFG_TRUDNOSC = {
       podlogaMax: 300,                               // 245
       kartyCo: 2,                                    // AWANS CO 3: w łagodnym 1. biegu karty co 2. awans (normalny co 3.)
     },
+    // EKONOMIA (zgłoszenie właściciela 29.09: „mniej serc do znalezienia o połowę", „punkty z wrogów o połowę mniej warte,
+    // a taka sama ilość tabletek", „bronie 4× droższe", „stanowczo za prosta"). Mnożniki działają w NORMALNYM biegu —
+    // łagodny 1. bieg bez zmian (ekonBieg = 1); ceny broni zawsze. Sekcja „EKONOMIA ×½ / ×4" w INFO-PROJEKT.md.
+    ekon: {
+      serceElity: 0.5,                               // szansa serca z elity × → 4% → 2%
+      serceKapral: 0.5,                              // piniata kaprala (i boss): 1 serce (+1 litość przy HP ≤ 30%) → 50% na 1 serce, przy HP ≤ 30% pewne 1
+      rosolRegen: 0.5,                               // regeneracja Rosołu: 0,006 → 0,003 serca/s na jednostkę (5 j.: 1 serce co 33 → 67 s)
+      rosolLecz: 0.5,                                // leczenie przy wzięciu Rosołu: do pełna → połowa brakujących (w górę, nowe serce zawsze pełne)
+      beetLecz: 0.5,                                 // wysysanie Beetina (Buraczane Ciśnienie): 1 serce co 5 → 10 s
+      xp: 0.5,                                       // wartość pigułki XP (liczba pigułek bez zmian; fontanna piniaty 0,6 → 0,3 poziomu); krzywa XP bez zmian
+      bronCena: 4,                                   // odblokowania BRONI w sklepie meta ×4 (Piorun 150 → 600 … Kernello 350 → 1 400); skok/torba bez zmian
+    },
   },
 };
+const _lin = (a, b, k) => a + (b - a) * k;       // `lerp` jest zadeklarowane niżej (TDZ przy ustawTrudnosc('v2'))
+// ZALEW: odcinkowo liniowa krzywa [[t, v], …] w chwili t (przed pierwszym punktem = pierwszy, po ostatnim = ostatni)
+function krzywaZalewu(K, t) {
+  if (!K || !K.length) return null;
+  if (t <= K[0][0]) return K[0][1];
+  for (let i = 1; i < K.length; i++) if (t < K[i][0]) return _lin(K[i - 1][1], K[i][1], (t - K[i - 1][0]) / (K[i][0] - K[i - 1][0]));
+  return K[K.length - 1][1];
+}
+// ZALEW: tabela fal presetu × nakładka Z → nowa tabela [start, tempo, paczka, podłoga] z punktami obu (falaTeraz bez zmian)
+function faleZalewu(F, Z) {
+  const czasy = [...new Set([...F.map(w => w[0]), ...(Z.podloga || []).map(p => p[0]), ...(Z.tempo || []).map(p => p[0])])].sort((a, b) => a - b);
+  return czasy.map(t => {
+    let i = F.length - 1;
+    while (i > 0 && F[i][0] > t) i--;
+    const a = F[i], b = F[i + 1], k = b ? Math.min(1, Math.max(0, (t - a[0]) / (b[0] - a[0]))) : 0;
+    const tempo = (b ? _lin(a[1], b[1], k) : a[1]) * (krzywaZalewu(Z.tempo, t) ?? 1);
+    const podl = Math.max(b ? _lin(a[3], b[3], k) : a[3], krzywaZalewu(Z.podloga, t) ?? 0);
+    return [t, +tempo.toFixed(2), Math.min(Z.paczkaMax || 1e9, Math.round(a[2] * (Z.paczka || 1))), Math.min(460, Math.round(podl))];
+  });
+}
+function zastosujZalew(Z) {
+  if (!Z) return;
+  if (Z.rozgrzewka) CFG_BIEG.rozgrzewka = _kopia(Z.rozgrzewka);
+  if (Z.podloga || Z.tempo || (Z.paczka || 1) !== 1) CFG_BIEG.fale = faleZalewu(CFG_BIEG.fale, Z);
+}
+const zalew = () => trudn().zalew || CFG_TRUDNOSC.v1.zalew;
 function ustawTrudnosc(v) {
   const S = CFG_TRUDNOSC[v];
   if (!S || !S.bieg) return null;
   for (const [k, w] of Object.entries(S.bieg)) CFG_BIEG[k] = _kopia(w);
+  zastosujZalew(S.zalew);                          // ZALEW (29.09 wieczór): rozgrzewka i tabela fal z nakładki presetu
   Object.assign(XP_KRZ, S.xpKrz);
   // łagodny: pełny powrót do migawki v1, potem nakładka presetu (L i rozgrzewka łączone polami)
   const L0 = _kopia(CFG_TRUDNOSC.v1.lagodny), Ln = _kopia(S.lagodny);
@@ -6338,6 +6427,12 @@ function ustawTrudnosc(v) {
   return v;
 }
 const trudn = () => CFG_TRUDNOSC[CFG_TRUDNOSC.akt];
+// EKONOMIA: mnożnik z trudn().ekon (brak klucza = 1). ekonBieg — tylko normalny bieg: w łagodnym 1. biegu zawsze 1.
+const ekon = k => { const E = trudn().ekon; return E && E[k] != null ? E[k] : 1; };
+const ekonBieg = k => G.lagodny ? 1 : ekon(k);
+// ułamkowa liczba sztuk (0,5 serca) → całe: część całkowita + reszta jako szansa; bez losowania, gdy reszty nie ma
+// (v1 zużywa dokładnie tyle Math.random co przed EKONOMIĄ — seedy bota dają te same biegi)
+const ileLos = n => { const c = Math.floor(n + 1e-9), f = n - c; return c + (f > 1e-9 && Math.random() < f ? 1 : 0); };
 ustawTrudnosc('v2');
 // ============================== E3 „MAPA MA CELE": WSZYSTKIE LICZBY (spec 09 §0.1) ==============================
 // Kapliczki (Garnek / Stolnica / Wyzwanie Famiglii), znaczniki na krawędzi ekranu, wydarzenia map 3:52–4:26
@@ -6441,10 +6536,15 @@ function porcjaFrytek(a, r, opcje = {}) {
   for (let k = -2; k <= 2; k++) wrogFali('friesetti', cx + px * k * 1.2, cz + pz * k * 1.2, opcje, k === 0 ? { puff: 1.3 } : null);
 }
 // PACZKA = jedna grupa z jednego kierunku (każdy wróg ±0,2 rad) — roje z biblii widać jako roje
+// ZALEW (29.09 wieczór): zalew().strony > 1 → paczka dzieli się na tyle grup rozstawionych po okręgu (±0,4 rad),
+// wrogowie po kolei do grup — gracz jest otaczany, a nie goniony z jednej strony (strony 1 = stary kod, te same losowania)
 function spawnPaczka(n, t) {
-  const a = Math.random() * Math.PI * 2, R = spawnR();
-  let zrodzeni = 0;
+  const a0 = Math.random() * Math.PI * 2, R = spawnR(), S = Math.max(1, Math.round(zalew().strony || 1));
+  const katy = [a0];
+  for (let g = 1; g < S; g++) katy.push(a0 + g * Math.PI * 2 / S + (Math.random() - 0.5) * 0.8);
+  let zrodzeni = 0, gr = 0;
   while (zrodzeni < n) {
+    const a = katy[gr++ % S];
     const typ = typZLimitem(losujTyp(t));
     const r = rZaKadrem(a, R[0] + Math.random() * (R[1] - R[0]));
     if (typ === 'friesetti') {
@@ -6504,7 +6604,8 @@ function toastWieczoru(pl, en, ms = 2200) {
 function malaObrecz(toast) {
   const min = G.time / 60;
   const n = Math.round((8 + 2.5 * min) * SKALA_GESTOSCI * mnFali(G.time, 'zdarzenia'));
-  const typy = G.time < 180 ? ['chipsetti', 'chipsetti', 'marshmallini'] : ['chipsetti', 'gummini', 'friesetti', 'marshmallini'];
+  const typy = G.time < 60 ? ['chipsetti']            // ZALEW: obręcze 0:15/0:45 — Marshmallini debiutuje dopiero w 1:00
+             : G.time < 180 ? ['chipsetti', 'chipsetti', 'marshmallini'] : ['chipsetti', 'gummini', 'friesetti', 'marshmallini'];
   const r = CFG_BIEG.obreczR, a0 = Math.random() * 6.28;
   for (let k = 0; k < n; k++) {
     const a = a0 + k / n * Math.PI * 2;
@@ -6571,6 +6672,10 @@ const WIECZOR = [
   { t: 598, typ: 'cisza-krok', k: 'napis2' }, { t: 599, typ: 'cisza-krok', k: 'szelest', g: 1 },
 ];
 for (let s = 75; s <= 555; s += 30) WIECZOR.push({ t: s, typ: 'obrecz', maly: true });
+// ZALEW (29.09 wieczór): wczesne małe obręcze presetów (v2: 0:15 i 0:45 — „fale okrążające co 30 s" od startu, nie od 1:15);
+// w kalendarzu są wpisy wszystkich presetów, odpala się tylko te z zalew().obrecze aktywnego (HORDA.trudnosc przełącza na żywo)
+for (const s of new Set(Object.values(CFG_TRUDNOSC).flatMap(S => (S && S.zalew && S.zalew.obrecze) || [])))
+  WIECZOR.push({ t: s, typ: 'obrecz', maly: true, zalew: true });
 WIECZOR.sort((a, b) => a.t - b.t);
 function odpalZdarzenie(z) {
   const typy = pulaTeraz(G.time).slice(1).map((u, i) => u > 0 ? TYPY_PULI[i] : null).filter(Boolean);
@@ -6599,7 +6704,7 @@ function odpalZdarzenie(z) {
       wrogFali('chipsetti', P.pos.x + Math.sin(a) * 20, P.pos.z + Math.cos(a) * 20, { elita: 'tak' }, { puff: 1.5 });
       break;
     }
-    case 'obrecz': malaObrecz(G.time < 80); break;
+    case 'obrecz': malaObrecz(z.t <= Math.min(75, ...(zalew().obrecze || []))); break;   // toast tylko przy pierwszej obręczy biegu
     case 'sciana':
       scianaHordy(z.n, ['chipsetti', 'gummini'], 2);
       toastWieczoru('ŚCIANA HORDY — przebij się albo obiegnij!', 'HORDE WALL — break through or run around!');
@@ -6683,6 +6788,7 @@ function spawnerWieczoru(dt) {
   // zdarzenia z kalendarza + kolejka odroczonych (nalot frytek)
   while (G.wiecIdx < WIECZOR.length && WIECZOR[G.wiecIdx].t <= t) {
     const z = WIECZOR[G.wiecIdx++];
+    if (z.zalew && !(zalew().obrecze || []).includes(z.t)) continue;   // ZALEW: obręcz innego presetu — pomiń (bez wpisu w logu)
     G.falaNr = (G.falaNr || 0) + 1;                // numer fali dla wrogFali (zastępowanie przy limicie)
     odpalZdarzenie(z);
     G.zdarzenia.push({ t: +t.toFixed(1), typ: z.typ + (z.typ === 'kapral' ? z.nr : z.typ === 'cisza-krok' ? ':' + z.k : '') });
@@ -6841,7 +6947,7 @@ function zrodzKaprala(nr, x, z) {
   const KC = CFG_BIEG.kaprale, K = KC.lista[nr];
   const e = spawnEnemy(K.typ, null, { x, z }, { elita: 'nie', skala: KC.skala });
   e.kapral = nr; e.kDef = K; e.tempo = K.tempo; e.kbMn = KC.kb; e.kStart = G.time;
-  e.hp = e.maxHp = K.hp * SKALA_WROGA * lag('kapHp');   // K10: łagodny ×0,3 (trybLagodny.kapHp)
+  e.hp = e.maxHp = K.hp * SKALA_WROGA * lag('kapHp') * zalew().hp.kapral;   // K10: łagodny ×0,3 (trybLagodny.kapHp); ZALEW ×1,5
   // PODWÓJNY FIOLETOWY KRĄG (zwykła elita: pojedynczy 1,8) — instancje w pulaKrag, puls 2 Hz w pętli wrogów
   e.ring = new THREE.Object3D(); e.ring.scale.set(3.0, 1, 3.0);
   e.ring2 = new THREE.Object3D(); e.ring2.scale.set(2.3, 1, 2.3);
@@ -7081,6 +7187,7 @@ function nagrodaKaprala(e) {
   AUDIO.sfx('zlota');
   padWibruj(0.6, 160);
   // fontanna XP: 12 pigułek o łącznej wartości xpDoNast(P.lvl) = P.xpNeed (pickup mnoży przez xpPigulki)
+  // EKONOMIA: pickup mnoży też przez ekon.xp i tu tego NIE odwracamy → fontanna v2 = 0,6 × 0,5 = 0,3 poziomu
   const val = P.xpNeed * trudn().piniataPoziom / ((CFG_BIEG.xpPigulki || 1) * lag('xp')) / 12;   // TRUDNOŚĆ v2: 1 → 0,6 poziomu
   for (let k = 0; k < 12; k++) {
     const a = k / 12 * Math.PI * 2 + Math.random() * 0.4, r = 2 + Math.random() * 2;
@@ -7090,8 +7197,10 @@ function nagrodaKaprala(e) {
   // E2 K8: Granny „Babcia wie lepiej" — dodatkowy wybór (bez XP i bez poziomu), co najmniej jedna karta niebieska
   if (charKey === 'granny') pchnijOverlay(() => { G.babcia = (G.babcia || 0) + 1; showCards({ zrodlo: 'babcia', minRz: 'nieb' }); });
   G.coins.push(makeCoin(x + 0.9, z + 0.4, CFG_BIEG.monety.kapral));   // B8: stała nagroda (bez mnożnika serii)
-  G.hps.push(makeHeart(x - 0.9, z + 0.4));        // 1 gwarantowane + litość: drugie przy HP ≤ 34% (łagodny ≤ 50%)
-  if (P.hp <= P.maxHp * (G.lagodny ? CFG_BIEG.trybLagodny.litosc : CFG_BIEG.litosc)) G.hps.push(makeHeart(x - 0.9, z - 0.6));
+  // serca: 1 + litość (drugie przy HP ≤ 30%, łagodny ≤ 45%) × trudn().ekon.serceKapral — v2 (0,5): 50% na 1 serce,
+  // przy HP ≤ 30% pewne 1 (łagodny bez zmian: 1 + litość)
+  const nS = ileLos((1 + (P.hp <= P.maxHp * (G.lagodny ? CFG_BIEG.trybLagodny.litosc : CFG_BIEG.litosc) ? 1 : 0)) * ekonBieg('serceKapral'));
+  for (let k = 0; k < nS; k++) G.hps.push(makeHeart(x - 0.9, z + 0.4 - k));
   G.kaprale = (G.kaprale || 0) + 1;
   META.st.kaprale = (META.st.kaprale || 0) + 1; saveMetaSoon();
   const tt = 90 * e.kapral;
@@ -7214,7 +7323,7 @@ function wejscieDona(dev = false) {
   const D = CFG_BIEG.don;
   const e = spawnEnemy('boss', katKamery(), null, { r: [15, 17], elita: 'nie' });
   e.don = true; e.bezKb = true; e.tempo = D.tempo;
-  e.hp = e.maxHp = D.hp * SKALA_WROGA * lag('donHp');   // stała godzina = stałe HP (bez hpScale), jedno dla wszystkich postaci; K10: łagodny ×0,12 (trybLagodny.donHp)
+  e.hp = e.maxHp = D.hp * SKALA_WROGA * lag('donHp') * zalew().hp.don;   // stała godzina = stałe HP (bez hpScale), jedno dla wszystkich postaci; K10: łagodny ×0,12 (trybLagodny.donHp); ZALEW ×1,5
   e.donS = { stan: 'spada', t: 0, dl: 0.6, faza: 1, walkaT: 0, cdShur: 0, cdSalt: 0, cdChiam: D.chiam.pierwsza, lawinaT: 0, wsc: false };
   e.ty += 12; e.lot = true;
   e.bb.play('jump', false);
@@ -8067,7 +8176,8 @@ function zadajDmg(e, dmg, o = {}) {
   if (dmg > 0 && !o.bezKryt && cisnienie()) {
     P.sok = Math.min(4, (P.sok || 0) + dmg / SKALA_WROGA * 0.10);   // sok w jednostkach bazowych (próg 4 bez zmian)
     if (P.sok >= 4 && P.hp < P.maxHp && G.time >= (P.leczT || 0)) {
-      P.sok = 0; P.leczT = G.time + BEET_LECZ_CD; P.hp = Math.min(P.maxHp, P.hp + HP_SERCA); drawHearts();
+      P.sok = 0; P.leczT = G.time + BEET_LECZ_CD / Math.max(0.05, ekonBieg('beetLecz'));   // EKONOMIA v2: 5 → 10 s
+      P.hp = Math.min(P.maxHp, P.hp + HP_SERCA); drawHearts();
       dmgPop(P.pos.x, P.y + 0.7, P.pos.z, T('+SERCE', '+HEART'), '#ff6fa5', 1.2, 'wazny');
       AUDIO.sfx('serce');
     }
@@ -9410,11 +9520,11 @@ const PASSIVES = {
   krytyk: { ico: 'papryczka', nm: T('Papryczka Diavolo', 'Diavolo Chili'), max: 5,
             ef: m => T(`+${Math.round(10 * m)}% szansy na cios ×3`, `+${Math.round(10 * m)}% chance of a ×3 hit`),
             suma: u => T(`krytyk ${Math.round(10 * u)}%`, `crit ${Math.round(10 * u)}%`) },
-  // Rosół: +1 serce na POZIOM (rzadkość nie mnoży serc) + pełne leczenie; regeneracja z JEDNOSTEK, w całych sercach
+  // Rosół: +1 serce na POZIOM (rzadkość nie mnoży serc) + leczenie (v1 do pełna, v2 połowa braków); regeneracja z JEDNOSTEK, w całych sercach
   serce:  { ico: 'rosol', nm: T('Rosół', 'Chicken Broth'), max: 5,
-            ef: (m, u) => T(`+1 serce i leczenie; regeneracja: 1 serce co ${Math.round(1 / ((u + m) * CFG_DECYZJE.roslRegen))} s`,
-                            `+1 heart and a heal; regen: 1 heart every ${Math.round(1 / ((u + m) * CFG_DECYZJE.roslRegen))} s`),
-            suma: u => T(`1 serce co ${Math.round(1 / (u * CFG_DECYZJE.roslRegen))} s`, `1 heart every ${Math.round(1 / (u * CFG_DECYZJE.roslRegen))} s`) },
+            ef: (m, u) => (roslLecz() < 1 ? T('+1 serce i leczy połowę braków', '+1 heart, heals half the missing') : T('+1 serce i leczenie', '+1 heart and a heal'))
+                          + T(`; regeneracja: 1 serce co ${Math.round(1 / ((u + m) * roslRegen()))} s`, `; regen: 1 heart every ${Math.round(1 / ((u + m) * roslRegen()))} s`),
+            suma: u => T(`1 serce co ${Math.round(1 / (u * roslRegen()))} s`, `1 heart every ${Math.round(1 / (u * roslRegen()))} s`) },
   zasieg: { ico: 'lornetka', nm: T('Lornetka', 'Binoculars'), max: 5,
             ef: m => T(`+${proc(1.15 ** m)}% zasięgu broni`, `+${proc(1.15 ** m)}% weapon range`),
             suma: u => T(`zasięg ×${przec(1.15 ** u)}`, `range ×${przec(1.15 ** u)}`) },
@@ -9428,7 +9538,8 @@ function dodajSkladnik(key, m = 1) {
   if (!P.skl.includes(key)) P.skl.push(key);
   P.passives[key] = (P.passives[key] || 0) + 1;
   P.sklU[key] = (P.sklU[key] || 0) + (S.bezRz ? 1 : m);
-  if (key === 'serce') { P.maxHp += HP_SERCA; P.hp = P.maxHp; drawHearts(); }
+  // Rosół: +1 serce i leczenie — EKONOMIA v2: połowa brakujących (w górę; nowe serce przy pełnym zdrowiu zawsze pełne), v1 do pełna
+  if (key === 'serce') { P.maxHp += HP_SERCA; P.hp = Math.min(P.maxHp, P.hp + Math.ceil((P.maxHp - P.hp) * roslLecz() - 1e-9)); drawHearts(); }
   renderWpns();
 }
 // DEV/presety: ustaw poziom (i jednostki) wprost
@@ -9442,12 +9553,17 @@ function ustawSkladnik(key, lvl, u = lvl) {
 }
 // wolny slot na NOWY składnik?
 const wolnySlotSkl = () => P.skl.length < P.slotySkl;
+// EKONOMIA (29.09): Rosół w normalnym biegu × trudn().ekon (v2: regeneracja 0,006 → 0,003 serca/s na jednostkę, leczenie
+// przy wzięciu = połowa braków). W menu (Spiżarnia, Książka) tekst pokazuje wartość normalnego biegu, nie łagodnego.
+const _ekonRosol = k => (G.running && G.lagodny) ? 1 : ekon(k);
+const roslRegen = () => CFG_DECYZJE.roslRegen * _ekonRosol('rosolRegen');
+const roslLecz = () => _ekonRosol('rosolLecz');
 // Rosół: regeneracja w CAŁYCH sercach (akumulator nie odkłada się przy pełnym zdrowiu)
 function regenRosolu(dt) {
   const u = U('serce');
   if (!u) return;
   if (P.hp >= P.maxHp) { P.regenAkum = 0; return; }
-  P.regenAkum = (P.regenAkum || 0) + u * CFG_DECYZJE.roslRegen * dt;
+  P.regenAkum = (P.regenAkum || 0) + u * roslRegen() * dt;
   if (P.regenAkum >= 1) {
     P.regenAkum -= 1;
     P.hp = Math.min(P.maxHp, P.hp + HP_SERCA); drawHearts();
@@ -10208,7 +10324,8 @@ function ranGracza(_sila, zr = 'inne', o = {}) {
   dmgPop(P.pos.x, P.y + 0.4, P.pos.z, '-1', '#ff4a4a', 1.1, 'wazny');   // ważny: limit napisów w tłoku go nie zjada
   G.ostatniCios = zr;
   G.obrazeniaOd[zr] = (G.obrazeniaOd[zr] || 0) + ile;
-  if (P.hp <= 0 && G.lagodny && !G.rekaNonny && !STRES) rekaNonny();   // K10: raz na bieg zamiast śmierci
+  // K10: raz na bieg zamiast śmierci; ZALEW: też w pierwszym biegu w życiu bez trybu łagodnego (zalew.rekaPierwszy)
+  if (P.hp <= 0 && (G.lagodny || (zalew().rekaPierwszy && G.pierwszyBieg)) && !G.rekaNonny && !STRES) rekaNonny();
   drawHearts(true);
   if (P.hp <= 0) startDeath();
   return true;
@@ -11568,8 +11685,12 @@ function awansujJesliTrzeba() {
     P.awAuto = (P.awAuto || 0) + 1;
     if (poziomKart(P.lvl)) karty = true;
     else if (trudn().awans.bron) {                 // awans BEZ kart: broń +1 poziom (siła jak przy karcie co awans)
-      const w = awansBron();
-      if (w) { w.lvl++; bronie.push(w); }
+      // WZROST (29.09): licznik += wzrostBron; poziom broni, gdy uzbiera 1 (1 = każdy awans bez kart, 0,5 = co drugi)
+      const wz = trudn().wzrostBron == null ? 1 : trudn().wzrostBron;
+      P.awBronAcc = (P.awBronAcc == null ? 1 - wz : P.awBronAcc) + wz;
+      const w = P.awBronAcc >= 1 - 1e-9 ? awansBron() : null;
+      if (w) { w.lvl++; bronie.push(w); P.awBronAcc -= 1; P.awBron = (P.awBron || 0) + 1; }
+      else if (P.awBronAcc > 1) P.awBronAcc = 1;     // wszystkie bronie na max — nie zbieraj zaległości
     }
   }
   if (ile) {
@@ -11593,8 +11714,8 @@ function awansujJesliTrzeba() {
 function awansNapis(ile, karty, bronie = []) {
   const A = trudn().awans;
   if (kartyCo() <= 1) return;                     // v1: jak dawniej (każdy awans = karty)
-  const pr = x => String(+(x * 100 * ile).toFixed(1)).replace('.', JEZYK.cur === 'en' ? '.' : ',');   // 0,5 / 1 / 1,5
-  const d = pr(A.dmg), t = pr(A.tempo);
+  const pr = x => String(+(x * 100 * ile).toFixed(2)).replace('.', JEZYK.cur === 'en' ? '.' : ',');   // 0,5 / 1 / 1,5
+  const d = pr(A.dmg * wzrost()), t = pr(A.tempo * wzrost());
   const pc = (A.dmg ? T(`+${d}% obrażeń`, `+${d}% damage`) : '') + (A.dmg && A.tempo ? ' · ' : '') + (A.tempo ? T(`+${t}% tempa`, `+${t}% attack speed`) : '');
   const bw = bronie.length ? bronie[bronie.length - 1] : null;
   dmgPop(P.pos.x, P.y + 2.3, P.pos.z, T('POZIOM ', 'LEVEL ') + P.lvl, '#ffd75e', 1.7, 'wazny');
@@ -12463,7 +12584,7 @@ function update(dt) {
     // zostawione za plecami zostaje na zawsze (zmierzone: 299 pigulek po 4:43)
     if (g.t > 45 && d > mag * 3) { scene.remove(g.mesh); G.gems.splice(i, 1); continue; }
     if (d < 0.7) {
-      P.xp += g.val * CFG_BIEG.xpPigulki * lag('xp');
+      P.xp += g.val * CFG_BIEG.xpPigulki * lag('xp') * ekonBieg('xp');   // EKONOMIA v2: pigułka ×0,5 (liczba pigułek bez zmian)
       AUDIO.sfx('xp');
       scene.remove(g.mesh); G.gems.splice(i, 1);
       // WHILE, nie IF: jedna pigulka moze dac wiecej niz jeden poziom, a przy
@@ -12711,7 +12832,7 @@ function nazwaSprawcy(zr) {                        // „Zabił cię: …" z klu
 // + najbliższa postać za zabójstwa. Liczone PO rozliczeniu (META.coins już z monetami biegu).
 function nastepnyCel() {
   const c = [];
-  for (const it of SHOP_UNLOCKS) if (!META.unlocked[it.key]) c.push({ nm: it.nm, ico: it.ico, cena: it.price });
+  for (const it of SHOP_UNLOCKS) if (!META.unlocked[it.key]) c.push({ nm: it.nm, ico: it.ico, cena: cenaOdbl(it) });
   const sk = SPIZ_KOLEJNOSC.find(k => !sklOdbl(k));   // Spiżarnia: następny składnik (cena wg liczby kupionych)
   if (sk) c.push({ nm: PASSIVES[sk].nm, ico: PASSIVES[sk].ico, cena: cenaSpiz() });
   for (const it of SHOP) if (META.up[it.key] < it.max && it.key !== 'klatwa') c.push({ nm: it.nm, ico: it.ico, cena: shopPrice(it) });
@@ -12760,6 +12881,7 @@ function czyLagodny() {
   if (DEV) { const m = location.search.match(/[?&]lagodny=([01])/); if (m) return m[1] === '1'; }
   if (BOT.on && BOT.lagodny != null) return BOT.lagodny;
   const s = META.st;
+  if (!zalew().lagodny) return false;              // ZALEW (29.09 wieczór): v2 bez łagodnego pierwszego biegu (v1: jak dotąd)
   // `pelne`, nie `runs`: szybkie „Do menu" nie zużywa trybu. TRUDNOŚĆ v2: bez drugiej szansy (pelne 1 i best < 300)
   return s.pelne === 0 || (trudn().lagodnyDrugaSzansa && s.pelne === 1 && s.best < 300);
 }
@@ -13215,7 +13337,8 @@ function newGame() {
   G.lagodny = czyLagodny(); G.rekaNonny = false; G.nonnaDo = -1;
   G.pierwszyBieg = (META.st.pelne || 0) === 0;       // E2 K2: pierwszy bieg w historii zapisu — nauka rzadkości kart
   Object.assign(L_BIEG, G.lagodny ? CFG_BIEG.trybLagodny.L : L_NORMALNY);
-  G.rozgrzR = G.lagodny ? { ...CFG_BIEG.rozgrzewka, ...CFG_BIEG.trybLagodny.rozgrzewka } : null;
+  // ZALEW: łagodny (dziś tylko wymuszony w DEV) liczy od rozgrzewki `bieg` presetu, nie od wyłączonej przez zalew
+  G.rozgrzR = G.lagodny ? { ...(trudn().bieg.rozgrzewka || CFG_BIEG.rozgrzewka), ...CFG_BIEG.trybLagodny.rozgrzewka } : null;
   P.sok = 0; P.leczT = 0;                           // licznik wysysania życia Beetina + blokada leczenia
   // Wąwozy: (0,0) jest wypłaszczone z definicji, ale pytamy moduł — gdyby ktoś przestawił
   // parametry, gracz nie ma się budzić w rzece ani na ścianie kanionu.
@@ -13445,6 +13568,7 @@ let _ruchDev = null;                              // HORDA.ruch(vx, vz): nadpisa
 const BOT_PRIO = ['evo', 'bron', 'podsun', 'skl:moc', 'skl:tempo', 'skl:krytyk', 'skl:serce', 'skl:zasieg', 'skl:magnes', 'skl:buty', 'dokl'];   // E2 (spec §9.1)
 const BOT_PRIO_AUTO = ['evo', 'podsun', 'bron', 'skl:moc', 'skl:tempo', 'skl:krytyk', 'skl:serce', 'skl:zasieg', 'skl:magnes', 'skl:buty', 'dokl'];   // AWANS CO 3
 function botRuch() {                              // zwraca kierunek w ŚWIECIE {x, z}
+  if (BOT.tryb === 'stoi') return { x: 0, z: 0 };  // ZALEW (29.09): „stoję i koszę" — gracz bez ruchu, tylko karty
   const now = BOT.tryb === 'nowicjusz', R = now ? 12 : 10;
   let ux = 0, uz = 0, cx = 0, cz = 0, n = 0, blisko8 = 0, blisko3 = 0, najD = 1e9, nx = 0, nz = 0;
   for (const e of G.enemies) {
@@ -14186,6 +14310,7 @@ if (loadTip) {
         dmgAll: +dmgAll().toFixed(4), fireMul: +fireMul().toFixed(4), critC: +critC().toFixed(4),
         rangeF: +rangeF().toFixed(3), magnetF: +magnetF().toFixed(3), speedF: +speedF().toFixed(3),
         lvl: P.lvl, xpNeed: P.xpNeed, ranga: G.ranga,
+        rangaMul: +(rangaDmg() * rangaFire()).toFixed(4), awansMul: +(awansDmg() * awansTempo()).toFixed(4), awBron: P.awBron || 0, wzrost: wzrost(),
         passives: { ...P.passives }, repeat: { ...P.repeat },
         skl: [...P.skl], sklU: { ...P.sklU },
       };
