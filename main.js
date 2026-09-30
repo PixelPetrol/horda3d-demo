@@ -3,10 +3,14 @@ import * as THREE from './lib/three.module.js';
 import { SPRITEDATA } from './spritedata.js?v=11';
 import { icon, iconObrys, ico } from './icons.js?v=9';
 import { AUDIO } from './audio.js?v=8';            // muzyka wg fazy gry + kwestie głosowe + efekty
-import { initKomiks, pokazKomiks } from './komiks.js?v=1';   // komiks wprowadzający (Etap 2)
+import { initKomiks, pokazKomiks } from './komiks.js?v=2';   // komiks wprowadzający (Etap 2)
 import { generujSzkielet, siatkaGalezi, RNG } from './lib/drzewa-szkielet.js?v=2';
 import { wczytajModeleNatury } from './lib/modele-natura.js?v=2';
 import * as TW from './lib/teren-wawozy.js?v=2';   // mapa „Wąwozy": wysokość, rzeki, pułapki   // krzaki/kwiaty/głazy Quaternius (CC0)   // drzewa v5: szkielet gałęzi (pochodna ez-tree, MIT)
+import * as TO from './lib/teren-osiedle.js?v=2';  // mapa „Osiedle": układ kwartałów, maska gruntu, pole przepływu hordy
+// MODELE OSIEDLA — JEDNO MIEJSCE PRZEŁĄCZENIA. Dziś zaślepki (proste bryły); gdy dojdzie docelowy moduł
+// (ten sam kontrakt), zamień ścieżkę na './lib/osiedle-rekwizyty.js'. Reszta kodu woła tylko `OSR.*`.
+import * as OSR from './lib/osiedle-rekwizyty.js?v=2';   // 30.09: prawdziwe modele (zaślepki: lib/osiedle-zaslepki.js)
 
 // ============================== JĘZYK (PL / EN) ==============================
 // Decyzja właściciela (18.09): dwa języki, start w języku przeglądarki, przełącznik w menu,
@@ -64,6 +68,11 @@ const MAPS = {
   laki:   { nm: T('Łąki', 'Meadows'), ico: 'laka',
             ds: T('Otwarty teren, jeziora, mesy do wskakiwania', 'Open ground, lakes, mesas to hop onto'),
             sky: 0x9cc8ec, fog: [80, 190], water: true, indoor: false, price: 0 },
+  // 30.09: czwarta mapa, KOLEJNOŚĆ OBIEKTU = kolejność w menu (Łąki → Osiedle → Wąwozy → Market).
+  // Płaski teren, kwartały bloków z podwórkami — generator w lib/teren-osiedle.js, wpięcie: „MAPA OSIEDLE" niżej.
+  osiedle: { nm: T('Osiedle', 'The Block'), ico: 'dom',
+            ds: T('Bloki z wielkiej płyty, podwórka i ciasne przejścia', 'Concrete blocks, courtyards and tight passages'),
+            sky: 0xb3cde6, fog: [50, 140], water: false, indoor: false, osiedle: true, price: 0 },
   wawozy: { nm: T('Wąwozy', 'Ravines'), ico: 'laka',
             ds: T('Kaniony z rzekami na dnie, urwiska, nurt i osuwiska',
                   'Canyons with rivers below, cliffs, currents and landslides'),
@@ -231,7 +240,7 @@ function mesaH(x, z) {
   return (4 + 3 * hash2(cx + 8, cz + 21)) * s * s * (3 - 2 * s);
 }
 function terrainH(x, z) {
-  if (MAPS[mapKey].indoor) return 1.55;              // market: idealnie płaska podłoga
+  if (MAPS[mapKey].indoor || MAPS[mapKey].osiedle) return 1.55;   // market i osiedle: idealnie płasko
   if (MAPS[mapKey].rzeki) return TW.wysokosc(x, z);  // Wąwozy: osobny generator (lib/teren-wawozy.js)
   const raw = 5.4 * vnoise(x / 40 + 37.7, z / 40 + 11.3)
             + 1.6 * vnoise(x / 14 + 91.1, z / 14 + 55.5) - 1.15;
@@ -457,6 +466,8 @@ function updateSun(x, z) {
 // a nie jak tło pixel-artowej gry.
 const SKY = {
   laki:   { dol: 0x9cc8ec, srodek: 0x7fb6e6, gora: 0x4a86cf, slonce: 0xfff0c4, pasy: 16 },
+  // osiedle: jaśniejsze, lekko zamglone niebo nad blokami (dół = MAPS.osiedle.sky = kolor mgły)
+  osiedle: { dol: 0xb3cde6, srodek: 0x8dbbe6, gora: 0x5189cc, slonce: 0xffe7bd, pasy: 16 },
   market: { dol: 0xb8bfc7, srodek: 0xacb4bd, gora: 0x939ba5, slonce: 0xd8d8d0, pasy: 0 },
 };
 const skyU = {
@@ -2208,6 +2219,8 @@ function updateGrassField() {
   if (Math.hypot(P.pos.x - grassCenter.x, P.pos.z - grassCenter.y) < 6) return;
   grassCenter.set(P.pos.x, P.pos.z);
   siatkaCache(P.pos.x, P.pos.z, GRASS_R + 4);      // węzły siatki terenu raz na przebudowę
+  const osGr = !!MAPS[mapKey].osiedle;
+  _osGrKx = 1e9;                                   // osiedle: chunki mogły się przebudować od ostatniego razu
   const cx = Math.round(P.pos.x / GRASS_STEP), cz = Math.round(P.pos.z / GRASS_STEP);
   const cells = Math.ceil(GRASS_R / GRASS_STEP);
   const maxK = flowerField.instanceMatrix.count, maxS = stalkField.instanceMatrix.count;
@@ -2222,6 +2235,7 @@ function updateGrassField() {
       const z = gz * GRASS_STEP + (r2 - 0.5) * GRASS_STEP * 0.9;
       const y = gruntZCache(x, z);                               // nigdy nad rysowaną siatką
       if (MAPS[mapKey].rzeki && nachylenieZCache(x, z) > 0.85) continue;   // skała — bez trawy
+      if (osGr && !osTrawa(x, z)) continue;                      // osiedle: tylko trawniki (maska gruntu)
       const nadW = y - wodaY(x, z);                              // wysokość nad lustrem wody
       if (nadW < 0.03) continue;                                 // nie w wodzie (rośnie do samego brzegu)
       const b = biome(x, z);
@@ -3638,6 +3652,13 @@ function loadMeta() {
   } catch { return def(); }
 }
 const META = loadMeta();
+// 30.09 MIGRACJA „OSIEDLE": kolejność map zmieniła się na Łąki → Osiedle → Wąwozy → Market (Wąwozy po 5:00 na Osiedlu).
+// Kto miał Wąwozy otwarte po staremu (5:00 na Łąkach albo już tam grał), ZACHOWUJE je i dostaje też Osiedle.
+// Raz na zapis: `st.mapyOtw` powstaje przy pierwszym wczytaniu po zmianie i zapisuje się z resztą `st`.
+if (!META.st.mapyOtw) {
+  const b = META.st.bestMapa || {}, laki = b.laki != null ? b.laki : META.st.best || 0;
+  META.st.mapyOtw = (laki >= 300 || b.wawozy > 0 || b.market > 0) ? { osiedle: 1, wawozy: 1 } : {};
+}
 // B12: „nie w pierwszej sesji" = ta karta wystartowała bez żadnego pełnego biegu w zapisie (sesja = jedno załadowanie strony)
 const KAWA_PIERWSZA_SESJA = !(META.st.pelne > 0);
 
@@ -4143,10 +4164,12 @@ const ZAPOWIEDZ = {
 // E4 K2 (Zeszyt) podmieni warunki na zadania: Wąwozy po 1. kapralu, Market po dotrwaniu do 5:00 (§11, decyzja 5).
 // 29.09 (Piotr: „wszystkie plansze nie mogą być od razu aktywne"): mapa otwiera się po przeżyciu `do` s na poprzedniej.
 // Stare zapisy bez bestMapa: rekord `best` liczy się jako Łąki (weteran ma od razu Wąwozy, Market musi zdobyć).
-const MAPA_WARUNEK = { wawozy: { po: 'laki', do: 300 }, market: { po: 'wawozy', do: 300 } };
+// 30.09: Łąki → Osiedle → Wąwozy → Market; stare zapisy z otwartymi Wąwozami — migracja przy META (`st.mapyOtw`).
+const MAPA_WARUNEK = { osiedle: { po: 'laki', do: 300 }, wawozy: { po: 'osiedle', do: 300 }, market: { po: 'wawozy', do: 300 } };
 const bestNaMapie = k => { const b = META.st.bestMapa || {}; return b[k] != null ? b[k] : (k === 'laki' ? META.st.best || 0 : 0); };
 function mapaOdbl(key) {
   if (DEV && /[?&]mapy=1/.test(location.search)) return true;
+  if (META.st.mapyOtw && META.st.mapyOtw[key]) return true;   // migracja 30.09 (patrz przy META)
   const w = MAPA_WARUNEK[key];
   return !w || bestNaMapie(w.po) >= w.do;
 }
@@ -4282,7 +4305,7 @@ function menuOdslon() {
   saveMeta();
   // stary zapis (≥ 3 biegi, żadnego odsłonięcia w zapisie) = od razu stan pełny, bez animacji
   if (pierwszy && r >= 3 && nowe.length === 3) {   // przegląd 29.09: stary zapis zna już mapy — bez „mgła schodzi"
-    META.ui.mapyWidz = { laki: 1, wawozy: 1, market: 1 }; saveMeta(); return;
+    META.ui.mapyWidz = { laki: 1, osiedle: 1, wawozy: 1, market: 1 }; saveMeta(); return;
   }
   for (const k of nowe) STATY.zdarzenie('menu/odsl/' + k, 'Menu: odsłonięcie ' + k);
   let i = 0;
@@ -4385,16 +4408,25 @@ function renderKsiazkaMenu() {
 // Węzły we współrzędnych względnych 0..1 (przy innych proporcjach ekranu rozsuwają się same).
 const MAPA_WEZLY = {
   laki: { x: .40, y: .44 }, stragan: { x: .53, y: .66 }, wawozy: { x: .70, y: .36 }, market: { x: .83, y: .60 }, willa: { x: .92, y: .34 },
+  osiedle: { x: .21, y: .70 },                     // 30.09: bloki w lewym dolnym rogu, ścieżka od Warzywniaka
 };
 // PODMIANA NA GRAFIKI (przyjdą później, np. assets/ui/mapa_tlo.png): wpisz ścieżkę, a zamiast proceduralnego
 // canvasu / budynku z CSS pojawi się obrazek (pixelated). Mgła zostaje osobną warstwą canvasu nad nim.
 // tlo = cała mapa (dowolna rozdzielczość, rozciągana object-fit:cover); budynki = obrazek stojący stopami na węźle.
-const MAPA_GRAF = { tlo: '', stragan: '', market: '', willa: '' };
+const MAPA_GRAF = { tlo: '', stragan: '', market: '', willa: '', osiedle: '' };
+// OSIEDLE na mapie menu: dwa bloki z pasami okien, inline (bez zmian w CSS — nie ruszamy ?v= arkuszy)
+const MAPA_OSIEDLE_HTML = (() => {
+  const blok = (l, w, h, kol) => `<i style="position:absolute;display:block;left:calc(var(--p)*${l});bottom:0;width:calc(var(--p)*${w});height:calc(var(--p)*${h});`
+    + `background:${kol} repeating-linear-gradient(180deg,transparent 0 calc(var(--p)*5),#44505e calc(var(--p)*5) calc(var(--p)*8));`
+    + `box-shadow:0 0 0 calc(var(--p)*2) var(--kontur),inset 0 calc(var(--p)*-8) 0 rgba(0,0,0,.18)"></i>`;
+  return `<div style="position:relative;width:calc(var(--p)*84);height:calc(var(--p)*56)">${blok(0, 30, 54, '#d9d2c3')}${blok(38, 46, 34, '#c9ccd1')}</div>`;
+})();
 const MAPA_DEKO = [['oak1', .31, .30, 44], ['oak2', .35, .62, 40], ['bush1', .45, .30, 26], ['kwiat1', .37, .52, 12], ['kwiat2', .44, .55, 12],
   ['kwiat1', .33, .46, 12], ['oak3', .60, .86, 44], ['rock1', .64, .22, 30], ['rock1', .77, .40, 24], ['oak1', .97, .88, 48], ['bush1', .90, .44, 24],
   ['scarecrow', .47, .42, 30]];
-const MAPA_PROM = { laki: .16, stragan: .09, wawozy: .15, market: .13 };   // promień odsłonięcia (× szerokość mapy w pikselach mapy)
+const MAPA_PROM = { laki: .16, stragan: .09, wawozy: .15, market: .13, osiedle: .13 };   // promień odsłonięcia (× szerokość mapy w pikselach mapy)
 const MAPA_NOWA = {
+  osiedle: T('Osiedle otwarte! Horda wlewa się przejściami między blokami.', 'The Block is open! The horde pours through the gaps between the blocks.'),
   wawozy: T('Wąwozy otwarte! Uważaj na rzekę.', 'The Ravines are open! Mind the river.'),
   market: T('Market otwarty! Regały lubią spadać.', 'The Supermarket is open! Shelves like to fall.'),
 };
@@ -4442,7 +4474,12 @@ function mapaTeren(cv) {
   linia([[.66, -.05], [.69, .18], [.70, .32], [.64, .48], [.66, .62], [.74, .80], [.78, 1.05]], Math.max(2, Math.round(w / 90)),
     (x, y, d, rad) => { if (d <= rad) px(x, y, d > rad - 1 ? C.rzc : ((x * 7 + y * 3) % 11 === 0 ? C.rzj : C.rz)); });
   const rd = Math.max(1, Math.round(w / 170));
-  for (const d of [[[N.stragan.x, N.stragan.y], [N.laki.x, N.laki.y + .02]], [[N.stragan.x, N.stragan.y], [.62, .58], [.72, .60], [N.market.x, N.market.y]],
+  // 30.09: OSIEDLE — płyty chodnika i asfalt pod blokami (rysowane przed ścieżkami, żeby ścieżka wchodziła na plac)
+  { const ox = X(N.osiedle.x), oy = Y(N.osiedle.y), rw = Math.round(w * .085), rh = Math.round(h * .09);
+    for (let y = oy - rh; y <= oy + Math.round(rh * .45); y++) for (let x = ox - rw; x <= ox + rw; x++)
+      px(x, y, (y === oy + Math.round(rh * .45) || x === ox - rw || x === ox + rw) ? C.drc : ((x + y) % 7 === 0 ? C.asj : C.as)); }
+  for (const d of [[[N.stragan.x, N.stragan.y], [.40, .74], [N.osiedle.x + .03, N.osiedle.y + .03]],
+    [[N.stragan.x, N.stragan.y], [N.laki.x, N.laki.y + .02]], [[N.stragan.x, N.stragan.y], [.62, .58], [.72, .60], [N.market.x, N.market.y]],
     [[N.stragan.x, N.stragan.y], [.58, .44], [.64, .40], [N.wawozy.x, N.wawozy.y + .06]], [[N.wawozy.x, N.wawozy.y], [.82, .22], [N.willa.x, N.willa.y]]])
     linia(d, rd, (x, y, dd, rad) => { if (dd <= rad + .6) px(x, y, dd > rad - .4 ? C.drc : C.dr); });
   const mx = X(.645), my = Y(.585);
@@ -4459,7 +4496,7 @@ function mapaMgla(cv, rosn = [], k = 1) {
   const { w, h } = mapaRozmiar(); cv.width = w; cv.height = h;
   const g = cv.getContext('2d'), n2 = mapaSzum(w, h, mapaRng(11), 3.5), N = MAPA_WEZLY;
   const mg = [238, 243, 247], mgc = [207, 217, 227];
-  const odsl = ['laki', 'stragan', 'wawozy', 'market'].filter(k2 => k2 === 'stragan' || mapaOdbl(k2))
+  const odsl = ['laki', 'stragan', 'osiedle', 'wawozy', 'market'].filter(k2 => k2 === 'stragan' || mapaOdbl(k2))
     .map(k2 => [N[k2].x * w, N[k2].y * h, w * MAPA_PROM[k2] * (rosn.includes(k2) ? k : 1)]);
   const img = g.createImageData(w, h);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
@@ -4487,11 +4524,11 @@ function mapaZbuduj() {
   h += MAPA_DEKO.map(([f, x, y, wd]) => `<div class="mW" style="left:${pct(x)};top:${pct(y)}"><img src="assets/${f}.png" alt="" style="width:calc(var(--p)*${wd})"></div>`).join('');
   const bud = (k, css) => `<div class="mW" style="left:${pct(N[k].x)};top:${pct(N[k].y)}">${MAPA_GRAF[k] ? `<img src="${MAPA_GRAF[k]}" alt="" style="width:calc(var(--p)*80)">` : css}</div>`;
   h += bud('stragan', '<div class="mStragan"><div class="mk"></div><div class="ld"><i style="background:#ff7a1f"></i><i style="background:#9adf58"></i><i style="background:#e2404a"></i></div></div>');
-  h += bud('market', '<div class="mMarket"></div>') + bud('willa', '<div class="mWilla"></div>');
+  h += bud('market', '<div class="mMarket"></div>') + bud('willa', '<div class="mWilla"></div>') + bud('osiedle', MAPA_OSIEDLE_HTML);
   h += '<canvas class="mMgla"></canvas>';
   // węzły: mapy gry + Warzywniak (= powrót) + Willa Dona (zawsze we mgle, zapowiedź aktów 2–3)
   const wezel = (k, nm) => `<button class="wNav mWezel" data-w="${k}" style="left:${pct(N[k].x)};top:calc(${pct(N[k].y)} + var(--p)*4)"><span class="mSz">${nm}</span></button>`;
-  h += wezel('laki', '') + wezel('wawozy', '') + wezel('market', '') + wezel('stragan', T('WARZYWNIAK', 'VEG STAND')) + wezel('willa', '???');
+  h += wezel('laki', '') + wezel('osiedle', '') + wezel('wawozy', '') + wezel('market', '') + wezel('stragan', T('WARZYWNIAK', 'VEG STAND')) + wezel('willa', '???');
   h += '<div class="mGracz"><i class="cien"></i><span class="spr"></span></div>';
   h += '<div class="mInfo"></div>';
   h += `<button class="bigbtn" id="mapaGraj"><span></span><span class="wGl" data-mglif="mapaGraj"></span></button>`;
@@ -4693,7 +4730,7 @@ function menuPodstaw(n, o = {}) {
   if (o.bestia) for (const k of Object.keys(ENEMY_TYPES).slice(0, o.bestia)) META.bestiary[k] = META.bestiary[k] || 3;
   META.ui.odsl = o.animuj ? {} : { r1: 1, r2: 1, r3: 1 };
   if (!o.animuj) MENU.pierwszy = false;
-  if (o.mapyWidz !== false && !o.animuj) META.ui.mapyWidz = { laki: 1, wawozy: 1, market: 1 };
+  if (o.mapyWidz !== false && !o.animuj) META.ui.mapyWidz = { laki: 1, osiedle: 1, wawozy: 1, market: 1 };
   if (o.reset) { META.ui.odsl = {}; META.ui.mapyWidz = {}; delete META.ui.krSklep; delete META.ui.krPost; delete META.ui.krAkta; }
   saveMeta(); renderShop(); renderChars(); renderMenu({ odslon: !!o.animuj });
   return menuAudyt();
@@ -5982,6 +6019,7 @@ function spawnEnemy(type, angle = null, przy = null, opcje = {}) {
     ty: 0, vy: 0, jumpCd: 1 + Math.random() * 3, faza: Math.random() * 6.28,
     bb: new Billboard(T.char || type, T.scale * (elite ? 1.45 : 1) * (opcje.skala || 1), false, true),   // true = instancja (E1); skala: kapral ×1,9
   };
+  if (MAPS[mapKey].osiedle) osPoprawPunkt(e.pos);   // osiedle: nigdy w bryle bloku/garażu (pierścienie, ściany, paczki)
   e.ty = terrainH(e.pos.x, e.pos.z);
   if (elite) {                              // fioletowa obwódka pod elitą (instancja w `pulaKrag`, poza sceną)
     e.ring = new THREE.Object3D();
@@ -6173,6 +6211,12 @@ const CFG_BIEG = {
              [150, 60, 22, 18, 0, 0, 0], [180, 56, 22, 22, 0, 0, 0], [210, 52, 18, 20, 10, 0, 0], [240, 46, 16, 16, 10, 12, 0],
              [300, 42, 14, 14, 10, 12, 8], [330, 40, 14, 14, 10, 12, 10], [360, 38, 13, 13, 11, 13, 12], [420, 37, 12, 13, 11, 13, 14],
              [480, 36, 12, 12, 11, 14, 15], [540, 35, 12, 12, 11, 14, 16]],
+    // 30.09 OSIEDLE „przejścia i podwórka": więcej Chipsettich (roje wlewają się przejściami) i Friesettich
+    // (szarża po prostej w wąskim przejściu = czytelny unik), mniej Gumminich i Marshmallinich; Sodino/Lollini jak na Łąkach
+    osiedle: [[0, 100, 0, 0, 0, 0, 0], [60, 88, 12, 0, 0, 0, 0], [90, 80, 20, 0, 0, 0, 0], [120, 66, 16, 18, 0, 0, 0],
+              [150, 61, 16, 23, 0, 0, 0], [180, 57, 16, 27, 0, 0, 0], [210, 48, 12, 20, 20, 0, 0], [240, 44, 12, 16, 19, 9, 0],
+              [300, 42, 11, 14, 18, 9, 6], [330, 40, 11, 14, 18, 9, 8], [360, 39, 10, 13, 19, 10, 9], [420, 38, 9, 13, 20, 10, 10],
+              [480, 37, 9, 12, 20, 11, 11], [540, 36, 9, 12, 20, 11, 12]],
   },
   ketchupMap: { wawozy: { co: [[210, 20], [360, 12]], limit: 8 } },   // Łąki/Market: `ketchup` i `limity` wyżej
   limityMap: { market: { lollini: 55, sodino: 55 } },
@@ -6774,6 +6818,7 @@ function recyklingDalekich() {
     const a = v > 1 ? kv + (Math.random() - 0.5) * (Math.PI * 2 / 3) : Math.random() * Math.PI * 2;
     const r = rZaKadrem(a, R[0] + Math.random() * (R[1] - R[0]));
     e.pos.set(P.pos.x + Math.sin(a) * r, 0, P.pos.z + Math.cos(a) * r);
+    if (MAPS[mapKey].osiedle) osPoprawPunkt(e.pos);   // osiedle: nie w bryle
     e.ty = terrainH(e.pos.x, e.pos.z); e.vy = 0;
     e.kb.set(0, 0, 0); e.faz = null; e.szarzaCd = null; e.sciana = null;
     if (e.T.szarzuje || e.T.wiruje) e.bb.mesh.scale.set(e.bb.h, e.bb.h, 1);
@@ -6934,7 +6979,9 @@ function spawnKapral(nr, natychmiast = false) {
     return null;
   }
   const a = katKamery() + (Math.random() - 0.5) * 0.5, r = KC.r[0] + Math.random() * (KC.r[1] - KC.r[0]);
-  const x = P.pos.x + Math.sin(a) * r, z = P.pos.z + Math.cos(a) * r;
+  let x = P.pos.x + Math.sin(a) * r, z = P.pos.z + Math.cos(a) * r;
+  // osiedle: telegraf i kapral w tym samym, wolnym miejscu (spawnEnemy i tak by go wypchnął — ale krąg zostałby w bloku)
+  if (MAPS[mapKey].osiedle) { _osP.set(x, 0, z); osPoprawPunkt(_osP); x = _osP.x; z = _osP.z; }
   if (natychmiast) return zrodzKaprala(nr, x, z);
   // 1 s pulsującego fioletowego kręgu PRZED pojawieniem (telegraf miejsca) — ozdoba, nie strefa ciosu
   telegraf('krag', x, z, { r: 1.8, kolor: 0xb070ff, dur: KC.telegraf, puls: true, strefa: false });
@@ -8246,9 +8293,10 @@ const WEAPONS = {
       // ciosem — i to on daje pierwsze 30 sekund „mam moc". Okno zamyka się samo,
       // bo `hpScale` rośnie: w 2. minucie Chipsetti ma już ~6.6 HP i trzeba ulepszeń.
       const dmg = [3.2, 3.9, 4.6, 5.4, 6.2][w.lvl - 1];
+      const osW = MAPS[mapKey].osiedle && OS.pociskiStop;   // osiedle: kule rozbijają się o bloki → celuj w tych, których widać
       let targets = G.enemies.filter(e => !e.dying)
         .map(e => ({ e, d: e.pos.distanceTo(P.pos) }))
-        .filter(o => o.d < rangeF())
+        .filter(o => o.d < rangeF() && (!osW || OS.nav.widac(P.pos.x, P.pos.z, o.e.pos.x, o.e.pos.z)))
         .sort((a, b) => a.d - b.d).slice(0, count);
       if (!targets.length) return;
       w.t = 1 / (1.15 * fireMul());
@@ -10442,6 +10490,7 @@ function chunkRng(cx, cz) {
   return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
 }
 function buildChunk(cx, cz) {
+  if (MAPS[mapKey].osiedle) return buildChunkOsiedla(cx, cz);   // własna budowa (sekcja „MAPA OSIEDLE" niżej)
   const wx0 = cx * CHUNK, wz0 = cz * CHUNK;
   const geo = new THREE.PlaneGeometry(CHUNK, CHUNK, CHUNK_SEG, CHUNK_SEG);
   geo.rotateX(-Math.PI / 2);
@@ -10815,6 +10864,299 @@ function wodaChunka(cx, cz, rocks) {
   return m;
 }
 
+// ═══════════════════════════════ MAPA OSIEDLE (30.09) ═══════════════════════════════
+// Układ (kwartały 2×2 chunki, bloki, podwórka, maska gruntu) liczy lib/teren-osiedle.js; modele i ich kolizje
+// daje OSR (dziś zaślepki). Tutaj:
+//  • CHUNK = JEDNA SIATKA: grunt (prostokąty z maski, atrybut aGrunt = kafel atlasu) + wszystkie modele chunka
+//    przepisane przez obrót i przesunięcie → 1 draw call na chunk (+1 w przebiegu cieni). Prefaby modeli w cache (LRU).
+//  • kolizje modeli → `solids` (bloki top 99 = ściana, nie do wspinaczki; auta/ławki niskie = da się wskoczyć),
+//    maski 1 j. → `OS.nav` (pole przepływu hordy, pociski, „utknął w bryle").
+//  • PRZYCINANIE: bryła między kamerą a graczem robi się ażurowa (krata Bayera) — tylko w chunkach przy kamerze
+//    (osobny materiał z `discard`; reszta rysuje się bez niego, żeby mobilne GPU zachowały wczesny test głębi).
+//  • budowa porcjami: chunki dalej niż 2 od gracza idą do kolejki (1 na klatkę), bliskie — od razu.
+const OS = {
+  mat: null, matCut: null, tekGruntu: null,
+  prefaby: new Map(),                               // klucz typ|opcje → { geo, kolizje } (LRU, OS_PREFABY)
+  maski: new Map(),                                 // klucz liczbowy chunka → { nav, sciany } (bez sklejania napisów)
+  nav: new TO.Nawigacja(96), navT: 0,               // okno 96 j. ≥ pierścień spawnu + recykling (46 j.)
+  kolejka: [], budowane: 0,                         // chunki czekające na budowę w kolejnych klatkach
+  ziarno: 1, msChunk: 0, msMax: 0,
+  // pociski (kule, noże, Sokowirówka, ziarna karabinu) rozbijają się o bloki, a Kule energii celują tylko w widocznych.
+  // false = przelatują przez bryły jak przez regały w Markecie (DEV: HORDA.OS.pociskiStop = false)
+  pociskiStop: true,
+};
+const OS_PREFABY = 64, OS_G0 = 1.55;
+const osKlucz = (cx, cz) => (cx + 32768) * 65536 + (cz + 32768);
+const osPobierzMaske = (cx, cz) => OS.maski.get(osKlucz(cx, cz)) || null;
+const osCutA = { value: new THREE.Vector3() }, osCutB = { value: new THREE.Vector3() }, osGruntU = { value: null };
+const _osK = { x: 0, z: 0, L: 0 };
+const OS_KAFEL = [0, 1, 2, 3, 1];                   // GRUNT.* → kafel atlasu (pod budynkiem = płyty chodnika)
+// ATLAS GRUNTU 2×2 (kafel = 4×4 j., 16 px/j.): trawa, płyty chodnikowe 50 cm, asfalt, ubita ziemia placu zabaw
+function osTeksturaGruntu() {
+  const S = 64, c = document.createElement('canvas'); c.width = c.height = S * 2;
+  const g = c.getContext('2d');
+  let s = 20250930;
+  const r = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  const kafel = (ox, oy, baza, plamki) => {
+    g.fillStyle = baza; g.fillRect(ox, oy, S, S);
+    for (const [kol, n, w] of plamki) { g.fillStyle = kol; for (let i = 0; i < n; i++) g.fillRect(ox + Math.floor(r() * S), oy + Math.floor(r() * S), w, w); }
+  };
+  kafel(0, 0, '#93d152', [['#88c64b', 240, 2], ['#a2de60', 180, 2], ['#7cb842', 50, 1]]);
+  kafel(S, 0, '#cdc7ba', [['#c3bdb0', 110, 2], ['#d8d3c8', 70, 1]]);
+  for (let i = 0; i < 7; i++) { g.fillStyle = r() < 0.5 ? 'rgba(0,0,0,.07)' : 'rgba(255,255,255,.10)'; g.fillRect(S + 8 * Math.floor(r() * 8), 8 * Math.floor(r() * 8), 8, 8); }
+  g.fillStyle = '#a7a194';
+  for (let k = 0; k < S; k += 8) { g.fillRect(S + k, 0, 1, S); g.fillRect(S, k, S, 1); }
+  kafel(0, S, '#6e7176', [['#64676c', 280, 1], ['#7b7e83', 200, 1], ['#585b60', 36, 2]]);
+  kafel(S, S, '#c9a86c', [['#bd9c60', 190, 2], ['#d5b67c', 140, 1], ['#a98b53', 36, 2]]);
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+// łatka materiału modeli: grunt z atlasu (vGrunt > 0) zamiast mapy modelu; `cut` = przycinanie przy kamerze.
+// Łańcuch onBeforeCompile (cień chmur zostaje), własny klucz programu (inaczej three pomyliłby oba warianty).
+function osLatka(m, cut) {
+  addCloudShadow(m);
+  const stary = m.onBeforeCompile;
+  m.onBeforeCompile = (sh, r) => {
+    if (stary) stary.call(m, sh, r);
+    if (!sh.vertexShader.includes('#include <fog_vertex>') || !sh.fragmentShader.includes('#include <map_fragment>')) return;   // nie wbudowany materiał — bez łatek
+    sh.uniforms.uCutA = osCutA; sh.uniforms.uCutB = osCutB; sh.uniforms.uOsGrunt = osGruntU;
+    sh.vertexShader = 'attribute float aGrunt;\nvarying float vGrunt;\nvarying vec3 vOsW;\n' + sh.vertexShader.replace('#include <fog_vertex>',
+      `#include <fog_vertex>
+       vGrunt = aGrunt;
+       vOsW = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
+    let f = 'uniform vec3 uCutA;\nuniform vec3 uCutB;\nuniform sampler2D uOsGrunt;\nvarying float vGrunt;\nvarying vec3 vOsW;\n' + sh.fragmentShader;
+    if (cut) f = f.replace('void main() {', `void main() {
+      // PRZYCINANIE: stożek wokół odcinka kamera → pierś gracza, tylko modele i tylko nad stopami. Stożek ZWĘŻA SIĘ
+      // KU KAMERZE (promień ∝ odległości od niej) — wtedy dziura na ekranie ma stały rozmiar ~sylwetki gracza i nie
+      // wycina ścian, które go nie zasłaniają (pierwsza wersja, szeroka przy kamerze, ażurowała pół przejścia).
+      // Kamera W bryle nie potrzebuje dziury: od środka ściany są tyłem i odpadają w culling.
+      // Krata Bayera 4×4 zamiast twardej dziury: w środku zostaje ~1/8 pikseli, brzeg rozpływa się w siatkę.
+      if (vGrunt < 0.5) {
+        vec3 ab = uCutB - uCutA;
+        float t = dot(vOsW - uCutA, ab) / max(dot(ab, ab), 1e-4);
+        if (t > 0.0 && t < 0.99 && vOsW.y > uCutB.y - 1.0) {
+          float tc = clamp(t, 0.0, 1.0), rr = mix(0.5, 2.1, tc);
+          float k = 1.0 - smoothstep(rr * 0.55, rr, length(vOsW - (uCutA + ab * tc)));
+          vec2 q = mod(floor(gl_FragCoord.xy), 4.0);
+          float b = (q.x < 1.0 ? (q.y < 1.0 ? 0.0 : q.y < 2.0 ? 12.0 : q.y < 3.0 ? 3.0 : 15.0)
+                  : q.x < 2.0 ? (q.y < 1.0 ? 8.0 : q.y < 2.0 ? 4.0 : q.y < 3.0 ? 11.0 : 7.0)
+                  : q.x < 3.0 ? (q.y < 1.0 ? 2.0 : q.y < 2.0 ? 14.0 : q.y < 3.0 ? 1.0 : 13.0)
+                  : (q.y < 1.0 ? 10.0 : q.y < 2.0 ? 6.0 : q.y < 3.0 ? 9.0 : 5.0)) / 16.0 + 0.03;
+          if (k * 0.9 > b) discard;
+        }
+      }`);
+    sh.fragmentShader = f.replace('#include <map_fragment>', `if (vGrunt > 0.5) {
+        float kom = vGrunt - 1.0;
+        // kafel (kom % 2, kom / 2) liczony od GÓRY płótna — tekstura ma flipY, stąd 1 − wiersz
+        vec2 uvG = (vec2(mod(kom, 2.0), 1.0 - floor(kom * 0.5)) + clamp(fract(vOsW.xz * 0.25), 0.008, 0.992)) * 0.5;
+        diffuseColor.rgb *= texture2D(uOsGrunt, uvG).rgb;
+      } else {
+        #include <map_fragment>
+      }`);
+  };
+  m.customProgramCacheKey = () => 'osiedle-' + (cut ? 'cut' : 'pel');
+  m.needsUpdate = true;
+  return m;
+}
+function osMaterialy() {
+  if (OS.mat) return;
+  osGruntU.value = OS.tekGruntu = osTeksturaGruntu();
+  OS.mat = osLatka(OSR.materialOsiedla(THREE, { nowy: true }), false);    // 30.09: 2 osobne egzemplarze — wspólny dostawał cień chmur 2× (shader się nie kompilował)
+  OS.matCut = osLatka(OSR.materialOsiedla(THREE, { nowy: true }), true);
+}
+// prefab modelu z cache (LRU). Klucz z opcji, które zmieniają bryłę; indeksowaną geometrię rozwijamy (kontrakt: bez indeksu).
+function osPrefab(typ, o) {
+  const k = typ + '|' + (typ === 'blok' ? `${o.dl}|${o.gl}|${o.pietra}|${o.ziarno}|${o.brama ? o.brama.x + ':' + o.brama.szer : '-'}`
+                       : typ === 'garaze' ? `${o.ile}|${o.ziarno}` : typ === 'auto' ? `${o.ziarno}` : '');
+  let p = OS.prefaby.get(k);
+  if (p) { OS.prefaby.delete(k); OS.prefaby.set(k, p); return p; }
+  p = OSR[typ](THREE, o);
+  if (p.geo.index) { const g = p.geo.toNonIndexed(); p.geo.dispose(); p.geo = g; }
+  if (!p.geo.attributes.normal) p.geo.computeVertexNormals();
+  OS.prefaby.set(k, p);
+  if (OS.prefaby.size > OS_PREFABY) { const [k0, p0] = OS.prefaby.entries().next().value; p0.geo.dispose(); OS.prefaby.delete(k0); }
+  return p;
+}
+// maska gruntu → prostokąty (zachłannie: najdłuższy odcinek w wierszu, potem w dół, póki cały pasuje)
+function osPasyGruntu(grunt) {
+  const N = TO.NG, out = [], uz = new Uint8Array(N * N);
+  for (let j = 0; j < N; j++) for (let i = 0; i < N;) {
+    const c = j * N + i;
+    if (uz[c]) { i++; continue; }
+    const t = grunt[c];
+    let i1 = i + 1;
+    while (i1 < N && !uz[j * N + i1] && grunt[j * N + i1] === t) i1++;
+    let j1 = j + 1;
+    dol: while (j1 < N) { for (let k = i; k < i1; k++) if (uz[j1 * N + k] || grunt[j1 * N + k] !== t) break dol; j1++; }
+    for (let jj = j; jj < j1; jj++) uz.fill(1, jj * N + i, jj * N + i1);
+    out.push(i, i1, j, j1, t);
+    i = i1;
+  }
+  return out;
+}
+function buildChunkOsiedla(cx, cz) {
+  const t0 = performance.now();
+  osMaterialy();
+  const U = TO.ukladChunka(cx, cz, OS.ziarno);
+  const lista = U.obiekty.map(o => osPrefab(o.typ, o.opcje));
+  const pasy = osPasyGruntu(U.grunt);
+  let nV = pasy.length / 5 * 6;
+  for (const p of lista) nV += p.geo.attributes.position.count;
+  const pos = new Float32Array(nV * 3), nrm = new Float32Array(nV * 3), uv = new Float32Array(nV * 2),
+        col = new Float32Array(nV * 3), gr = new Float32Array(nV);
+  let v = 0;
+  const K = TO.KROK, y = OS_G0;
+  for (let q = 0; q < pasy.length; q += 5) {                // grunt: 2 trójkąty na prostokąt, normalna w górę
+    const x0 = U.X0 + pasy[q] * K, x1 = U.X0 + pasy[q + 1] * K, z0 = U.Z0 + pasy[q + 2] * K, z1 = U.Z0 + pasy[q + 3] * K;
+    const kaf = 1 + OS_KAFEL[pasy[q + 4]];
+    for (const [x, z] of [[x0, z0], [x0, z1], [x1, z1], [x0, z0], [x1, z1], [x1, z0]]) {
+      pos[v * 3] = x; pos[v * 3 + 1] = y; pos[v * 3 + 2] = z;
+      nrm[v * 3 + 1] = 1; col[v * 3] = col[v * 3 + 1] = col[v * 3 + 2] = 1; gr[v] = kaf;
+      v++;
+    }
+  }
+  for (let k = 0; k < U.obiekty.length; k++) {              // modele: obrót o ćwierćobroty + przesunięcie (jak THREE rotation.y)
+    const o = U.obiekty[k], G = lista[k].geo, P_ = G.attributes.position, N_ = G.attributes.normal,
+          UV = G.attributes.uv, C = G.attributes.color;
+    const c = [1, 0, -1, 0][o.obr], s = [0, 1, 0, -1][o.obr];
+    for (let i = 0; i < P_.count; i++, v++) {
+      const px = P_.getX(i), pz = P_.getZ(i), nx = N_.getX(i), nz = N_.getZ(i);
+      pos[v * 3] = o.x + px * c + pz * s; pos[v * 3 + 1] = y + P_.getY(i); pos[v * 3 + 2] = o.z - px * s + pz * c;
+      nrm[v * 3] = nx * c + nz * s; nrm[v * 3 + 1] = N_.getY(i); nrm[v * 3 + 2] = -nx * s + nz * c;
+      if (UV) { uv[v * 2] = UV.getX(i); uv[v * 2 + 1] = UV.getY(i); }
+      if (C) { col[v * 3] = C.getX(i); col[v * 3 + 1] = C.getY(i); col[v * 3 + 2] = C.getZ(i); }
+      else col[v * 3] = col[v * 3 + 1] = col[v * 3 + 2] = 1;
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setAttribute('aGrunt', new THREE.BufferAttribute(gr, 1));
+  geo.computeBoundingSphere();
+  const mesh = new THREE.Mesh(geo, OS.mat);
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  mesh.renderOrder = -2;                                    // E3 K2: świat przed sylwetkami
+  scene.add(mesh);
+  // KOLIZJE: wysokie (≥ 3,2 j.) i cienkie słupki = ściana (top 99 — nie wskoczysz, horda się nie wspina);
+  // reszta = bryła z wierzchem (auto 1,5, garaż 2,6, wiata 2,2, ławka 0,5 — da się na nią wskoczyć)
+  const solids = [], bryly = [];
+  for (let k = 0; k < U.obiekty.length; k++) for (const kk of lista[k].kolizje) {
+    const b = TO.kolizjaWSwiecie(U.obiekty[k], kk);
+    bryly.push(b);
+    const plocha = b.hw * b.hl * 4;
+    solids.push({ x: b.x, z: b.z, hw: b.hw, hl: b.hl, top: (b.wys >= 3.2 || plocha < 0.5) ? 99 : y + b.wys,
+                  os: b.wys >= 2 && plocha >= 1.5 });   // os = ściana (spawn, „utknął w bryle")
+  }
+  const maski = TO.maskiKolizji(bryly, U.X0, U.Z0);
+  OS.maski.set(osKlucz(cx, cz), maski);
+  const ms = performance.now() - t0;
+  OS.msChunk = OS.msChunk ? OS.msChunk * 0.9 + ms * 0.1 : ms; if (ms > OS.msMax) OS.msMax = ms;
+  OS.budowane++;
+  return { mesh, deco: [], rocks: [], solids, spills: [], grass: null, leaves: [], sway: [], shelves: [], blobRecs: null, cx, cz,
+           osiedle: { grunt: U.grunt, X0: U.X0, Z0: U.Z0, cecha: U.cecha, boki: U.boki, n: U.obiekty.length, v: nV } };
+}
+// KOLEJKA BUDOWY: jeden chunk na klatkę (z pierścienia 3–4 wokół gracza); nieaktualne wpisy odpadają same
+function osBudujZKolejki() {
+  const pcx = Math.round(P.pos.x / CHUNK), pcz = Math.round(P.pos.z / CHUNK);
+  while (OS.kolejka.length) {
+    const q = OS.kolejka.shift();
+    if (Math.abs(q.cx - pcx) > VIEW || Math.abs(q.cz - pcz) > VIEW || chunkMap.has(q.k)) continue;
+    chunkMap.set(q.k, buildChunk(q.cx, q.cz)); _chunkWer++;
+    return;
+  }
+}
+// ściana osiedla (blok, garaż, wiata) w punkcie — test ścisły, `m` = margines
+function osWBryle(x, z, m = 0) {
+  for (const ch of chunkiWokol(Math.floor(x / CHUNK), Math.floor(z / CHUNK)))
+    for (const s of ch.solids) if (s.os && Math.abs(x - s.x) < s.hw + m && Math.abs(z - s.z) < s.hl + m) return true;
+  return false;
+}
+// SPAWN / RECYKLING NIGDY W BRYLE: najbliższa wolna i OSIĄGALNA komórka pola (okno wokół gracza);
+// poza oknem — wypchnięcie na najbliższą ścianę (bloki stoją ≥ 3 j. od siebie, więc kilka przejść wystarcza)
+function osPoprawPunkt(pos) {
+  if (!osWBryle(pos.x, pos.z, 0.4)) return;
+  // najpierw komórka, do której gracz ma drogę ≥ 85% pierwotnej odległości (czyli za blokiem, nie na licu od podwórka)
+  const r = Math.hypot(pos.x - P.pos.x, pos.z - P.pos.z) * 0.85;
+  if (OS.nav.najblizszyWolny(pos.x, pos.z, 14, _osK, r) || OS.nav.najblizszyWolny(pos.x, pos.z, 14, _osK)) {
+    pos.x = _osK.x; pos.z = _osK.z;
+    if (!osWBryle(pos.x, pos.z, 0.4)) return;
+  }
+  for (let k = 0; k < 6; k++) {
+    let ruch = false;
+    for (const ch of chunkiWokol(Math.floor(pos.x / CHUNK), Math.floor(pos.z / CHUNK))) for (const s of ch.solids) {
+      if (!s.os) continue;
+      const dx = pos.x - s.x, dz = pos.z - s.z, ox = s.hw + 0.6 - Math.abs(dx), oz = s.hl + 0.6 - Math.abs(dz);
+      if (ox > 0 && oz > 0) { if (ox < oz) pos.x += dx > 0 ? ox : -ox; else pos.z += dz > 0 ? oz : -oz; ruch = true; }
+    }
+    if (!ruch) return;
+  }
+}
+const _osP = new THREE.Vector3();
+// pole przepływu hordy: co 0,25 s albo po 3 j. ruchu gracza (~0,8 ms na desktopie przy oknie 96²)
+function osNawigacjaTick(dt) {
+  OS.navT -= dt;
+  const N = OS.nav, dx = P.pos.x - N.px, dz = P.pos.z - N.pz;
+  if (OS.navT > 0 && dx * dx + dz * dz < 9) return;
+  OS.navT = 0.25;
+  const t0 = DEV ? performance.now() : 0;
+  N.przebuduj(P.pos.x, P.pos.z, osPobierzMaske);
+  if (DEV) N.ms = performance.now() - t0;
+}
+// co render (scene.onBeforeRender): zasięg rysowania chunków (mgła i tak je gasi) + wariant materiału z przycinaniem
+// tylko w chunkach, przez które biegnie odcinek kamera → gracz
+// (forEach ze stałą funkcją i stanem w `_osKl` — bez iteratora i domknięcia na klatkę)
+const _osKl = { cx: 0, cz: 0, far2: 0, cut: false, x0: 0, x1: 0, z0: 0, z1: 0 };
+function osKlatkaChunk(ch) {
+  if (!ch.osiedle) return;
+  const K = _osKl, dx = ch.cx * CHUNK - K.cx, dz = ch.cz * CHUNK - K.cz;
+  ch.mesh.visible = dx * dx + dz * dz < K.far2;
+  const X0 = ch.cx * CHUNK - CHUNK / 2, Z0 = ch.cz * CHUNK - CHUNK / 2;
+  const m = K.cut && X0 < K.x1 && X0 + CHUNK > K.x0 && Z0 < K.z1 && Z0 + CHUNK > K.z0 ? OS.matCut : OS.mat;
+  if (ch.mesh.material !== m) ch.mesh.material = m;
+}
+function osKlatka() {
+  if (!MAPS[mapKey].osiedle || !OS.mat) return;
+  const cam = camera.position, px = P.pos.x, pz = P.pos.z, far = MAPS[mapKey].fog[1] + 34, K = _osKl;
+  osCutA.value.copy(cam); osCutB.value.set(px, P.y + 1.3, pz);
+  K.cut = G.running && !(G.fps && G.fps.on);                // z oczu (karabin) i w menu nie przycinamy
+  K.cx = cam.x; K.cz = cam.z; K.far2 = far * far;
+  K.x0 = Math.min(cam.x, px) - 4; K.x1 = Math.max(cam.x, px) + 4; K.z0 = Math.min(cam.z, pz) - 4; K.z1 = Math.max(cam.z, pz) + 4;
+  chunkMap.forEach(osKlatkaChunk);
+}
+// trawa (kępki) tylko na trawnikach — z maski gruntu chunka (ostatni chunk w pamięci podręcznej)
+let _osGrCh = null, _osGrKx = 1e9, _osGrKz = 1e9;
+function osTrawa(x, z) {
+  const kx = Math.round(x / CHUNK), kz = Math.round(z / CHUNK);
+  if (kx !== _osGrKx || kz !== _osGrKz) { _osGrKx = kx; _osGrKz = kz; _osGrCh = chunkMap.get(kx + ',' + kz) || null; }
+  const O = _osGrCh && _osGrCh.osiedle;
+  return !!O && TO.gruntW(O.grunt, O.X0, O.Z0, x, z) === TO.GRUNT.TRAWA;
+}
+// DEV/bot: omijanie ścian (bot nie skacze, więc auta i ławki też są dla niego ścianą) + wyjście z utknięcia
+const _botOs = { t: 0, px: 0, pz: 0, uc: 0, ux: 0, uz: 0 };
+function osBotOmin(wx, wz) {
+  const l = Math.hypot(wx, wz) || 1;
+  let ux = wx / l, uz = wz / l;
+  if (G.time < _botOs.t) _botOs.t = _botOs.uc = 0;           // nowy bieg
+  if (G.time - _botOs.t > 1) {                               // co 1 s: czy ruszył się choć o 0,8 j.?
+    if (Math.hypot(P.pos.x - _botOs.px, P.pos.z - _botOs.pz) < 0.8 && _botOs.t > 0) {
+      const a = Math.random() * Math.PI * 2; _botOs.uc = 1.2; _botOs.ux = Math.sin(a); _botOs.uz = Math.cos(a);
+    }
+    _botOs.t = G.time; _botOs.px = P.pos.x; _botOs.pz = P.pos.z;
+  }
+  if (_botOs.uc > 0) { _botOs.uc -= 1 / 30; ux = _botOs.ux; uz = _botOs.uz; }
+  const N = OS.nav;
+  for (const a of [0, 0.5, -0.5, 1.0, -1.0, 1.6, -1.6, 2.2, -2.2, 3.1]) {
+    const c = Math.cos(a * BOT.kier), s = Math.sin(a * BOT.kier), dx = ux * c - uz * s, dz = ux * s + uz * c;
+    if (N.kodW(P.pos.x + dx * 0.9, P.pos.z + dz * 0.9) || N.kodW(P.pos.x + dx * 1.8, P.pos.z + dz * 1.8) || N.kodW(P.pos.x + dx * 2.7, P.pos.z + dz * 2.7)) continue;
+    if (a && _botOs.uc > 0) { _botOs.ux = dx; _botOs.uz = dz; }
+    return { x: dx, z: dz };
+  }
+  return { x: ux, z: uz };
+}
+
 // ═══════════════ PUŁAPKI ŚRODOWISKOWE (mapa „Wąwozy") ═══════════════
 // Trzy rzeczy, wszystkie liczone z samej funkcji terenu (nic nie trzeba rozsiewać po mapie):
 //  1. NURT — w korycie spycha w dół rzeki, tym mocniej, im głębiej. Horda idzie prosto na
@@ -11031,7 +11373,8 @@ function solveSolids(pos, r, feetY) {
         if (ox > 0 && oz > 0) {
           if (ox < oz) pos.x += (dx > 0 ? ox : -ox);
           else pos.z += (dz > 0 ? oz : -oz);
-          blockTop = Math.max(blockTop, s.top);
+          // top ≥ 90 = ściana bez wierzchu (blok osiedla, słupek) — jak pnie drzew: nie do wspinaczki
+          if (s.top < 90) blockTop = Math.max(blockTop, s.top);
         }
       }
     }
@@ -11065,8 +11408,10 @@ function rebuildWorld() {
     if (ch.leaves) for (const l of ch.leaves) { scene.remove(l); l.dispose(); }
   }
   chunkMap.clear(); _chunkWer++;
+  OS.maski.clear(); OS.kolejka.length = 0; OS.nav.reset(); OS.navT = 0;   // osiedle: maski, kolejka, pole hordy
+  _osGrKx = 1e9;
   lastCC = null;
-  ensureChunks();
+  ensureChunks(true);                              // start / zmiana mapy: cały świat od razu (ekran przejścia)
 }
 function setMap(key) {
   mapKey = key;
@@ -11087,7 +11432,12 @@ function setMap(key) {
   ustawWygladGarnkow(key);          // garnek na Łąkach / witryna chłodnicza w markecie
   for (const t of totems) placeTotem(t);
 }
-function ensureChunks() {
+// `natychmiast` = wszystko w tej klatce (start, zmiana mapy). Osiedle w biegu: chunki dalej niż 2 od gracza idą
+// do kolejki (1 na klatkę) — chunk osiedla to kilka tysięcy wierzchołków do przepisania, a przejście granicy
+// dokłada rząd 9 chunków naraz. Pozostałe mapy bez zmian.
+function ensureChunks(natychmiast = false) {
+  const kolejkuj = !natychmiast && MAPS[mapKey].osiedle;
+  if (kolejkuj && OS.kolejka.length) osBudujZKolejki();
   const pcx = Math.round(P.pos.x / CHUNK), pcz = Math.round(P.pos.z / CHUNK);
   const cc = pcx + ',' + pcz;
   if (cc === lastCC) return;
@@ -11097,10 +11447,13 @@ function ensureChunks() {
     for (let cz = pcz - VIEW; cz <= pcz + VIEW; cz++) {
       const key = cx + ',' + cz;
       keep.add(key);
-      if (!chunkMap.has(key)) { chunkMap.set(key, buildChunk(cx, cz)); _chunkWer++; }
+      if (chunkMap.has(key)) continue;
+      if (kolejkuj && Math.max(Math.abs(cx - pcx), Math.abs(cz - pcz)) > 2) { OS.kolejka.push({ cx, cz, k: key }); continue; }
+      chunkMap.set(key, buildChunk(cx, cz)); _chunkWer++;
     }
   for (const [key, ch] of chunkMap) {
     if (keep.has(key)) continue;
+    if (ch.osiedle) OS.maski.delete(osKlucz(ch.cx, ch.cz));
     scene.remove(ch.mesh); ch.mesh.geometry.dispose();
     for (const m of ch.deco) scene.remove(m);
     // InstancedMesh trzyma wlasny instanceMatrix w buforze GL, ktorego samo `remove`
@@ -11619,6 +11972,7 @@ function updateKarabinPoc(dt) {
     s.mesh.quaternion.copy(camera.quaternion);       // ziarno zawsze twarzą do kamery
     const px = s.mesh.position.x, py = s.mesh.position.y, pz = s.mesh.position.z;
     let dead = s.t > KARABIN_ZYCIE || py < terrainH(px, pz) - 0.2;
+    if (!dead && MAPS[mapKey].osiedle && OS.pociskiStop && py < 29 && OS.nav.scianaW(px, pz)) dead = true;   // Osiedle: ziarno rozbija się o blok
     if (!dead) for (let j = G.enemies.length - 1; j >= 0; j--) {
       const e = G.enemies[j];
       if (e.dying || s.hit.has(e)) continue;
@@ -12060,6 +12414,8 @@ function update(dt) {
 
   // ---- E1-bieg: SPAWNER WIECZORU (tabela fal, paczki, podłoga, recykling, zdarzenia) ----
   // Zastępuje interwał + `batch`, fale okrążające co 30 s i bossów co 2 min (`bossAt` usunięte).
+  const osNav = !!MAPS[mapKey].osiedle;
+  if (osNav) osNawigacjaTick(dt);                  // Osiedle: pole przepływu hordy PRZED spawnem (spawn szuka wolnej komórki)
   if (!STRES && !G.dpsTest) spawnerWieczoru(dt);   // STRES (DEV) = własny dosyp; E2 dpsBroni = same manekiny
 
   // ---- separacja wrogów ----
@@ -12121,6 +12477,12 @@ function update(dt) {
     const to = _toWroga.copy(celPos).sub(e.pos).setY(0);   // wektor roboczy (E1: bez alokacji na wroga)
     const dCel = to.length(); to.normalize();
     const d = e.pos.distanceTo(P.pos);              // do gracza — od tego zależą jego obrażenia
+    // OSIEDLE: gdy droga po polu przepływu jest dłuższa od prostej o > 1,2 j. (blok w poprzek) — idź za polem,
+    // czyli do najbliższego przejścia/bramy. Blisko gracza na otwartym podwórku zostaje marsz po prostej.
+    // Próg BEZWZGLĘDNY, nie względny: przy „L > d·1,08" daleki wróg z 4 j. objazdu na 40 j. szedł prosto w ścianę
+    // i stał przy niej (bot 10:00: 0,8% próbek „stoi", rekord 48 s — wszyscy przy licu bryły).
+    if (osNav && celPos === P.pos && !e.odwrot && !e.lot && OS.nav.kierunek(e.pos.x, e.pos.z, _osK) && _osK.L > dCel + 1.2)
+      to.set(_osK.x, 0, _osK.z);
     // E1-bieg K7/K8: kapral i Don mają tempo wprost w j./s (`e.tempo`, bez spdScale — stała godzina)
     let es = e.tempo || e.T.speed * (e.elite ? 0.85 : 1) * spdScale();
     // BOSSA NIE DA SIE ZGUBIC (decyzja wlasciciela: „przeciwnik, ktorego trzeba pokonac").
@@ -12151,7 +12513,7 @@ function update(dt) {
     const wSciane = e.sciana && e.sciana.t > 0;
     if (wSciane) {
       e.sciana.t -= dt;
-      to.copy(e.sciana.dir);
+      if (!osNav) to.copy(e.sciana.dir);              // osiedle: ściana idzie razem, ale przejściami (pole), nie w blok
       if (e.stun > 0 || G.buff.key === 'mroz') es = 0; else es = e.sciana.spd * (G.buff.key === 'slow' ? 0.6 : 1);
     }
     // E1-bieg K8: ODWRÓT w ciszy 9:52 (spec §3.1) — idą OD gracza, bez ciosów i strzałów, ale da się ich
@@ -12252,6 +12614,11 @@ function update(dt) {
 
     // ---- kolizja, SKOKI i WSPINACZKA na półki ----
     const blockTop = solveSolids(e.pos, 0.35, e.ty);
+    // osiedle: wepchnięty GŁĘBOKO w bryłę (odrzut, Ręka Nonny, styk dwóch brył) — solveSolids potrafi go
+    // przerzucać między sąsiednimi bryłami; wtedy na najbliższą wolną komórkę (maska ścian = tani filtr)
+    if (osNav && OS.nav.scianaW(e.pos.x, e.pos.z) && osWBryle(e.pos.x, e.pos.z) && OS.nav.najblizszyWolny(e.pos.x, e.pos.z, 10, _osK)) {
+      e.pos.x = _osK.x; e.pos.z = _osK.z;
+    }
     const eGround = supportY(e.pos.x, e.pos.z, e.ty);
     e.jumpCd -= dt;
     if (e.lot) {                                         // K7/K8: skok Gommone / spadający Don — wysokość liczy AI
@@ -12329,6 +12696,7 @@ function update(dt) {
     }
     s.life -= dt;
     let dead = s.life <= 0;
+    if (!dead && osNav && OS.pociskiStop && OS.nav.scianaW(s.mesh.position.x, s.mesh.position.z)) dead = true;   // osiedle: pocisk rozbija się o blok
     if (!dead) for (let j = G.enemies.length - 1; j >= 0; j--) {
       const e = G.enemies[j];
       if (e.dying || s.hit.has(e)) continue;
@@ -13343,6 +13711,7 @@ function newGame() {
   // Wąwozy: (0,0) jest wypłaszczone z definicji, ale pytamy moduł — gdyby ktoś przestawił
   // parametry, gracz nie ma się budzić w rzece ani na ścianie kanionu.
   if (MAPS[mapKey].rzeki) { const st = TW.startowaPozycja(); P.pos.set(st.x, 0, st.z); }
+  else if (MAPS[mapKey].osiedle) P.pos.set(TO.START.x, 0, TO.START.z);   // środek podwórka (0,0 = skraj bloku)
   else P.pos.set(0, 0, 0);
   P.y = terrainH(P.pos.x, P.pos.z);
   // ODBUDOWA ŚWIATA. `clearWorld()` czyści `G.padajace`, ale NIE dotyka `ch.shelves`:
@@ -13362,6 +13731,8 @@ function newGame() {
   AUDIO.startRun(charKey);                         // losowy utwór na bieg + kwestia na start
   camYaw = 0;
   camera.position.set(0, terrainH(0, 0) + CAM_H, CAM_DIST);
+  // osiedle startuje w (20, 20): kamera od razu za graczem, nie przelatuje przez blok z (0, 0)
+  if (MAPS[mapKey].osiedle) camera.position.set(P.pos.x, P.y + CAM_H, P.pos.z + CAM_DIST);
 }
 
 function loop() {
@@ -13438,6 +13809,7 @@ let pulaFala = null, pulaPlamy = null, pulaGemy = null, pulaMonety = null;
 let pulaTelKrag = null, pulaTelDysk = null, pulaTelPas = null, pulaChipsy = null;   // E1-bieg K7/K8
 const _kotwica = new THREE.Vector3();
 function syncInstancje() {
+  osKlatka();                                      // osiedle: zasięg chunków + przycinanie przy kamerze (przed KAŻDYM renderem)
   if (!coinMat || !glowMat || !ringMat || !eliteRingMat || !pigulkaMat) return;   // przed bootem
   if (!pulaCien) {
     pulaCien = new InstPula(blobGeo, blobMat, { cap: 512, nazwa: 'cienie wrogów' });
@@ -13514,6 +13886,7 @@ function dcRaport() {
     if (e.ring) etyk.set(e.ring, 'wróg:krąg');
   }
   for (const p of PULE) etyk.set(p.mesh, 'pula:' + p.nazwa);
+  for (const ch of chunkMap.values()) if (ch.osiedle) etyk.set(ch.mesh, 'teren:osiedle');   // 1 siatka na chunk
   for (const g of HORDA_GRUPY) if (g.mesh) etyk.set(g.mesh, 'pula:sprite ' + g.nazwa);
   for (const g of SYLW_GRUPY) if (g.mesh) etyk.set(g.mesh, 'pula:' + g.nazwa);   // E3 K2
   for (const [k, v] of Object.entries(G)) {
@@ -13668,6 +14041,7 @@ function botRuch() {                              // zwraca kierunek w ŚWIECIE 
     const k = now ? 1.5 : 1.2;
     wx = wx * 0.5 + dx / d * k; wz = wz * 0.5 + dz / d * k;
   }
+  if (MAPS[mapKey].osiedle) return osBotOmin(wx, wz);   // osiedle: omijanie ścian i wyjście z utknięcia
   const l = Math.hypot(wx, wz) || 1;
   return { x: wx / l, z: wz / l };
 }
@@ -14428,6 +14802,15 @@ if (loadTip) {
       return { mapa: mapKey, t: +G.time.toFixed(0), zrodzeni: { ...G.zrodzeni }, udzialy: pro(G.zrodzeni), losowane: pro(G.losowane) };
     },
     get wydLog() { return G.e3; },
+    // 30.09 MAPA OSIEDLE: moduły, stan (chunki, kolejka, pole hordy, czasy budowy), układ chunka do podglądu
+    TO, OSR, OS,
+    osiedle() {
+      let n = 0, v = 0, wid = 0, cut = 0;
+      for (const ch of chunkMap.values()) if (ch.osiedle) { n++; v += ch.osiedle.v; if (ch.mesh.visible) wid++; if (ch.mesh.material === OS.matCut) cut++; }
+      return { mapa: mapKey, chunki: n, widoczne: wid, zPrzycinaniem: cut, wierzcholki: v, kolejka: OS.kolejka.length, prefaby: OS.prefaby.size,
+               msChunk: +OS.msChunk.toFixed(2), msMax: +OS.msMax.toFixed(2), zbudowane: OS.budowane,
+               pole: { gotowe: OS.nav.gotowa, ms: +OS.nav.ms.toFixed(2), zasieg: OS.nav.zasieg, kodGracza: OS.nav.kodW(P.pos.x, P.pos.z) } };
+    },
     sylwetki() { return G.enemies.filter(e => e.sylw).map(e => ({ typ: e.don ? 'don' : e.kapral ? 'kapral' + e.kapral : e.type + (e.elite ? ':elita' : ''),
       d: +e.pos.distanceTo(P.pos).toFixed(1), strona: e.bb.mesh.material && e.bb.mesh.material.userData.hk ? e.bb.mesh.material.userData.hk.g.nazwa : '?' })); },
     SYLW_GRUPY,

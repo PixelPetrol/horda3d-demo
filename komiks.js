@@ -20,27 +20,27 @@ const STATUS = [];
 // już dziś, z samymi podpisami.
 const PLANSZE = [
   {
-    plik: 'assets/komiks/plansza1.png',
+    plik: 'assets/komiks/plansza1.jpg',
     pl: 'Osiedle Grządkowo. Trzepak był siłownią, piaskownica ringiem, a na rogu stał warzywniak Nonny.',
     en: 'The Blockyard. The carpet rack was the gym, the sandbox was the ring, and Nonna’s veggie stand stood on the corner.',
   },
   {
-    plik: 'assets/komiks/plansza2.png',
+    plik: 'assets/komiks/plansza2.jpg',
     pl: 'Aż przyjechała La Famiglia Snackoni. Don Chipso mówił szeptem, bo kto ma sól, nie musi krzyczeć.',
     en: 'Then La Famiglia Snackoni rolled in. Don Chipso spoke in whispers, because whoever has the salt doesn’t need to shout.',
   },
   {
-    plik: 'assets/komiks/plansza3.png',
+    plik: 'assets/komiks/plansza3.jpg',
     pl: 'Plan był prosty: zasypać osiedle solą i cukrem, a w miejscu warzywniaka postawić automat. Nic osobistego. Sama sól.',
     en: 'The plan was simple: bury the block in salt and sugar and put a vending machine where the veggie stand used to be. Nothing personal. Just salt.',
   },
   {
-    plik: 'assets/komiks/plansza4.png',
+    plik: 'assets/komiks/plansza4.jpg',
     pl: 'Carrotello wstał z kucek. — Nie na moim osiedlu. Warzywa stanęły ramię w ramię.',
     en: 'Carrotello rose from his squat. “Not on my block.” The vegetables stood shoulder to shoulder.',
   },
   {
-    plik: 'assets/komiks/plansza5.png',
+    plik: 'assets/komiks/plansza5.jpg',
     pl: 'Broń: witaminy. Przeciwnik: cała Famiglia. Przetrwaj, aż Don Chipso wyjdzie z limuzyny.',
     en: 'Weapon: vitamins. Enemy: the whole Famiglia. Survive until Don Chipso steps out of the limo.',
   },
