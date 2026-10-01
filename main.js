@@ -1,8 +1,8 @@
 // HORDA 3D v4 — teren 3D + kamera za plecami + meta-progresja (monety/sklep)
 import * as THREE from './lib/three.module.js';
 import { SPRITEDATA } from './spritedata.js?v=11';
-import { icon, iconObrys, ico, icoKafel, icoM, ik3Zmienne, ikona2, maIkone2, SIATKA2 } from './icons.js?v=11';   // ?v= TEN SAM co w audio.js
-import { AUDIO } from './audio.js?v=10';            // muzyka wg fazy gry + kwestie głosowe + efekty
+import { icon, iconObrys, ico, icoKafel, icoM, ik3Zmienne, ikona2, maIkone2, SIATKA2 } from './icons.js?v=12';   // ?v= TEN SAM co w audio.js
+import { AUDIO } from './audio.js?v=11';            // muzyka wg fazy gry + kwestie głosowe + efekty
 import { Znaczniki } from './lib/znaczniki.js?v=1';   // 01.10: znaczniki skrzyń w HUD (sekcja „ZNACZNIKI SKRZYŃ W HUD")
 import { initKomiks, pokazKomiks } from './komiks.js?v=2';   // komiks wprowadzający (Etap 2)
 import { generujSzkielet, siatkaGalezi, RNG } from './lib/drzewa-szkielet.js?v=2';
@@ -13,7 +13,8 @@ import * as TO from './lib/teren-osiedle.js?v=2';  // mapa „Osiedle": układ k
 // (ten sam kontrakt), zamień ścieżkę na './lib/osiedle-rekwizyty.js'. Reszta kodu woła tylko `OSR.*`.
 import * as OSR from './lib/osiedle-rekwizyty.js?v=2';   // 30.09: prawdziwe modele (zaślepki: lib/osiedle-zaslepki.js)
 import * as MS from './lib/modele-skrzynie.js?v=1';     // 30.09: skrzynie i kapliczki 3D (sekcja „SKRZYNIE I KAPLICZKI 3D" niżej)
-import { Czasza, ustawPrzechyl } from './lib/czasza.js?v=1';   // 01.10: czasza 3D do szybowania (sekcja „CZASZA 3D" w INFO-PROJEKT.md)
+import { Czasza, ustawPrzechyl } from './lib/czasza.js?v=2';   // 01.10: czasza 3D do szybowania (sekcja „CZASZA 3D" w INFO-PROJEKT.md)
+import { stworzCzekotubke } from './lib/czekotubka.js?v=3';  // 01.10: Czekotubka — jedyna postać 3D, bonusowa (sekcja „CZEKOTUBKA" w INFO-PROJEKT.md)
 import * as ML from './lib/modele-laki.js?v=2';         // 30.09: stosy skrzyń, podesty, schody na Łąkach/Wąwozach (sekcja „ŁĄKI — MODELE 3D")
 import * as MM from './lib/modele-market.js?v=2';       // 30.09: Market — modele, atlas towaru, posadzka w shaderze (sekcja „MARKET — PRZEBUDOWA")
 import * as UM from './lib/uklad-marketu.js?v=2';       // 30.09: Market — układ chunka (strefy, alejki, hale, plamy)
@@ -139,7 +140,23 @@ const CHARS = {
                 char: 'garlicino_stinkerino', price: 900, startWpn: 'skarpeta',
                 spd: 1.0, hp: 1, dmg: 1.0, mag: 1.05, scale: 1.22,
                 regula: T('Smród: na żądanie odpycha hordę smrodliwą aurą', 'Stink: on demand, a reeking aura shoves the horde') },
+  // ===== CZEKOTUBKA (01.10, decyzja właściciela) — JEDYNA POSTAĆ 3D, BONUSOWA =====
+  // Przekąska, która zdradziła La Famiglię Snackoni i przeszła na stronę warzyw. `bonus: true` = NIEWIDOCZNA
+  // (wybór postaci, sklep, cele), dopóki gracz nie wpisze kodu CZEKOTUBKA w Ustawienia → KOD OD NONNY
+  // (META.chars.czekotubka = 1). `model3d` = zamiast Billboardu rysuje się model z lib/czekotubka.js
+  // (klasa GraczCzekotubka niżej). `char` = klucz bez arkusza — wszystko, co czyta LIB[...char], pyta najpierw `is3D`.
+  // BALANS: nie silniejsza od Carrotella (spec właściciela) — bez jego szybkości i magnesu (×1), 5 serc,
+  // broń krótkiego zasięgu ze spowolnieniem; pomiar bota vs Carrotello w INFO-PROJEKT.md.
+  czekotubka: { nm: 'Czekotubka',
+                ds: T('Czekoladowa zdrajczyni Famiglii — tryska czekoladą, a oblepieni zwalniają.',
+                      'The chocolate turncoat of the Famiglia — squirts chocolate, and the smeared slow down.'),
+                char: 'czekotubka', price: 0, bonus: true, model3d: true, skala3d: 0.95, startWpn: 'strumien',
+                spd: 1.0, hp: 0, dmg: 1.0, mag: 1.0, scale: 1,
+                regula: T('Słodka zdrada: Snackoni czasem (5%) zawahają się i przez 1 s jej nie biją',
+                          'Sweet treason: Snackoni sometimes (5%) hesitate and leave her alone for 1 s') },
 };
+// postać bonusowa (z kodu) jest NIEWIDOCZNA, dopóki jej nie odblokowano — nie „zablokowana z ceną", tylko jej nie ma
+const postacWidoczna = key => !CHARS[key].bonus || !!META.chars[key];
 // ============================== PORTRETY ==============================
 // RENDERY HD: duże obrazki (~280×420) trzech postaci — używane w scence menu
 // i na kafelkach w zakładce Postacie. Dla pozostałych wchodzi `portret()`.
@@ -152,6 +169,9 @@ const RENDER_PORTRET = {
   beetino:    'assets/portrety/render_beetino.png?v=2',
   razoretta:  'assets/portrety/render_razoretta.png?v=2',
 };
+// render HD z pliku albo — dla postaci 3D (Czekotubka) — obrazek wyrenderowany RAZ z modelu (`portret3D`, sekcja GRACZ 3D)
+// (zapas: ikona postaci, gdyby render portretu się nie udał — pusty `src` = żądanie URL-a strony i zepsuty obrazek)
+const renderPortret = key => RENDER_PORTRET[key] || (CHARS[key] && CHARS[key].model3d ? (portret3D() || icon('postac', 6)) : null);
 // portret postaci = pierwsza klatka `idle` w kierunku „south", PRZYCIĘTA PO ALFIE.
 //
 // DLACZEGO AUTO-PRZYCIĘCIE, A NIE STAŁY PROSTOKĄT (zgłoszenie właściciela 18.09):
@@ -3011,6 +3031,137 @@ class Billboard {
 }
 const faceAngle = (x, z) => { const a = Math.atan2(x, z); return a < 0 ? a + Math.PI * 2 : a; };
 
+// ============================== CZEKOTUBKA: GRACZ 3D (01.10, lib/czekotubka.js) ==============================
+// Jedyna postać 3D (bonus z kodu). ADAPTER z interfejsem Billboardu gracza (mesh / shadow / facing / h / play / update /
+// dispose), więc kamera, karabin FPP, aura, czasza, śmierć i bronie wołają to samo co u sprite'ów; tam, gdzie sprite
+// potrzebuje arkusza (LIB[char], klatki, hitFlash), kod pyta najpierw `playerBB.is3D`.
+//  • mesh = grupa modelu (stopy w P.pos / P.y); obrót z kierunku ruchu wygładza moduł, na czas ataku — kierunek strumienia
+//    (`atak(kat)`). Stany: auto (idle/chód/bieg z |v|), skok z P.airborne/P.vy, szybowanie (ręce do uchwytów czaszy),
+//    oberwał (ranGracza), śmierć (startDeath), wygrana (ceremonia zwycięstwa) — na ekranie końca animuje dalej `loop()`.
+//  • cień: mapa cieni (castShadow w module) + plamka kontaktowa jak u sprite'ów.
+//  • KOPIA ZA PRZESZKODĄ: druga SkinnedMesh z depthFunc Greater (moduł). renderOrder −1 = widać przez teren, bloki,
+//    regały i drzewa (−2), tak jak sylwetki wrogów; w ścisku (≥ 3 wrogów bliżej kamery w 1,8 j. — warunek kopii
+//    Billboardu) 900 = także przez hordę.
+//  • nietykalność: czerwony puls modelu (uBlyskKol/uBlysk) zamiast nakładki hitFlash (ta bierze klatkę sprite'a).
+//  • JEDNA instancja na sesję (`_gracz3D`): zmiana postaci w menu tylko odpina ją ze sceny (bez ponownej kompilacji).
+// Zero alokacji na klatkę (stały ctx, wektory modułowe).
+let _gracz3D = null;
+const _g3L = new THREE.Vector3(), _g3P = new THREE.Vector3(), _g3R = new THREE.Vector3();
+class GraczCzekotubka {
+  constructor(skala) {
+    this.char = 'czekotubka'; this.is3D = true;
+    const t = this.t3 = stworzCzekotubke(THREE, { scena: scene, skala, obrys: true, ziemia: terrainH,
+      chmury: { tex: cloudShadowU, off: cloudOffU, skala: CLOUD_SCALE }, kopia: { krycie: KOPIA_KRYCIE, bias: 0.55 },
+      kropleMn: 2.4 });                            // strumień grubszy niż w podglądzie: z kamery gry krople miały ~2 px
+    t.material.userData.U.uBlyskKol.value.setHex(0xff2a2a);   // błysk trafienia = czerwony, jak miganie sprite'ów
+    this.mesh = t.grupa;
+    this.h = t.info.wysokosc;
+    this.shadow = new THREE.Mesh(blobGeo, blobMat);
+    this.shadow.scale.set(this.h * 0.5, 1, this.h * 0.34);
+    this.kopia = t.kopia; this.kopia.renderOrder = -1;
+    this.quat = new THREE.Quaternion();            // obrót „billboardu" w miejscu postaci (czasza, aura)
+    this.facing = 0; this.anim = 'idle'; this.done = false; this.loop = true;
+    this.atakT = 0; this.katAtaku = 0;
+    this._ctx = { predkosc: 0, kierunek: 0, wPowietrzu: false, vy: 0, ziemia: 0, szybuje: false };
+    this.przypnij();
+  }
+  przypnij() {
+    scene.add(this.mesh); scene.add(this.shadow); scene.add(this.t3.efekty);
+    this.mesh.visible = this.shadow.visible = true;
+  }
+  play() {}                                        // sprite'owe 'run' / 'jump' / 'idle' — stan liczy update() z P
+  atak(kat, zasieg = 1) { this.katAtaku = kat; this.atakT = 0.45; this.t3.zasiegStrumienia(zasieg); this.t3.ustawStan('atak'); }
+  reset() { this.t3.reset(); this.atakT = 0; }
+  update(dt, pos, ty, groundY = ty) {
+    const t = this.t3, c = this._ctx, gra = G.running && !G.over;
+    this.mesh.position.set(pos.x, ty, pos.z);
+    c.predkosc = gra ? Math.hypot(P.vx || 0, P.vz || 0) : 0;
+    if (this.atakT > 0) { this.atakT -= dt; c.kierunek = this.katAtaku; } else c.kierunek = this.facing;
+    c.wPowietrzu = gra && !!P.airborne; c.vy = P.vy || 0; c.ziemia = groundY;
+    c.szybuje = gra && !!P.gliding && !G.dying;
+    t.chmury(MAPS[mapKey].indoor ? 0 : 1);         // w markecie pod dachem chmur nie ma
+    t.efekty.visible = !(G.fps && G.fps.on);       // z oczu (karabin) bez kropel przed kamerą
+    t.update(dt, c);
+    this.shadow.position.set(pos.x, groundY + 0.04, pos.z);
+    billboardQuat(this.quat);
+    let zaslaniaja = 0;                            // ścisk: ten sam warunek co kopia Billboardu
+    if (gra) {
+      const dk = camera.position.distanceTo(P.pos);
+      for (const e of G.enemies) {
+        if (e.dying) continue;
+        const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z;
+        if (dx * dx + dz * dz > 3.24) continue;
+        if (camera.position.distanceTo(e.pos) < dk && ++zaslaniaja >= 3) break;
+      }
+    }
+    this.kopia.renderOrder = zaslaniaja >= 3 ? 900 : -1;
+  }
+  // pięści w świecie — lewa = bliżej lewej krawędzi ekranu (zaczepy linek czaszy; inaczej przodem do kamery by się krzyżowały)
+  dlonie(L, R) {
+    this.t3.dlon(1, _g3L); this.t3.dlon(-1, _g3P);
+    _g3R.setFromMatrixColumn(camera.matrixWorld, 0);
+    if (_g3L.dot(_g3R) <= _g3P.dot(_g3R)) { L.copy(_g3L); R.copy(_g3P); } else { L.copy(_g3P); R.copy(_g3L); }
+  }
+  dispose() { scene.remove(this.mesh); scene.remove(this.shadow); scene.remove(this.t3.efekty); }
+}
+// gracz dla klucza postaci: model 3D albo Billboard z arkusza
+function nowyGracz(key) {
+  const C = CHARS[key];
+  if (!C.model3d) return new Billboard(C.char, C.scale, true);   // gracz zawsze widoczny nad hordą (kopia)
+  if (!_gracz3D) _gracz3D = new GraczCzekotubka(C.skala3d || 1); else _gracz3D.przypnij();
+  return _gracz3D;
+}
+// PORTRET DO MENU z modelu 3D — renderowany RAZ (data URL, jak render HD z pliku). Główny renderer na chwilę dostaje
+// mały bufor: tło w kolorze-kluczu (magenta, w modelu takiego piksela nie ma; antialias wyłączony → krawędź 0/1),
+// render 2× i zmniejszenie z wygładzaniem = gładki brzeg z alfą. Poza: spoczynek z kciukiem w górę i oczkiem.
+let _portret3D = null;
+function portret3D() {
+  if (_portret3D != null) return _portret3D;
+  const W = 300, H = 420, SS = 2;
+  let t = null;
+  _portret3D = '';
+  try {
+    const sc = new THREE.Scene();
+    sc.background = new THREE.Color().setRGB(1, 0, 1);
+    sc.add(new THREE.HemisphereLight(0xd8ecff, 0x3e6b2f, 0.85));
+    const sl = new THREE.DirectionalLight(0xfff2d0, 1.35); sl.position.set(2.4, 3.6, 3.2); sc.add(sl);
+    t = stworzCzekotubke(THREE, { obrys: true });
+    sc.add(t.grupa);
+    t.kat = 0.32;
+    Object.assign(t._st, { tGest: 0.7, nastMrug: 1e9, nastPatrz: 1e9, nastKropla: 1e9 });
+    t.update(1 / 60, { predkosc: 0, kierunek: 0.32 });
+    const cam = new THREE.PerspectiveCamera(26, W / H, 0.1, 50);
+    const yaw = 0.42, pitch = 0.16, d = 5.4, cy = 0.98;
+    cam.position.set(Math.sin(yaw) * Math.cos(pitch) * d, cy + Math.sin(pitch) * d, Math.cos(yaw) * Math.cos(pitch) * d);
+    cam.lookAt(0, cy, 0);
+    renderer.setPixelRatio(1); renderer.setSize(W * SS, H * SS, false);
+    renderer.render(sc, cam);
+    const cv = document.createElement('canvas'); cv.width = W * SS; cv.height = H * SS;
+    const g = cv.getContext('2d', { willReadFrequently: true });
+    g.drawImage(renderer.domElement, 0, 0);        // w tym samym zadaniu co render — bufor jeszcze jest
+    applyResolution();                             // płótno gry wraca do swojego rozmiaru
+    const im = g.getImageData(0, 0, cv.width, cv.height), px = im.data;
+    let x0 = cv.width, y0 = cv.height, x1 = -1, y1 = -1;
+    for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) {
+      const i = (y * cv.width + x) * 4;
+      if (px[i] > 248 && px[i + 1] < 8 && px[i + 2] > 248) px[i + 3] = 0;
+      else { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    }
+    if (x1 >= 0) {
+      g.putImageData(im, 0, 0);
+      const m = 6 * SS;                            // oddech z boków i u góry, stopy przy dolnej krawędzi (scena lady)
+      x0 = Math.max(0, x0 - m); x1 = Math.min(cv.width - 1, x1 + m); y0 = Math.max(0, y0 - m); y1 = Math.min(cv.height - 1, y1 + SS);
+      const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+      const out = document.createElement('canvas'); out.width = Math.round(bw / SS); out.height = Math.round(bh / SS);
+      const og = out.getContext('2d'); og.imageSmoothingEnabled = true; og.imageSmoothingQuality = 'high';
+      og.drawImage(cv, x0, y0, bw, bh, 0, 0, out.width, out.height);
+      _portret3D = out.toDataURL('image/png');
+    }
+  } catch (e) { console.warn('portret Czekotubki:', e); applyResolution(); }
+  finally { if (t) t.dispose(); }
+  return _portret3D;
+}
+
 // ---- LIŚĆ SAŁATY (lotnia) — pixelowa tekstura + mesh nad postacią ----
 function lettuceTexture() {
   const c = document.createElement('canvas'); c.width = c.height = 64;
@@ -3150,7 +3301,8 @@ function updateLettuce(dt) {
 // moduł tylko czyta stan. Stara czasza zostaje AWARYJNA: `CZASZA_3D = false` albo wyjątek przy budowie.
 let CZASZA_3D = true, czasza = null, _czBB = null;
 const _czS = { lot: false, widoczny: true, pos: null, quat: null, h: 1, top: 0.8, stopy: 0, nazwa: '', rel: 0,
-               camYaw: 0, vx: 0, vz: 0, px: 1, vpH: 800, chmury: 1 };
+               camYaw: 0, vx: 0, vz: 0, px: 1, vpH: 800, chmury: 1, barkL: null, barkP: null };
+const _czS3L = new THREE.Vector3(), _czS3P = new THREE.Vector3();   // Czekotubka: pięści modelu = zaczepy linek
 function initCzasza() {
   if (CZASZA_3D) {
     try {
@@ -3173,13 +3325,20 @@ function updateCzasza(dt) {
   if (!playerBB) return;
   if (_czBB !== playerBB) {                        // nowa postać (start biegu / zmiana w menu): wysokości z jej arkusza
     _czBB = playerBB;
-    const L = LIB[playerBB.char];
-    _czS.top = czubekSkoku(playerBB.char); _czS.stopy = L.footOff / L.size; _czS.nazwa = playerBB.char;
+    if (playerBB.is3D) {                           // model 3D: od stóp (pivot) do czubka nakrętki, linki do pięści modelu
+      _czS.top = 1; _czS.stopy = 0; _czS.nazwa = 'czekotubka';
+      _czS.barkL = _czS3L; _czS.barkP = _czS3P;
+    } else {
+      const L = LIB[playerBB.char];
+      _czS.top = czubekSkoku(playerBB.char); _czS.stopy = L.footOff / L.size; _czS.nazwa = playerBB.char;
+      _czS.barkL = _czS.barkP = null;
+    }
     czasza.reset();
   }
   _czS.lot = !!P.gliding && !G.dying;              // śmierć w locie = czasza się składa
   _czS.widoczny = playerBB.mesh.visible;           // tryb karabinu (pierwsza osoba): bez czaszy nad kamerą
-  _czS.pos = playerBB.mesh.position; _czS.quat = playerBB.mesh.quaternion; _czS.h = playerBB.h;
+  if (playerBB.is3D) playerBB.dlonie(_czS3L, _czS3P);
+  _czS.pos = playerBB.mesh.position; _czS.quat = playerBB.is3D ? playerBB.quat : playerBB.mesh.quaternion; _czS.h = playerBB.h;
   _czS.rel = playerBB.facing - camYaw; _czS.camYaw = camYaw;
   _czS.vx = P.vx; _czS.vz = P.vz;
   _czS.px = renderer.getPixelRatio(); _czS.vpH = renderer.domElement.height;
@@ -3207,6 +3366,14 @@ function updateHitFlash() {
   // „NIE MOŻNA MNIE TKNĄĆ" (stan). Wcześniej ta sama nakładka robiła oba i okno
   // nietykalności czytało się jak zwykłe migotanie po ciosie.
   const on = P.iframes > 0 && !G.dying && !G.fps.on && !STRES;
+  if (playerBB && playerBB.is3D) {
+    // model 3D: ten sam rytm czerwonego pulsu co nakładka sprite'a, w materiale modelu (po update modułu, który
+    // sam ustawia krótki błysk warstwy „oberwał" — bierzemy mocniejszy z dwóch)
+    hitFlash.visible = false;
+    if (on) { const u = playerBB.t3.material.userData.U.uBlysk; u.value = Math.max(u.value, 0.2 + 0.32 * Math.abs(Math.sin(P.iframes * 22))); }
+    updateAura();
+    return;
+  }
   hitFlash.visible = on;
   if (on) {
     hitFlashMat.color.setHex(0xff2a2a);
@@ -3596,7 +3763,7 @@ function updateAura() {
   aura.scale.set(h * (1.32 + 0.08 * puls), h * (1.32 + 0.08 * puls), 1);
   // pivot sprite'a siedzi w stopach, więc poświatę środkujemy na tułowiu
   aura.position.set(playerBB.mesh.position.x, playerBB.mesh.position.y + h * 0.38, playerBB.mesh.position.z);
-  aura.quaternion.copy(playerBB.mesh.quaternion);
+  aura.quaternion.copy(playerBB.is3D ? playerBB.quat : playerBB.mesh.quaternion);   // model 3D: grupa nie obraca się do kamery
   auraRing.material.opacity = (niet ? 0.75 : 0.5) + 0.25 * puls;
   const r = h * (0.95 + 0.12 * puls);
   auraRing.scale.set(r, 1, r);
@@ -3941,9 +4108,10 @@ function renderChars() {
   const wrap = document.getElementById('charGrid'); wrap.innerHTML = '';
   for (const key of Object.keys(CHARS)) {
     const C = CHARS[key];
+    if (!postacWidoczna(key)) continue;            // bonus z kodu: do wpisania kodu tej postaci w ogóle nie ma
     const owned = maszPostac(key);
     const d = document.createElement('div');
-    d.className = 'tile' + (key === charKey ? ' sel' : '') + (owned ? '' : ' lock');
+    d.className = 'tile' + (key === charKey ? ' sel' : '') + (owned ? '' : ' lock') + (C.bonus ? ' bonus' : '');
     // postać za zabójstwa pokazuje POSTĘP, nie cenę — inaczej nie wiadomo, po co grać
     const cel = C.killGoal
       ? `<div class="pr">${ico('czaszka', 15)} ${Math.min(META.st.kills, C.killGoal)}/${C.killGoal}</div>
@@ -3952,11 +4120,11 @@ function renderChars() {
     // RENDER HD tam, gdzie jest (`object-fit:contain`, więc nic się nie rozciąga);
     // reszta dostaje auto-przycięty sprite — oba kadry są kwadratowe, więc rząd
     // kafelków ma jedną linię portretów niezależnie od tego, co w nim stoi.
-    const rh = RENDER_PORTRET[key];
+    const rh = renderPortret(key);
     // 72 px, nie 62: po auto-przycięciu portret jest KWADRATEM z 3 px marginesu,
     // więc sama postać zajmuje mniej niż w dawnym, ciasnym kadrze 64×77
     d.innerHTML = `<div class="ico"><img class="pxi${rh ? ' hd' : ''}" src="${rh || portret(C.char, 72)}" style="height:72px"></div>
-      <div class="nm">${C.nm}</div>
+      ${C.bonus ? `<div class="bonusZn">BONUS</div>` : ''}<div class="nm">${C.nm}</div>
       <div class="ds">${C.ds}</div>${C.regula ? `<div class="regula">${C.regula}</div>` : ''}${owned ? '' : cel}`;
     d.onclick = () => {
       if (!owned) {
@@ -3982,7 +4150,7 @@ function renderPick() {
   const por = document.getElementById('heroPortret');
   if (por) {
     // `render` gdy jest w mapie, inaczej klatka ze sprite'a w 256 px. Klasa `mini` = sprite (nearest, niżej).
-    const r = RENDER_PORTRET[charKey];
+    const r = renderPortret(charKey);
     const srcPor = r || portret(C.char, 256);
     if (srcPor) por.src = srcPor; else por.removeAttribute('src');   // `src=''` = żądanie URL-a strony i ikona zepsutego obrazka
     por.classList.toggle('mini', !r);
@@ -4004,7 +4172,7 @@ function renderPick() {
   ].map(([i, k, v]) => `<div class="hs">${mIk(i)}<span>${k}</span><b>${v}</b></div>`).join('');
   const st = document.getElementById('heroStat'); if (st) st.innerHTML = wiersze;
   const ps = document.getElementById('postStat');
-  if (ps) ps.innerHTML = `<div class="nm">${C.nm}</div>` + wiersze;
+  if (ps) ps.innerHTML = `<div class="nm">${C.nm}${C.bonus ? ' <span class="bonusZn">BONUS</span>' : ''}</div>` + wiersze;
   // TABLICZKA MAPY: 0 biegów = sama nazwa (bez wyboru); potem ‹ nazwa › (nazwa otwiera mapę osiedla)
   const mp = document.getElementById('heroMapa');
   if (mp) {
@@ -4636,6 +4804,10 @@ function mapaWezel(k) {
 }
 // sprite postaci z atlasu (idle, kierunek „south"), ostry, animowany CSS-em po klatkach arkusza
 function mapaSprite(el, h) {
+  if (CHARS[charKey].model3d) {                    // postać 3D: portret z modelu (bez arkusza klatek)
+    const p3 = portret3D() || icon('postac', 6);   // zapas: ikona postaci, gdyby render portretu się nie udał
+    el.className = 'spr'; el.style.cssText = `width:${h}px;height:${h}px;background:url(${p3}) center bottom/contain no-repeat`; return;
+  }
   const nm = CHARS[charKey].char, L = LIB[nm], D = SPRITEDATA[nm];
   const a = D && (D.anims.idle || D.anims.walk || D.anims.run);
   if (!L || !L.img || !a) { el.className = 'spr'; el.style.cssText = `width:${h}px;height:${h}px;background:url(${portret(nm, 96)}) center/contain no-repeat`; return; }
@@ -7767,6 +7939,7 @@ function updateZwyciestwa(dtR) {
   if (W.krok < 3 && W.t >= 1.0) {                  // „WIECZÓR WYGRANY!" + konfetti
     W.krok = 3;
     napis(T('WIECZÓR WYGRANY!', 'EVENING WON!'), 2300, '#ffd75e');
+    if (playerBB && playerBB.is3D) playerBB.t3.ustawStan('wygrana');   // podskoki z kciukami (trwa też na ekranie końca)
     for (const kol of [0xffd75e, 0xff6fa5, 0x7ee7ff, 0x9be15d, 0xc07bff, 0xff9d3f]) okruchy(P.pos.x, P.y + 2.2, P.pos.z, kol, 10);
     blysk('#ffd75e', 0.35);
     AUDIO.sfx('zlota');
@@ -8315,6 +8488,7 @@ function zadajDmg(e, dmg, o = {}) {
   }
   if (o.zr && !o.bezSkali && dmg > 0) dmg *= mnozBroni(o.zr);   // E2 K2: Dokładki (+% obrażeń tej broni)
   if (!o.bezSkali && dmg > 0 && e.smrodDo > G.time) dmg *= 1.15;   // E2 K6b: zasmrodzony (Smród pokoleniowy) — ze WSZYSTKICH źródeł
+  if (!o.bezSkali && dmg > 0 && e.lepDo > G.time && P.evo.fondue) dmg *= STRUM.fondue.wraz;   // 01.10: oblepiony + Czekoladowe fondue
   const crit = dmg > 0 && !o.bezKryt && Math.random() < critC();   // nova Sodino ma dmg 0 — nie ma czego krytykować
   if (crit) dmg *= 3;
   // E2 K8: Razoretta „Szklane ostrze" — krytyk z KAŻDEJ broni dokłada nóż do następnej serii Scyzoryków (do +3)
@@ -8376,6 +8550,36 @@ function emojiMat(emoji) {
   const t = new THREE.CanvasTexture(c);
   t.minFilter = THREE.LinearFilter; t.generateMipmaps = false;
   return new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false });
+}
+
+// ---- STRUMIEŃ CZEKOLADY (Czekotubka, 01.10): stałe i tiki (rejestr niżej) ----
+// dmg = jednostki bazowe NA TIK; poz. 5: 4 × 2,55 / 0,75 s ≈ 13,6 DPS w cel, w tłumie ~6 wrogów w stożku (pomiar `HORDA.tabelaDps`)
+const STRUM = {
+  zasieg: l => 4.0 + 0.25 * (l - 1),
+  tiki: [2, 2, 3, 3, 4], dmg: [1.6, 1.9, 2.1, 2.35, 2.55], cd: [0.85, 0.82, 0.8, 0.78, 0.75],
+  lep: 1.6, slow: 0.6, slowDuzy: 0.9,              // „oblepiony": ×0,6 na 1,6 s (kaprale i Don ×0,9); 2,0 s = bot +5 s przeżycia vs Carrotello
+  cosKat: Math.cos(40 * Math.PI / 180), blisko: 0.6,   // stożek ±40°; tuż przy stopach łapie wszystkich
+  t0: 0.15, dt: 0.07, kb: 0.6,                     // pierwszy tik = początek strumienia w animacji (ATAK.STRUMIEN)
+  fondue: { tiki: 1, dmg: 1.2, wraz: 1.2, zasieg: 1.4 },   // danie: zasięg ×1,4 (pole ×2), +1 tik, ×1,2, oblepieni +20% ze wszystkich źródeł
+  zasWiz: 4.6,                                     // zasięg kropli modelu przy sile 1 (skala 0,95) — krople lecą tak daleko, jak bije
+};
+const _strSektor = new Int16Array(12);            // sektory 30° (bez alokacji na strzał)
+function strumienTik(w, dt) {
+  w.sT += dt;
+  while (w.si < w.sn && w.sT >= STRUM.t0 + w.si * STRUM.dt) {
+    w.si++;
+    const zas = w.sZas + 0.35;                     // + promień ciała wroga
+    for (let j = G.enemies.length - 1; j >= 0; j--) {
+      const e = G.enemies[j];
+      if (e.dying) continue;
+      const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z, d = Math.hypot(dx, dz);
+      if (d > zas || d < 1e-4) continue;
+      if (d > STRUM.blisko && (dx * w.sx + dz * w.sz) / d < STRUM.cosKat) continue;
+      e.lepDo = G.time + STRUM.lep;
+      zadajDmg(e, w.sDmg, { col: '#d39a62', sc: 0.8, kb: _kbV.set(dx, 0, dz), kbSila: STRUM.kb, zr: 'strumien' });
+    }
+  }
+  if (w.si >= w.sn) w.sn = 0;
 }
 
 // ============================== BRONIE (rejestr) ==============================
@@ -8763,6 +8967,55 @@ const WEAPONS = {
       if (dookola) novaRing(P.pos.x, P.pos.z, zasieg);
       else novaRing(P.pos.x + fx * zasieg * 0.5, P.pos.z + fz * zasieg * 0.5, zasieg * 0.55);
       if (trafil) { AUDIO.sfx('wybuch'); G.shake = Math.max(G.shake, dookola ? 0.2 : 0.12); padWibruj(dookola ? 0.5 : 0.25, 60); }
+    },
+  },
+  // ===== STRUMIEŃ CZEKOLADY (startowa broń Czekotubki, 01.10) =====
+  // Krótki stożek ±40° przed sobą (4–5 j.), co ~0,8 s; 2–4 trafienia na jedno tryśnięcie (tiki co 0,07 s w oknie
+  // strumienia z animacji modelu). Trafieni są „OBLEPIENI": ×0,6 prędkości przez 1,6 s (kaprale i Don ×0,9 — jak kałuża
+  // i smród, z nimi się nie mnoży, bierzemy najmniejsze). Celuje jak Wypad (bramkarz pcha tam, gdzie tłok): w sektor
+  // 30° z największą liczbą wrogów W ZASIĘGU (z sąsiadami); nikogo w zasięgu = nie tryska i czeka (jak Kule bez celu).
+  // Model odwraca się w stronę strumienia na czas ataku (`playerBB.atak`).
+  // DANIE „CZEKOLADOWE FONDUE" (+ Parmezan): bez niego bot przegrywał z Donem 3/3 (preset sredni-10 zakłada dania,
+  // a Strumień jest słaby w pojedynczy cel) — zasięg ×1,4, +1 trafienie, ×1,2 obrażeń, oblepieni +20% obrażeń z każdej broni.
+  strumien: {
+    ico: 'strumien', nm: T('Strumień Czekolady', 'Chocolate Stream'),
+    ds: T('Tryska czekoladą w tłum przed sobą — oblepieni wrogowie zwalniają', 'Squirts chocolate into the crowd ahead — smeared enemies slow down'),
+    max: 5, postac: 'czekotubka',
+    lvlDs: l => T(`zasięg ${przec(STRUM.zasieg(l))} j., ${STRUM.tiki[l - 1]} trafienia, co ${przec(STRUM.cd[l - 1])} s, oblepia na ${przec(STRUM.lep)} s`,
+                  `range ${przec(STRUM.zasieg(l))} u, ${STRUM.tiki[l - 1]} hits, every ${przec(STRUM.cd[l - 1])} s, sticks for ${przec(STRUM.lep)} s`)
+      + T(l === 5 ? ' (→ przepis!)' : '', l === 5 ? ' (→ recipe!)' : ''),
+    evoKey: 'fondue', evoIco: 'fondue', evoNm: T('CZEKOLADOWE FONDUE', 'CHOCOLATE FONDUE'),
+    evoDs: T('PRZEPIS: dłuższy i mocniejszy strumień, a oblepieni dostają +20% obrażeń z każdej broni',
+             'RECIPE: a longer, stronger stream, and smeared enemies take +20% damage from every weapon'),
+    tick(w, dt) {
+      if (w.sn > 0) strumienTik(w, dt);              // tiki trwającego tryśnięcia
+      w.t -= dt;
+      if (w.t > 0) return;
+      const fondue = !!P.evo.fondue;
+      const R = rangeObsz(), zasieg = STRUM.zasieg(w.lvl) * R.m * (fondue ? STRUM.fondue.zasieg : 1);   // sufit obszarówek jak Wypad / Skarpeta
+      const sek = _strSektor; sek.fill(0);
+      let wZasiegu = 0;
+      for (const e of G.enemies) {
+        if (e.dying) continue;
+        const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z;
+        if (dx * dx + dz * dz > zasieg * zasieg) continue;
+        wZasiegu++;
+        sek[(Math.floor(faceAngle(dx, dz) / (Math.PI / 6)) + 12) % 12]++;
+      }
+      if (!wZasiegu) return;                         // w.t ≤ 0 → tryśnie, gdy ktoś wejdzie w zasięg
+      if (w.sn > 0) { w.sT = 99; strumienTik(w, 0); }   // szybkie Tempo: niedokończone tiki poprzedniego od razu (DPS bez strat)
+      w.t = STRUM.cd[w.lvl - 1] / fireMul();
+      let best = 0, bestN = -1;
+      for (let i = 0; i < 12; i++) {
+        const n = sek[(i + 11) % 12] + sek[i] + sek[(i + 1) % 12];
+        if (n > bestN) { bestN = n; best = i; }
+      }
+      const kat = (best + 0.5) * (Math.PI / 6);
+      w.sx = Math.sin(kat); w.sz = Math.cos(kat); w.sZas = zasieg;
+      w.sDmg = STRUM.dmg[w.lvl - 1] * R.dmg * dmgAll() * (fondue ? STRUM.fondue.dmg : 1);
+      w.sn = STRUM.tiki[w.lvl - 1] + (fondue ? STRUM.fondue.tiki : 0); w.si = 0; w.sT = 0;
+      if (playerBB && playerBB.atak) playerBB.atak(kat, zasieg / STRUM.zasWiz);   // model 3D: animacja + krople w tę stronę, do zasięgu
+      AUDIO.sfx('chlup');
     },
   },
   // ===== PIPSINI NIPOTINI: TOWARZYSZ, nie pocisk =====
@@ -9793,7 +10046,12 @@ const PRZEPISY = {
                                                         'The pizza flies wherever it likes. Pin it with something from the fridge.') },
   kaluza:   { bron: 'butelka',   skl: 'zasieg', podp: T('Żul rzuca na oślep. Z balkonu widać, gdzie najwięcej łobuzów.',
                                                         'The hobo throws blind. From the balcony you can see where the troublemakers crowd.') },
+  // 01.10: Czekotubka (bonus z kodu) — w Książce dopiero po odblokowaniu postaci (`przepisWidoczny`)
+  fondue:   { bron: 'strumien',  skl: 'moc',    podp: T('Fondue bez sera? To tylko deser, skarbie. Roztop w niej coś z Parmy.',
+                                                        "Fondue without cheese? That's just dessert, darling. Melt something from Parma into it.") },
 };
+// przepis broni postaci bonusowej (niewidocznej do wpisania kodu) nie zdradza jej w Książce Nonny
+const przepisWidoczny = ek => { const W = WEAPONS[PRZEPISY[ek].bron]; return !W.postac || !CHARS[W.postac] || postacWidoczna(W.postac); };
 // broń → evoKey (tylko dania, które mają kod: WEAPONS[k].evoKey)
 const PRZEPIS_BRONI = {};
 const przeliczPrzepisy = () => { for (const [ek, R] of Object.entries(PRZEPISY)) { R.aktywny = WEAPONS[R.bron].evoKey === ek; if (R.aktywny) PRZEPIS_BRONI[R.bron] = ek; else delete PRZEPIS_BRONI[R.bron]; } };
@@ -10465,6 +10723,22 @@ function drawHearts(drgnij = false) {
 // Zwraca true, gdy cios wszedł.
 // `obrazeniaWroga` — już TYLKO wytrzymałość Sokowirówki (wrogowie biją wieżyczkę: T.dmg × dmgMul).
 const obrazeniaWroga = baza => baza * HP_SERCA * dmgMul();
+// 01.10: SŁODKA ZDRADA (reguła Czekotubki) — zwykły Snackoni (bez kaprali, Dona i bossów) w zasięgu kontaktu czasem (5%)
+// się waha: przez 1 s jej nie bije i stoi („?" nad głową — była przecież jedną z nich). Jeden rzut na wroga na `co` s,
+// inaczej przy kontakcie losowałby co klatkę i wahał się prawie zawsze. Licznik: G.zdrady (bot, pomiary).
+const ZDRADA = { szansa: 0.05, czas: 1.0, co: 1.5 };
+function slodkaZdrada(e) {
+  if (charKey !== 'czekotubka' || e.kapral || e.don || e.T.boss) return false;
+  if (e.zdradaDo > G.time) return true;
+  if ((e.zdradaRzut || 0) > G.time) return false;
+  e.zdradaRzut = G.time + ZDRADA.co;
+  if (Math.random() >= ZDRADA.szansa) return false;
+  e.zdradaDo = G.time + ZDRADA.czas;
+  e.stun = Math.max(e.stun || 0, ZDRADA.czas);
+  dmgPop(e.pos.x, e.ty + 0.5, e.pos.z, '?', '#ff9ec7', 1.1);
+  G.zdrady = (G.zdrady || 0) + 1;
+  return true;
+}
 function ranGracza(_sila, zr = 'inne', o = {}) {
   if (G.dying || !G.running || G.wygrana) return false;   // K8: po śmierci Dona gracz nietykalny do końca
   if (P.iframes > 0 || G.time < G.nonnaDo) return false;   // K10: 3 s po Ręce Nonny
@@ -10494,6 +10768,7 @@ function ranGracza(_sila, zr = 'inne', o = {}) {
   dmgPop(P.pos.x, P.y + 0.4, P.pos.z, '-1', '#ff4a4a', 1.1, 'wazny');   // ważny: limit napisów w tłoku go nie zjada
   G.ostatniCios = zr;
   G.obrazeniaOd[zr] = (G.obrazeniaOd[zr] || 0) + ile;
+  if (playerBB && playerBB.is3D) playerBB.t3.ustawStan('oberwal');   // Czekotubka: warstwa „oberwał" (sprężyna, mina auć)
   // K10: raz na bieg zamiast śmierci; ZALEW: też w pierwszym biegu w życiu bez trybu łagodnego (zalew.rekaPierwszy)
   if (P.hp <= 0 && (G.lagodny || (zalew().rekaPierwszy && G.pierwszyBieg)) && !G.rekaNonny && !STRES) rekaNonny();
   drawHearts(true);
@@ -12993,10 +13268,12 @@ function update(dt) {
     if (G.buff.key === 'mroz') es = 0;                  // MROŻONKI: horda staje na kilka sekund
     // E2 K6: zasmrodzony ×0,8 (kaprale ×0,9), kałuża ×0,5 — między sobą się nie mnożą (bierzemy najmniejsze);
     // z buffem „slow", wodą i błotem mnożą się jak dotąd (Mrożonki i tak zatrzymują)
-    if (e.smrodDo > G.time || e.kaluzaDo > G.time) {
+    // 01.10: oblepiony Strumieniem Czekolady ×0,6 (kaprale i Don ×0,9) — ta sama zasada „najmniejsze wygrywa"
+    if (e.smrodDo > G.time || e.kaluzaDo > G.time || e.lepDo > G.time) {
       let mn = 1;
       if (e.smrodDo > G.time) mn = Math.min(mn, duzy ? 0.9 : 0.8);
       if (e.kaluzaDo > G.time) mn = Math.min(mn, duzy ? 0.9 : 0.5);
+      if (e.lepDo > G.time) mn = Math.min(mn, duzy ? STRUM.slowDuzy : STRUM.slow);
       es *= mn;
     }
     // E1-bieg: ŚCIANA HORDY przez pierwsze 5 s idzie RAZEM — wspólny kierunek i prędkość najwolniejszego
@@ -13151,7 +13428,10 @@ function update(dt) {
     // było dotąd tylko podpowiedzią na ekranie ładowania, w kodzie kręcił się wyłącznie sprite.
     const tarcza = e.wirujeTeraz ? LOLLINI_TARCZA : 0;
     // K7/K8: kapral (×1,9) i Don sięgają dalej; w odwrocie (cisza) nikt nie bije
-    if (!e.odwrot && d < 0.9 + (e.T.boss ? 0.8 : e.kapral ? 0.5 : 0) + tarcza && P.iframes <= 0 && P.y - e.ty < 1.0) {
+    // 01.10 Czekotubka: „Słodka zdrada" losuje dla każdego Snackoniego w zasięgu kontaktu (także w nietykalności — inaczej
+    // zdarzała się raz na kilka biegów); zawahany przez 1 s nie bije
+    const wKontakcie = !e.odwrot && d < 0.9 + (e.T.boss ? 0.8 : e.kapral ? 0.5 : 0) + tarcza && P.y - e.ty < 1.0;
+    if (wKontakcie && !slodkaZdrada(e) && P.iframes <= 0) {
       // kontakt = 1 serce (ranGracza ignoruje siłę; decyzja 25.09 „1 uderzenie = 1 serce")
       const ile = HP_SERCA;
       // kontakt kaprala ma własny klucz ('kapral3-dotyk'): 'kapral3' to jego sztuczka (szarża) — „Zabił cię" je rozróżnia
@@ -13563,6 +13843,7 @@ function startDeath() {
   dmgPop(P.pos.x, P.y + 1.2, P.pos.z, T('KONIEC!', 'GAME OVER!'), '#ff4a4a', 2.4, 'wazny');
   novaRing(P.pos.x, P.pos.z, 6);
   if (hitFlash) hitFlash.visible = false;
+  if (playerBB && playerBB.is3D) playerBB.t3.ustawStan('smierc');   // flaczeje, pada na plecy, kałuża czekolady
   AUDIO.event('smierc');                           // ostatnia kwestia postaci
 }
 function updateDeath(dt) {
@@ -13570,8 +13851,16 @@ function updateDeath(dt) {
   const t = G.deathT;
   // postać przewraca się na bok i zapada w ziemię (przewrót doklejony do obrotu billboardu)
   refreshSpriteTilt();
-  billboardQuat(playerBB.mesh.quaternion, Math.min(Math.PI / 2, t * 3.2));
-  playerBB.mesh.position.y = P.y - Math.min(0.55, t * 0.5);
+  if (playerBB.is3D) {
+    // model 3D: animacja śmierci z modułu; śmierć w powietrzu = spada na ziemię (sprite tylko zapadał się o 0,55 j.)
+    const g = supportY(P.pos.x, P.pos.z, P.y);
+    if (P.y > g) { P.vy = Math.min(P.vy || 0, 0) - 22 * dt; P.y = Math.max(g, P.y + P.vy * dt); } else P.vy = 0;
+    playerBB.update(dt, P.pos, P.y, g);
+    updateHitFlash();
+  } else {
+    billboardQuat(playerBB.mesh.quaternion, Math.min(Math.PI / 2, t * 3.2));
+    playerBB.mesh.position.y = P.y - Math.min(0.55, t * 0.5);
+  }
   updateCzasza(dt);                                // śmierć w locie: czasza składa się (G.dying), nie wisi zamrożona
   // kamera zjeżdża blisko i niżej
   const k = Math.min(1, t / 1.4);
@@ -14056,7 +14345,7 @@ function ksiazkaHTML() {
       + `${odk(ek) ? ico(W.evoIco, 28) : '<span class="kq">???</span>'}<span class="kst">${st}${linia2 ? `<br><small>${linia2}</small>` : ''}</span></div>`;
   }).join('');
   // B. CAŁA KSIĄŻKA — 12 przepisów + 3 „wkrótce"
-  const wszystkie = Object.keys(PRZEPISY).filter(ek => PRZEPISY[ek].aktywny);
+  const wszystkie = Object.keys(PRZEPISY).filter(ek => PRZEPISY[ek].aktywny && przepisWidoczny(ek));
   const n = wszystkie.filter(odk).length;
   const kafle = wszystkie.map(ek => { const W = WEAPONS[PRZEPISY[ek].bron];
       return `<button class="btn2 kafel${odk(ek) ? ' odk' : ''}" data-ek="${ek}" title="${odk(ek) ? W.evoNm : '???'}">${ico(odk(ek) ? W.evoIco : W.ico, 26)}${odk(ek) ? '' : '<i>???</i>'}`
@@ -14109,7 +14398,8 @@ function setPlayerChar(key) {
   charKey = key;
   const C = CHARS[key];
   if (playerBB) playerBB.dispose();
-  playerBB = new Billboard(C.char, C.scale, true);   // gracz zawsze widoczny nad hordą
+  playerBB = nowyGracz(key);                         // Billboard z arkusza albo model 3D (Czekotubka)
+  if (playerBB.is3D) playerBB.reset();
   playerBB.update(0, P.pos, P.y || terrainH(0, 0), P.y || terrainH(0, 0));
 }
 
@@ -14203,6 +14493,8 @@ function newGame() {
   STATY.zdarzenie('bieg-nr/' + kubelekBiegu(META.st.runs + 1), 'Bieg nr ' + (META.st.runs + 1));   // E1-bieg K9: lejek powrotów
   // E1-bieg K10: łagodny pierwszy bieg (spec §7) — pierwszy w historii zapisu albo druga szansa po śmierci przed 5:00
   G.lagodny = czyLagodny(); G.rekaNonny = false; G.nonnaDo = -1;
+  G.zdrady = 0;                                     // Czekotubka: licznik „Słodkiej zdrady" w biegu
+  if (playerBB && playerBB.is3D) playerBB.reset();  // model 3D: z pozy śmierci/wygranej z poprzedniego biegu od razu do ruchu
   G.pierwszyBieg = (META.st.pelne || 0) === 0;       // E2 K2: pierwszy bieg w historii zapisu — nauka rzadkości kart
   Object.assign(L_BIEG, G.lagodny ? CFG_BIEG.trybLagodny.L : L_NORMALNY);
   // ZALEW: łagodny (dziś tylko wymuszony w DEV) liczy od rozgrzewki `bieg` presetu, nie od wyłączonej przez zalew
@@ -14255,6 +14547,10 @@ function loop() {
   // Menu A „Warzywniak" jest NIEPRZEZROCZYSTE (body.w-menu): świata za nim nie widać, więc rysujemy go tylko 2×/s —
   // shadery i tekstury zostają „ciepłe" na GRAJ, a telefon nie mieli GPU w menu na darmo.
   const zakryty = !G.running && document.body.classList.contains('w-menu');
+  // Czekotubka (3D) na ekranie końca: wygrana tańczy dalej, po śmierci leży w kałuży (update() gry już nie chodzi)
+  if (playerBB && playerBB.is3D && !G.running && !zakryty) {
+    try { playerBB.update(dt, P.pos, playerBB.mesh.position.y, playerBB.shadow.position.y - 0.04); } catch (err) { console.error(err); }
+  }
   if (!zakryty || (_menuRnd += dt) > 0.5) {
     _menuRnd = 0;
     try { renderer.render(scene, camera); } catch (err) { console.error(err); }
@@ -14962,7 +15258,7 @@ if (loadTip) {
   mapKey = MAPS[META.lastMap] && mapaOdbl(META.lastMap) ? META.lastMap : 'laki';
   P.pos = new THREE.Vector3(0, 0, 0);
   P.y = terrainH(0, 0);
-  playerBB = new Billboard(CHARS[charKey].char, CHARS[charKey].scale, true);
+  playerBB = nowyGracz(charKey);
   initHitFlash();
   initAura();
   initSmrod();
@@ -15088,6 +15384,23 @@ if (loadTip) {
       renderShop(); renderChars(); renderPick();
       if (typeof renderBestiary === 'function') renderBestiary();
       kodKom(T('KOD PRZYJĘTY! Odblokowano wszystko + 5000 monet.', 'CODE ACCEPTED! Everything unlocked + 5000 coins.'));
+      kodInput.value = '';
+      return;
+    }
+    // 01.10: JAWNY easter egg (decyzja właściciela) — CZEKOTUBKA odblokowuje bonusową postać 3D. Także poza DEV,
+    // bez względu na wielkość liter, spacje i myślniki (KODY_NONNY.norm). PRZED sprawdzaniem kodów monet: ich alfabet
+    // nie ma litery O, więc ten kod odpadłby tam jako „zły" (i włączał 2 s blokady).
+    if (KODY_NONNY.norm(surowy) === 'CZEKOTUBKA') {
+      const nowa = !META.chars.czekotubka;
+      META.chars.czekotubka = 1;
+      // od razu wybrana — ale tylko poza biegiem (zmiana postaci w trakcie zamieniłaby staty i model w połowie biegu)
+      if (!G.running) { charKey = 'czekotubka'; META.lastChar = 'czekotubka'; setPlayerChar('czekotubka'); }
+      saveMeta();
+      renderChars(); renderPick(); odswiezRog();
+      AUDIO.sfx('zlota'); blysk('#c88a52', 0.35);
+      if (nowa) STATY.zdarzenie('kod/czekotubka', 'Kod: Czekotubka odblokowana');
+      kodKom(nowa ? T('Czekotubka przechodzi na stronę warzyw!', 'Czekotubka defects to the veggies!')
+                  : T('Czekotubka już jest po stronie warzyw!', 'Czekotubka is already on the veggie side!'));
       kodInput.value = '';
       return;
     }
@@ -15427,6 +15740,7 @@ if (loadTip) {
     },
   });
   if (DEV) Object.assign(window.HORDA, { KODY_NONNY, CFG_SPIZ, SPIZ_KOLEJNOSC, sklOdbl, sklMaxBiegu, cenaSpiz, KUP_MONETY, kodyTest: [] });   // Spiżarnia + Kod od Nonny (29.09)
+  if (DEV) Object.assign(window.HORDA, { STRUM, ZDRADA, portret3D, przepisWidoczny, ksiazkaHTML, renderChars, gracz: () => playerBB });   // 01.10: Czekotubka (model: HORDA.gracz().t3)
   // 01.10 CZASZA 3D: HORDA.czasza('torba' | 'salata') = wariant; HORDA.czasza() = stan (trójkąty, draw calle, otwarcie);
   // HORDA.czasza(null, -0.2) = wychył przy pełnej prędkości (+ ku kierunkowi lotu, − czasza wlecze się z tyłu)
   if (DEV) Object.assign(window.HORDA, {

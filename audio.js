@@ -4,7 +4,7 @@
 // naprawdę potrzebny — ładowanie strony i start biegu nic nie ciągną z sieci.
 // Przeglądarki blokują dźwięk przed interakcją: gramy dopiero po pierwszym
 // kliknięciu/dotknięciu/klawiszu (patrz `odblokuj`), wcześniej utwór tylko czeka.
-import { ico } from './icons.js?v=11';   // ten sam specyfikator co w main.js = jeden moduł
+import { ico } from './icons.js?v=12';   // ten sam specyfikator co w main.js = jeden moduł
 
 // ============================== BIBLIOTEKA UTWORÓW ==============================
 const MUZ_DIR = 'assets/audio/muzyka/';
@@ -236,6 +236,9 @@ const EFEKTY = {
   piorun:   { gap: 0.08,  f: () => { szum({ d: 0.2, g: 0.22, f: 5200, f2: 700, typ: 'highpass' });
                                      ton({ f: 1400, f2: 220, typ: 'sawtooth', d: 0.12, g: 0.12 }); } },
   strzal:   { gap: 0.11,  f: () => ton({ f: 700, f2: 420, typ: 'triangle', d: 0.04, g: 0.05 }) },
+  // 01.10: Strumień Czekolady (Czekotubka) — mokre „chlup": opadający szum dolnoprzepustowy + niski bulgot
+  chlup:    { gap: 0.15,  f: () => { szum({ d: 0.2, g: 0.15, f: 900, f2: 240, typ: 'lowpass', q: 1.3 });
+                                     ton({ f: 230, f2: 95, typ: 'sine', d: 0.14, g: 0.11 }); } },
   bossdown: { gap: 0.5, wazny: 1, f: () => { szum({ d: 0.7, g: 0.3, f: 900, f2: 60, typ: 'lowpass' });
                                      akord([220, 165, 110], { typ: 'sawtooth', d: 0.4, g: 0.16, krok: 0.1 }); } },
   boss:     { gap: 1.0, wazny: 1, f: () => { ton({ f: 62, f2: 44, typ: 'sawtooth', d: 0.9, g: 0.2 });

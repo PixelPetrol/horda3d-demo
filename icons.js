@@ -726,6 +726,7 @@ const PAL2 = {
   g: '#2e323a',                                         // ciemne wnętrze
   i: '#9e2f63', I: '#e0619a', j: '#ffacd0',             // v3: róż (kapeć La Ciabatty, rzodkiewka)
   u: '#6f7a1f', U: '#b4c23c',                           // v3: oliwka (Oliwa Nonny, kałuża)
+  x: '#24387f', C: '#4c220d',                           // 01.10: granat folii/nakrętki i czekolada (Czekotubka, Strumień Czekolady)
 };
 const ART2 = {};
 export const ART2_NAZWY = [];
@@ -1048,6 +1049,13 @@ dodaj3('celownik', 'bron', [
   'kwwk..kRRk..kwwk', '.kqk...kk...kqk.', '.kRRk......kqrk.', '..kRkk....kkRk..',
   '..kRRRkkkkqRrk..', '...kkRrwwqrkk...', '.....kkwwkk.....', '.......kk.......',
 ]);
+// 01.10: Strumień Czekolady (broń Czekotubki, postać bonusowa) — tubka z buzią tryska czekoladą w bok, biała pięść ściska
+dodaj3('strumien', 'bron', [
+  '.............k..', '........kkkkkCk.', '....kkkkoCoCkkk.', '...kbxxCCCCokkok',
+  '...kbxxkkkCCkkk.', '..kkxxxkk.kkkCk.', '.kCoCCoCCk.kCk..', '.kCxxCxxCkk.k...',
+  '.kCBbbbbCkwk....', '.kbBwbwbCwwk....', '.kBckBkBBSSk....', '.kBcBrBBBkk.....',
+  '.kBcBBBBBk......', '.kccccccck......', 'kSScScScSSk.....', '.kkkkkkkkk......',
+]);
 // --- v3: DANIA (przepisy, Książka Nonny) ---
 dodaj3('meteor', 'danie', [
   '................', '.........kk.....', '......kkkDdkk...', '.....kRDAddddk..',
@@ -1120,6 +1128,13 @@ dodaj3('jablon', 'danie', [
   '.kmnNmmNNNnRrmk.', '.kqRmNNNnnNmmnk.', '.kRrmNNnqRmNnnk.', '.kmmNNNnRrmnqRk.',
   '.kNNNnnNmmNnRrk.', '..kNnqRmNNNNnk..', '...knRrNnnNnk...', '....kNlllonk....',
   '.....kklokk.....', '.....kklokk.....', '....klOooOok....', '.....kkkkkk.....',
+]);
+// 01.10: Czekoladowe fondue (danie Strumienia Czekolady, postać bonusowa) — garnek z czekoladą, parmezan na szpikulcu, płomyk
+dodaj3('fondue', 'danie', [
+  '.............kDk', '............kSk.', '...........kSk..', '........k.kSk...',
+  '.......kYkSk....', '......kzYSk.....', '.kkkkkkYCykkkk..', 'kCCCooCCCoCCCCk.',
+  '.kCqRRRCRRRCRk..', '.kRqRRRRRRRCRk..', '.kRqRRRRRRRRRk..', '.krqrrrrrrrrrk..',
+  '..krrrrrrrrrk...', '..kdddddddddk...', '...kkAFAFAkk....', '.....kFkFk......',
 ]);
 // --- v3: SKŁADNIKI (Spiżarnia, sloty w biegu) ---
 dodaj3('ser', 'skl', [
