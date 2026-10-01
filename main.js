@@ -4157,7 +4157,8 @@ const ZAPOWIEDZ = {
 // 29.09 (Piotr: „wszystkie plansze nie mogą być od razu aktywne"): mapa otwiera się po przeżyciu `do` s na poprzedniej.
 // Stare zapisy bez bestMapa: rekord `best` liczy się jako Łąki (weteran ma od razu Wąwozy, Market musi zdobyć).
 // 30.09: Łąki → Osiedle → Wąwozy → Market; stare zapisy z otwartymi Wąwozami — migracja przy META (`st.mapyOtw`).
-const MAPA_WARUNEK = { osiedle: { po: 'laki', do: 300 }, wawozy: { po: 'osiedle', do: 300 }, market: { po: 'wawozy', do: 300 } };
+// 01.10 Piotr: „odblokowywanie 2 pierwszych plansz po 3,5 minuty na poprzedniej zamiast 5" — Osiedle i Wąwozy 210 s, Market dalej 5:00
+const MAPA_WARUNEK = { osiedle: { po: 'laki', do: 210 }, wawozy: { po: 'osiedle', do: 210 }, market: { po: 'wawozy', do: 300 } };
 const bestNaMapie = k => { const b = META.st.bestMapa || {}; return b[k] != null ? b[k] : (k === 'laki' ? META.st.best || 0 : 0); };
 function mapaOdbl(key) {
   if (DEV && /[?&]mapy=1/.test(location.search)) return true;
@@ -6361,7 +6362,7 @@ const CFG_TRUDNOSC = {
       // 30.09 wieczór, Piotr po v307: „trochę za trudne, daj mniej wrogów o 1/3 na początku, bo nie mogę dotrzeć do 5 min"
       // → do 3:00 tempo i podłoga ×0,67 (1:00: 80 → 54 żywych, 2:00: 130 → 87), potem liniowo do ×1 w 5:00
       start: [[0, 0.67], [180, 0.67], [300, 1]],
-      hp: { zwykly: 2, elita: 1.5, kapral: 1.5, don: 1.5 },
+      hp: { zwykly: 1.7, elita: 1.35, kapral: 1.5, don: 1.5 },   // 01.10 „zmniejsz trudność trochę": zwykli 2 → 1,7, elity 1,5 → 1,35
       lagodny: false, rekaPierwszy: true,
     },
     bieg: {
@@ -6408,7 +6409,7 @@ const CFG_TRUDNOSC = {
     // 2:00 / 5:00 / 10:00: 146 / 2 475 / 7 943 → 112 / 1 570 / 4 010. Ranga to jedyne źródło, które rośnie do końca biegu
     // (48 w 10:00 = ×5,0), dlatego 10:00 tnie się mocniej niż 5:00; 0,5 dawało 10:00 = 3 344 (za mocno), wzrostBron 0,75 —
     // 5:00 = 467 (przepisy po 5:00). Sekcja „WZROST W BIEGU" w INFO-PROJEKT.md.
-    wzrost: 0.75,                                    // 30.09 Piotr „trochę wzmocnić gracza”: 0,55 → 0,75
+    wzrost: 0.85,                                    // 30.09 Piotr „trochę wzmocnić gracza”: 0,55 → 0,75; 01.10 „trochę łatwiej”: → 0,85
     // łagodny pierwszy bieg bliżej normalnego (stare → nowe)
     lagodny: {
       L: { hp: 0.65, spd: 0.02, elita: 0.4, tempo: 0.55 },   // { hp 0,50, spd 0, elita 0,2, tempo 0,35 }
