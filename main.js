@@ -1,8 +1,8 @@
 // HORDA 3D v4 — teren 3D + kamera za plecami + meta-progresja (monety/sklep)
 import * as THREE from './lib/three.module.js';
 import { SPRITEDATA } from './spritedata.js?v=11';
-import { icon, iconObrys, ico, ikona2, maIkone2, SIATKA2 } from './icons.js?v=10';   // ?v= TEN SAM co w audio.js
-import { AUDIO } from './audio.js?v=9';            // muzyka wg fazy gry + kwestie głosowe + efekty
+import { icon, iconObrys, ico, icoKafel, icoM, ik3Zmienne, ikona2, maIkone2, SIATKA2 } from './icons.js?v=11';   // ?v= TEN SAM co w audio.js
+import { AUDIO } from './audio.js?v=10';            // muzyka wg fazy gry + kwestie głosowe + efekty
 import { Znaczniki } from './lib/znaczniki.js?v=1';   // 01.10: znaczniki skrzyń w HUD (sekcja „ZNACZNIKI SKRZYŃ W HUD")
 import { initKomiks, pokazKomiks } from './komiks.js?v=2';   // komiks wprowadzający (Etap 2)
 import { generujSzkielet, siatkaGalezi, RNG } from './lib/drzewa-szkielet.js?v=2';
@@ -13,6 +13,7 @@ import * as TO from './lib/teren-osiedle.js?v=2';  // mapa „Osiedle": układ k
 // (ten sam kontrakt), zamień ścieżkę na './lib/osiedle-rekwizyty.js'. Reszta kodu woła tylko `OSR.*`.
 import * as OSR from './lib/osiedle-rekwizyty.js?v=2';   // 30.09: prawdziwe modele (zaślepki: lib/osiedle-zaslepki.js)
 import * as MS from './lib/modele-skrzynie.js?v=1';     // 30.09: skrzynie i kapliczki 3D (sekcja „SKRZYNIE I KAPLICZKI 3D" niżej)
+import { Czasza, ustawPrzechyl } from './lib/czasza.js?v=1';   // 01.10: czasza 3D do szybowania (sekcja „CZASZA 3D" w INFO-PROJEKT.md)
 import * as ML from './lib/modele-laki.js?v=2';         // 30.09: stosy skrzyń, podesty, schody na Łąkach/Wąwozach (sekcja „ŁĄKI — MODELE 3D")
 import * as MM from './lib/modele-market.js?v=2';       // 30.09: Market — modele, atlas towaru, posadzka w shaderze (sekcja „MARKET — PRZEBUDOWA")
 import * as UM from './lib/uklad-marketu.js?v=2';       // 30.09: Market — układ chunka (strefy, alejki, hale, plamy)
@@ -519,7 +520,11 @@ function setSky(key) {
   skyU.uPasy.value = S.pasy;
 }
 
+// 01.10 IKONY v3: rozmiary ikon w kafelkach HUD i nadpisaniach CSS (`--i3-N`, `--i3f-N`, `--i3kN`) w całych pikselach
+// urządzenia — przeliczane przy starcie i przy każdej zmianie rozmiaru (zmiana dpr: zoom, inny monitor też ją wywołuje)
+ik3Zmienne();
 addEventListener('resize', () => {
+  ik3Zmienne();
   camera.aspect = innerWidth / innerHeight;
   applyResolution();
   fitCamera();
@@ -3118,8 +3123,8 @@ function initLettuce() {
 }
 function updateLettuce(dt) {
   if (!lettuce) return;
-  lettuce.visible = sznurki.visible = !!P.gliding;
-  if (!P.gliding) return;
+  lettuce.visible = sznurki.visible = !!P.gliding && !G.dying;
+  if (!lettuce.visible) return;
   const kolysanie = Math.sin(G.time * 5) * 0.12;
   // wysokości z `playerBB.h`, nie ze stałych — po PX2U 1/46 postać urosła o 20%
   const hh = playerBB ? playerBB.h : 2.6;
@@ -3133,6 +3138,53 @@ function updateLettuce(dt) {
   sznurki.position.set(P.pos.x + kolysanie * 0.25, barki, P.pos.z);
   sznurki.scale.set(1.9, Math.max(0.2, czaszaY - 0.22 - barki), 1);
   billboardQuat(sznurki.quaternion, kolysanie * 0.8);
+}
+
+// ============================== CZASZA 3D (01.10, `lib/czasza.js`) ==============================
+// Zgłoszenie właściciela: „popraw spadochron". Stara kopuła wyżej (biała czapa sfery + płaski sprite
+// sznurków) zasłaniała głowę postaci i z kamery gry czytała się jak grzyb. Nowa czasza: foliowa reklamówka
+// w trójkolorowe paski (albo liść sałaty — `HORDA.czasza('salata')`), otwiera się sprężyną w ~0,14 s,
+// składa w ~0,2 s, trzepocze brzegiem, wychyla się w kierunku lotu i przechyla w zakrętach, a linki
+// (rozciągnięte uchwyty torby) idą do BARKÓW postaci (tablica `BARKI` w module, różne sylwetki).
+// 1 draw call + 1 w mapie cieni, zero alokacji na klatkę. Fizyka szybowania (P.gliding) bez zmian —
+// moduł tylko czyta stan. Stara czasza zostaje AWARYJNA: `CZASZA_3D = false` albo wyjątek przy budowie.
+let CZASZA_3D = true, czasza = null, _czBB = null;
+const _czS = { lot: false, widoczny: true, pos: null, quat: null, h: 1, top: 0.8, stopy: 0, nazwa: '', rel: 0,
+               camYaw: 0, vx: 0, vz: 0, px: 1, vpH: 800, chmury: 1 };
+function initCzasza() {
+  if (CZASZA_3D) {
+    try {
+      czasza = new Czasza(THREE, scene, { czas: windU, chmury: { tex: cloudShadowU, off: cloudOffU, skala: CLOUD_SCALE },
+                                          slonce: SUN_OFF, wariant: 'torba' });
+      return;
+    } catch (e) { console.warn('czasza 3D nie wstała — stara kopuła', e); czasza = null; }
+  }
+  initLettuce();
+}
+// czubek głowy = najwyższy piksel klatek skoku (geometria klatek jest przycięta do alfy, y w ułamkach klatki)
+function czubekSkoku(char) {
+  const L = LIB[char], A = L.anims.jump || L.anims[Object.keys(L.anims)[0]];
+  let top = 0;
+  for (const gs of Object.values(A.geo)) for (const g of gs) { if (!g.boundingBox) g.computeBoundingBox(); top = Math.max(top, g.boundingBox.max.y); }
+  return top || 0.8;
+}
+function updateCzasza(dt) {
+  if (!czasza) { updateLettuce(dt); return; }
+  if (!playerBB) return;
+  if (_czBB !== playerBB) {                        // nowa postać (start biegu / zmiana w menu): wysokości z jej arkusza
+    _czBB = playerBB;
+    const L = LIB[playerBB.char];
+    _czS.top = czubekSkoku(playerBB.char); _czS.stopy = L.footOff / L.size; _czS.nazwa = playerBB.char;
+    czasza.reset();
+  }
+  _czS.lot = !!P.gliding && !G.dying;              // śmierć w locie = czasza się składa
+  _czS.widoczny = playerBB.mesh.visible;           // tryb karabinu (pierwsza osoba): bez czaszy nad kamerą
+  _czS.pos = playerBB.mesh.position; _czS.quat = playerBB.mesh.quaternion; _czS.h = playerBB.h;
+  _czS.rel = playerBB.facing - camYaw; _czS.camYaw = camYaw;
+  _czS.vx = P.vx; _czS.vz = P.vz;
+  _czS.px = renderer.getPixelRatio(); _czS.vpH = renderer.domElement.height;
+  _czS.chmury = MAPS[mapKey].indoor ? 0 : 1;       // w markecie pod dachem chmur nie ma
+  czasza.update(dt, _czS);
 }
 
 // czerwony błysk na postaci przy obrażeniach (nakładka z tą samą klatką sprite'a)
@@ -3715,7 +3767,7 @@ function initJezykUI() {
 const SHOP = [
   { key: 'serce',  ico: 'serce', nm: T('Twarde serce', 'Tough Heart'),
     ds: T('+1 serce na start', '+1 heart at the start'), base: 80, max: 3 },
-  { key: 'dmg',    ico: 'fala', nm: T('Siła', 'Might'),
+  { key: 'dmg',    ico: 'sila', nm: T('Siła', 'Might'),
     ds: T('+10% obrażeń na stałe', '+10% damage, permanently'), base: 60, max: 5 },
   { key: 'szyb',   ico: 'but', nm: T('Kondycja', 'Stamina'),
     ds: T('+8% szybkości na stałe', '+8% move speed, permanently'), base: 60, max: 5 },
@@ -3724,14 +3776,14 @@ const SHOP = [
   // KLĄTWA: gracz KUPUJE SOBIE WIĘCEJ WROGÓW. Chwyt z Vampire Survivors (Curse
   // i Charm) — to wentyl na „wykupiłem cały sklep i nie mam po co grać": zamiast
   // końca progresji dostajesz dźwignię. Więcej wrogów = więcej XP i monet.
-  { key: 'klatwa', ico: 'ostrzezenie', nm: T('Klątwa Nonny', "Nonna's Curse"),
+  { key: 'klatwa', ico: 'klatwa', nm: T('Klątwa Nonny', "Nonna's Curse"),
     // E1-bieg: od K1 klątwa NIE zagęszcza spawnu (tylko hpScale ×(1+0,1·poz.) i monety) — opis bez
     // „liczniejsi". Cała klątwa zniknie w E4.
     ds: T('Wrogowie twardsi (+10% HP), ale monety sypią się gęściej (+20%)',
           'Tougher enemies (+10% HP) — but the coins pour harder (+20%)'), base: 120, max: 5 },
   // Sam KARABIN wypada ze skrzyni (nie da się go kupić) — w sklepie kupujesz tylko
   // DŁUŻSZY tryb. Inaczej najmocniejsza rzecz w grze byłaby na stałe za monety.
-  { key: 'karabin', ico: 'celownik', nm: T('Magazynek Nonny', "Nonna's Magazine"),
+  { key: 'karabin', ico: 'naboje', nm: T('Magazynek Nonny', "Nonna's Magazine"),
     ds: T('+5 s trybu KARABIN (baza 20 s)', '+5 s of RIFLE mode (20 s base)'), base: 300, max: 3 },
 ];
 // odblokowania broni i pasywów (jednorazowe — wchodzą do puli kart w biegu)
@@ -3746,13 +3798,13 @@ const SHOP_UNLOCKS = [
   { key: 'djump',   ico: 'skok', nm: T('Podwójny skok', 'Double Jump'),
     ds: T('Drugi skok w powietrzu — przeskakuj regały (bywa też w skrzyniach)',
           'A second jump mid-air — hop the shelves (also drops from crates)'), price: 300 },
-  { key: 'glide',    ico: 'skok', nm: T('Foliowa torba', 'Plastic Bag'),
+  { key: 'glide',    ico: 'torba', nm: T('Foliowa torba', 'Plastic Bag'),
     ds: T('PRZYTRZYMAJ skok w locie = szybujesz na torbie i uciekasz hordzie',
           'HOLD jump in mid-air = glide on the bag and outrun the horde'), price: 250 },
   { key: 'skarpeta', ico: 'skarpeta', nm: T('Skarpeta', 'The Stink'),
     ds: T('Aura trucizny — słaba na start, ogromna po ulepszeniach',
           'A poison aura — weak at first, enormous once levelled'), price: 180 },
-  { key: 'wiatrowka', ico: 'wiatr', nm: T('Wiatrówka', 'Air Rifle'),
+  { key: 'wiatrowka', ico: 'wiatrowka', nm: T('Wiatrówka', 'Air Rifle'),
     ds: T('Promień przeszywa całą linię', 'The beam skewers the whole line'), price: 220 },
   { key: 'kura',     ico: 'kukurydza', nm: 'Kernello Boomello',
     ds: T('Ziarno biegnie do wroga i strzela jak popcorn', 'The kernel runs at an enemy and pops'), price: 350 },
@@ -6531,7 +6583,8 @@ const CFG_MAPA = {
   // `margines` = odstęp od zmierzonego HUD (góra: pod sercami/zegarem; dół i boki: od krawędzi ekranu) — przyciski dotyku,
   // bronie i podpowiedzi pada to prostokąty wykluczeń mierzone z DOM (dawne stałe 58/76/64 px nie pasowały do kolumny
   // przycisków na telefonie poziomo: x 700–782 przy 812 px). `ik` = ikona [niski ekran, ≥ 700 px] przed zaokrągleniem do siatki 18.
-  znaczniki:{ max: 3, garnekD: 45, zwykleD: 22, zwykleMax: 2, wybor: 0.1, strefaCo: 0.5, ik: [24, 32], nowyCzas: 2.5,
+  // 01.10 Piotr: „strzałka tylko do skrzyń, a nie do garnka, skrzyneczek itp." → garnek i zwykłe skrzynki wyłączone (cele)
+  znaczniki:{ max: 3, cele: { garnek: false, skrzynka: false }, garnekD: 45, zwykleD: 22, zwykleMax: 2, wybor: 0.1, strefaCo: 0.5, ik: [24, 32], nowyCzas: 2.5,
               margines: { gora: 6, dol: 8, bok: 10 }, podpowiedzi: 3, podpD: 14 },
   garnek:   { n: 3, r: 1.6, cd: 45 },
   stolnica: { r: 3.5, rMarket: 2.6, czas: 4.0, zanik: 0.5, reset: 6, cd: 50, pierwsza: 45, odBiegu: 1,
@@ -8348,7 +8401,7 @@ const WEAPONS = {
       ? ['1 shot', '2 shots, stronger', '3 shots and pierce', 'stronger still', '4 shots, +2 pierce (→ recipe!)']
       : ['1 pocisk', '2 pociski, mocniejsze', '3 pociski i przebicie',
          'jeszcze mocniejsze', '4 pociski, +2 przebicia (→ przepis!)'])[l - 1],
-    evoKey: 'meteor', evoIco: 'kula', evoNm: T('KULE METEORYCZNE', 'METEOR ORBS'),
+    evoKey: 'meteor', evoIco: 'meteor', evoNm: T('KULE METEORYCZNE', 'METEOR ORBS'),
     evoDs: T('PRZEPIS: pociski WYBUCHAJĄ przy trafieniu', 'RECIPE: shots EXPLODE on impact'),
     tick(w, dt) {
       w.t -= dt;
@@ -8382,7 +8435,7 @@ const WEAPONS = {
     ds: T('Kręci się na giętkiej lince i odpycha hordę', 'Whirls on a springy string and shoves the horde'), max: 5,
     lvlDs: l => l + T(l === 1 ? ' czosnek' : ' czosnki', l === 1 ? ' garlic' : ' garlics')
                   + T(l === 5 ? ' (→ przepis!)' : '', l === 5 ? ' (→ recipe!)' : ''),
-    evoKey: 'kosci', evoIco: 'czosnek', evoNm: T('CZOSNKOWY MŁYN', 'GARLIC MILL'),
+    evoKey: 'kosci', evoIco: 'mlyn', evoNm: T('CZOSNKOWY MŁYN', 'GARLIC MILL'),
     evoDs: T('PRZEPIS: dłuższa linka, szybszy obrót i 2× mocniejsze', 'RECIPE: longer string, faster spin, 2× the damage'),
     tick(w, dt) {
       while (G.orbs.length < w.lvl) G.orbs.push(nowyCzosnek(G.orbs.length));
@@ -8390,13 +8443,13 @@ const WEAPONS = {
     },
   },
   tupniecie: {
-    ico: 'fala', nm: T('Tupnięcie', 'Stomp'),
+    ico: 'tupniecie', nm: T('Tupnięcie', 'Stomp'),
     ds: T('Fala uderzeniowa (też przy lądowaniu ze skoku!)', 'A shockwave (on landing from a jump too!)'), max: 5,
     // E2 K1: 5 poziomów (spec §7.2) — opis z liczbami, jak inne bronie
     lvlDs: l => T(`promień ${przec(3.2 + 0.4 * l)}, moc ${przec(0.6 + 0.9 * l)}, co ${przec(3.3 - 0.1 * l)} s`,
                   `radius ${przec(3.2 + 0.4 * l)}, power ${przec(0.6 + 0.9 * l)}, every ${przec(3.3 - 0.1 * l)} s`)
       + T(l === 5 ? ' (→ przepis!)' : '', l === 5 ? ' (→ recipe!)' : ''),
-    evoKey: 'sejsm', evoIco: 'fala', evoNm: T('TRZĘSIENIE ZIEMI', 'EARTHQUAKE'),
+    evoKey: 'sejsm', evoIco: 'sejsm', evoNm: T('TRZĘSIENIE ZIEMI', 'EARTHQUAKE'),
     evoDs: T('PRZEPIS: fale częstsze, większe i 2× mocniejsze', 'RECIPE: waves more often, wider and 2× stronger'),
     tick(w, dt) {
       w.t -= dt;
@@ -8410,7 +8463,7 @@ const WEAPONS = {
     lvlDs: l => `${Math.ceil(l / 2)} ${T('grom(y)', 'bolt(s)')}, ${T('co', 'every')} ${(2.8 - 0.25 * l).toFixed(1)} s`
       + T(l === 5 ? ' (→ przepis!)' : '', l === 5 ? ' (→ recipe!)' : ''),
     // E2 K6a (spec §3.4.1): BURZA W FILIŻANCE — najpierw elity/kaprale/Don, potem łańcuch do 4 skoków (×0,75 na skok)
-    evoKey: 'burza', evoIco: 'pioruny', evoNm: T('BURZA W FILIŻANCE', 'STORM IN A CUP'),
+    evoKey: 'burza', evoIco: 'burza', evoNm: T('BURZA W FILIŻANCE', 'STORM IN A CUP'),
     evoDs: T('PRZEPIS: grom najpierw bije elity i przeskakuje na 4 kolejnych wrogów', 'RECIPE: bolts hit elites first and chain to 4 more enemies'),
     tick(w, dt) {
       w.t -= dt;
@@ -8438,7 +8491,7 @@ const WEAPONS = {
     lvlDs: l => `${T('wybuch', 'blast')} r=${(2 + 0.3 * l).toFixed(1)}, ${T('co', 'every')} ${(3.6 - 0.25 * l).toFixed(1)} s`
       + T(l === 5 ? ' (→ przepis!)' : '', l === 5 ? ' (→ recipe!)' : ''),
     // E2 K6d (spec §3.4.4): KAŁUŻA POD BLOKIEM — celuje w środek największej grupy, zostawia lepką kałużę
-    evoKey: 'kaluza', evoIco: 'butelka', evoNm: T('KAŁUŻA POD BLOKIEM', 'BLOCK PUDDLE'),
+    evoKey: 'kaluza', evoIco: 'kaluza', evoNm: T('KAŁUŻA POD BLOKIEM', 'BLOCK PUDDLE'),
     evoDs: T('PRZEPIS: butelka leci w największy tłum i zostawia lepką kałużę — spowalnia i parzy', 'RECIPE: the bottle flies into the biggest crowd and leaves a sticky puddle that slows and burns'),
     tick(w, dt) {
       w.t -= dt;
@@ -8479,7 +8532,7 @@ const WEAPONS = {
     lvlDs: l => `${T('zasięg', 'range')} ${(8 + 0.6 * l).toFixed(0)}, ${T('co', 'every')} ${(2.8 - 0.2 * l).toFixed(1)} s`
       + T(l === 5 ? ' (→ przepis!)' : '', l === 5 ? ' (→ recipe!)' : ''),
     // E2 K6c (spec §3.4.3): PIZZA CALAMITA — leci w najgęstszy sektor, zawisa 1,2 s, bije co 0,3 s i ŚCIĄGA hordę
-    evoKey: 'calamita', evoIco: 'pizza', evoNm: 'PIZZA CALAMITA',
+    evoKey: 'calamita', evoIco: 'calamita', evoNm: 'PIZZA CALAMITA',
     evoDs: T('PRZEPIS: pizza leci w największy tłum, zawisa, wiruje i ŚCIĄGA wrogów do siebie', 'RECIPE: the pizza flies into the biggest crowd, hovers, spins and PULLS enemies in'),
     tick(w, dt) {
       w.t -= dt;
@@ -8508,7 +8561,7 @@ const WEAPONS = {
     lvlDs: l => `${T('promień', 'radius')} ${SKARPETA_R(l).toFixed(1)} (${T('obszar', 'area')} ×${(SKARPETA_R(l) ** 2 / SKARPETA_R(1) ** 2).toFixed(1)}), ${T('trucie co 0.7 s', 'poison tick 0.7 s')}`
       + T(l === 5 ? ' (→ przepis!)' : '', l === 5 ? ' (→ recipe!)' : ''),
     // E2 K6b (spec §3.4.2, nazwa z biblii): SMRÓD POKOLENIOWY — smuga chmur za graczem, „zasmrodzeni" wolniejsi i +15% obrażeń
-    evoKey: 'smrodpok', evoIco: 'skarpeta', evoNm: T('SMRÓD POKOLENIOWY', 'GENERATIONAL STINK'),
+    evoKey: 'smrodpok', evoIco: 'smrod', evoNm: T('SMRÓD POKOLENIOWY', 'GENERATIONAL STINK'),
     evoDs: T('PRZEPIS: zostawiasz smugę smrodu; zasmrodzeni wrogowie są wolniejsi i dostają +15% obrażeń', 'RECIPE: you leave a stink trail; stunk enemies are slower and take +15% damage'),
     tick(w, dt) {
       if (P.evo.smrodpok) smugaSmrodu(w, dt);        // E2 K6b: chmury powstają niezależnie od tiku trucia
@@ -8535,7 +8588,7 @@ const WEAPONS = {
     },
   },
   wiatrowka: {
-    ico: 'wiatr', nm: T('Wiatrówka z bazaru', 'Bazaar Air Rifle'),
+    ico: 'wiatrowka', nm: T('Wiatrówka z bazaru', 'Bazaar Air Rifle'),
     ds: T('PROMIEŃ przeszywa wszystko na linii strzału', 'A BEAM skewers everything in the firing line'), max: 5, locked: true,
     lvlDs: l => `${T('co', 'every')} ${(2.2 - 0.15 * l).toFixed(2)} s, ${T('obrażenia', 'damage')} +${l}`,
     tick(w, dt) {
@@ -8575,7 +8628,7 @@ const WEAPONS = {
     ds: T('Ziarno kukurydzy biegnie do wroga i STRZELA', 'A corn kernel runs at an enemy and POPS'), max: 5, locked: true,
     lvlDs: l => `${T('wybuch', 'blast')} r=${(2.5 + 0.3 * l).toFixed(1)}, ${T('co', 'every')} ${(4.5 - 0.35 * l).toFixed(1)} s`
       + T(l === 5 ? ' (→ przepis!)' : '', l === 5 ? ' (→ recipe!)' : ''),
-    evoKey: 'kaseta', evoIco: 'kukurydza', evoNm: T('BOMBA KASETOWA', 'CLUSTER BOMB'),
+    evoKey: 'kaseta', evoIco: 'kaseta', evoNm: T('BOMBA KASETOWA', 'CLUSTER BOMB'),
     evoDs: T('PRZEPIS: wybuch rozsypuje 6 mniejszych ziaren, każde z własnym lontem',
              'RECIPE: the blast scatters 6 smaller kernels, each with its own fuse'),
     tick(w, dt) {
@@ -8594,11 +8647,11 @@ const WEAPONS = {
   // samą stronę, jeden po drugim, mocnych i przebijających. Gracz musi ustawić
   // się w linii z tłumem — to jedyna broń w grze nagradzająca celowanie ciałem.
   scyzoryk: {
-    ico: 'celownik', nm: T('Scyzoryki', 'Pencil Case'),
+    ico: 'scyzoryk', nm: T('Scyzoryki', 'Pencil Case'),
     ds: T('Seria mocnych rzutów przed siebie — przebijają', 'A burst of hard throws straight ahead — they pierce'), max: 5, postac: 'razoretta',
     lvlDs: l => `${2 + l} ${T('rzutów w serii', 'knives per burst')}, ${T('co', 'every')} ${(2.2 - 0.15 * l).toFixed(1)} s`
       + T(l === 5 ? ' (→ przepis!)' : '', l === 5 ? ' (→ recipe!)' : ''),
-    evoKey: 'wachlarz', evoIco: 'celownik', evoNm: T('WACHLARZ RZODKIEWKI', 'RADISH FAN'),
+    evoKey: 'wachlarz', evoIco: 'wachlarz', evoNm: T('WACHLARZ RZODKIEWKI', 'RADISH FAN'),
     evoDs: T('PRZEPIS: każdy rzut to trzy scyzoryki w wachlarzu', 'RECIPE: every throw is three knives in a fan'),
     tick(w, dt) {
       w.t -= dt;
@@ -8626,7 +8679,7 @@ const WEAPONS = {
     ico: 'kapec', nm: 'La Ciabatta', ds: T('Kapeć leci, przebija wszystko i WRACA', 'The slipper flies, pierces everything and COMES BACK'), max: 5, postac: 'granny',
     lvlDs: l => `${l >= 3 ? 2 : 1} ${T('kapeć(cie)', 'slipper(s)')}, ${T('zasięg', 'range')} ${(6 + 0.5 * l).toFixed(0)}, ${T('co', 'every')} ${(1.9 - 0.12 * l).toFixed(1)} s`
       + T(l === 5 ? ' (→ przepis!)' : '', l === 5 ? ' (→ recipe!)' : ''),
-    evoKey: 'doppia', evoIco: 'kapec', evoNm: 'CIABATTA DOPPIA',
+    evoKey: 'doppia', evoIco: 'doppia', evoNm: 'CIABATTA DOPPIA',
     evoDs: T('PRZEPIS: dwa kapcie krążą wokół Ciebie bez przerwy (rzuty zostają)', 'RECIPE: two slippers orbit you non-stop (throws stay)'),
     tick(w, dt) {
       if (P.evo.doppia) updateKapcieOrb(dt); else if (G.kapcieOrb && G.kapcieOrb.length) usunKapcieOrb();   // E2 K5: PRZED cooldownem
@@ -8653,11 +8706,11 @@ const WEAPONS = {
   // Pchnięcie falą w stożku 60° przed sobą: mały zasięg, ale OGROMNY knockback —
   // bramkarz nie zabija, on odprowadza. Skalowanie: zasięg → knockback → obrażenia.
   wypad: {
-    ico: 'fala', nm: T('Wypad!', 'Velvet Push'),
+    ico: 'wypad', nm: T('Wypad!', 'Velvet Push'),
     ds: T('Pcha tam, gdzie tłok; w ścisku pcha dookoła', 'Shoves the thickest crowd; when surrounded, shoves all around'), max: 5, postac: 'beetino',
     lvlDs: l => `${T('zasięg', 'range')} ${(3.4 + 0.4 * l).toFixed(1)} ${T('j.', 'u')}, ${T('odrzut', 'knockback')} ${(3 + 0.5 * l).toFixed(1)}, ${T('co', 'every')} ${(1.5 - 0.06 * l).toFixed(2)} s`
       + T(l === 5 ? ' (→ przepis!)' : '', l === 5 ? ' (→ recipe!)' : ''),
-    evoKey: 'selekcja', evoIco: 'tarcza', evoNm: T('DZIŚ NIE WEJDZIESZ', 'NOT ON THE LIST'),
+    evoKey: 'selekcja', evoIco: 'selekcja', evoNm: T('DZIŚ NIE WEJDZIESZ', 'NOT ON THE LIST'),
     evoDs: T('PRZEPIS: pchnięcie ogłusza i zadaje podwójne obrażenia', 'RECIPE: the shove stuns and deals double damage'),
     // BRAMKARZ PCHA TAM, GDZIE TŁOK (decyzja właściciela 18.09). Do tej pory stożek szedł
     // w KIERUNKU BIEGU postaci — a w survivorsie biegnie się OD hordy, więc pchnięcie leciało
@@ -8722,7 +8775,7 @@ const WEAPONS = {
     ico: 'pestka', nm: 'Pipsini Nipotini', ds: T('Pestka biega, tłucze i sadzi kiełki', 'The pip runs, whacks and plants sprouts'), max: 5, locked: true,
     lvlDs: l => `${PIPS_ILE(l)} ${T('pestka(i)', 'pip(s)')}, ${T('kiełek co', 'a sprout every')} ${PIPS_SADZ(l).toFixed(1)} s`
       + T(l === 5 ? ' (→ przepis!)' : '', l === 5 ? ' (→ recipe!)' : ''),
-    evoKey: 'jablon', evoIco: 'pestka', evoNm: T('JABŁOŃ', 'APPLE TREE'),
+    evoKey: 'jablon', evoIco: 'jablon', evoNm: T('JABŁOŃ', 'APPLE TREE'),
     evoDs: T('PRZEPIS: kiełki żyją 2× dłużej i biją 2× mocniej', 'RECIPE: sprouts live 2× longer and hit 2× harder'),
     tick(w, dt) {
       while (G.pestki.length < PIPS_ILE(w.lvl)) G.pestki.push(nowaPestka());
@@ -9625,7 +9678,7 @@ const PASSIVES = {
   tempo:  { ico: 'filizanka', nm: T('Espresso', 'Espresso'), max: 5,
             ef: m => T(`+${proc(1.12 ** m)}% szybkości ataków`, `+${proc(1.12 ** m)}% attack speed`),
             suma: u => T(`tempo ×${przec(1.12 ** u)}`, `attack speed ×${przec(1.12 ** u)}`) },
-  buty:   { ico: 'but', nm: T('Klapki Carrotella', "Carrotello's Flip-Flops"), max: 5,
+  buty:   { ico: 'klapki', nm: T('Klapki Carrotella', "Carrotello's Flip-Flops"), max: 5,
             ef: m => T(`+${proc(1.10 ** m)}% szybkości ruchu`, `+${proc(1.10 ** m)}% move speed`),
             suma: u => T(`ruch ×${przec(1.10 ** u)}`, `move speed ×${przec(1.10 ** u)}`) },
   magnes: { ico: 'magnes', nm: T('Magnes z lodówki', 'Fridge Magnet'), max: 5,
@@ -9693,10 +9746,10 @@ function regenRosolu(dt) {
 // więc wczesna gra wygląda dokładnie jak wcześniej. Bonusy są małe świadomie:
 // mają nagradzać długi bieg, nie zastępować broni.
 const REPEAT = {
-  sol:     { ico: 'plomien',  nm: T('Sól Nonny', "Nonna's Salt"),   ds: T('+3% obrażeń (bez limitu)', '+3% damage (no cap)') },
-  oliwa:   { ico: 'zegar',    nm: T('Oliwa Nonny', "Nonna's Oil"),  ds: T('+3% szybkości ataków (bez limitu)', '+3% attack speed (no cap)') },
-  pieprz:  { ico: 'gwiazda',  nm: T('Pieprz Nonny', "Nonna's Pepper"), ds: T('+2% szansy na cios ×3 (bez limitu)', '+2% chance of a ×3 hit (no cap)') },
-  bazylia: { ico: 'celownik', nm: T('Bazylia Nonny', "Nonna's Basil"), ds: T('+4% zasięgu broni (bez limitu)', '+4% weapon range (no cap)') },
+  sol:     { ico: 'sol',      nm: T('Sól Nonny', "Nonna's Salt"),   ds: T('+3% obrażeń (bez limitu)', '+3% damage (no cap)') },
+  oliwa:   { ico: 'oliwa',    nm: T('Oliwa Nonny', "Nonna's Oil"),  ds: T('+3% szybkości ataków (bez limitu)', '+3% attack speed (no cap)') },
+  pieprz:  { ico: 'pieprz',   nm: T('Pieprz Nonny', "Nonna's Pepper"), ds: T('+2% szansy na cios ×3 (bez limitu)', '+2% chance of a ×3 hit (no cap)') },
+  bazylia: { ico: 'bazylia',  nm: T('Bazylia Nonny', "Nonna's Basil"), ds: T('+4% zasięgu broni (bez limitu)', '+4% weapon range (no cap)') },
 };
 // E2 K2: Przyprawy też losują rzadkość (zwykła ×1, niebieska ×2, fioletowa ×3) — `do(rz)` dodaje tyle naraz
 function repeatPool() {
@@ -10125,7 +10178,7 @@ function jackpot(zrodlo, gotowe = [], wymusN) {
   document.getElementById('skrzTytul').textContent = zrodlo === 'kapral' ? T('SKRZYNIA KAPRALA!', "CORPORAL'S CRATE!")
     : zrodlo === 'don' ? T('SKRZYNIA DONA!', "THE DON'S CRATE!") : T('ZŁOTA SKRZYNIA!', 'GOLDEN CRATE!');
   ov.className = 'ov faza0' + (zrodlo === 'kapral' ? ' kapral' : '');
-  document.getElementById('skrzIko').innerHTML = ico('skrzynia', 96);
+  document.getElementById('skrzIko').innerHTML = ico(zrodlo === 'kapral' ? 'kapral' : 'zlota', 96);
   document.getElementById('skrzBebny').innerHTML = '';
   document.getElementById('skrzLista').innerHTML = '';
   document.getElementById('skrzPrzepis').innerHTML = '';
@@ -10272,7 +10325,7 @@ function openSwap(zJackpotu = SKR.zJackpotu) {
   const skip = document.createElement('div');
   skip.className = 'card';
   if (SKR.zJackpotu) {                               // E2 K4: pomyłkowy „Wymień" nie może zjeść jackpotu (ani zamienić go na monety)
-    skip.innerHTML = `<div class="ico">${ico('skrzynia', 42)}</div><div class="nm">${T('Wróć do skrzyni', 'Back to the crate')}</div><div class="ds">${T('otwórz jackpot', 'open the jackpot')}</div>`;
+    skip.innerHTML = `<div class="ico">${ico(SKR.zrodlo === 'kapral' ? 'kapral' : 'zlota', 42)}</div><div class="nm">${T('Wróć do skrzyni', 'Back to the crate')}</div><div class="ds">${T('otwórz jackpot', 'open the jackpot')}</div>`;
     skip.onclick = () => { SKR.zJackpotu = false; document.getElementById('swapOv').style.display = 'none'; document.getElementById('swapList').innerHTML = ''; jackpot('mapa'); };
   } else {
     skip.innerHTML = `<div class="ico">${ico('wymiana', 42)}</div><div class="nm">${T('Zostaw jak jest', 'Keep them all')}</div><div class="ds">${T('+10 monet pocieszenia', '+10 coins as a consolation')}</div>`;
@@ -10395,7 +10448,7 @@ function drawHearts(drgnij = false) {
   const el = document.getElementById('hearts');
   el.style.maxWidth = Math.min(W, wRzedzie * krokSerca(R)) + 'px';
   const pelne = Math.min(serc, Math.ceil(hp / HP_SERCA - 1e-6));   // całe serca (25.09: bez ćwiartek)
-  el.innerHTML = ico('serce', R).repeat(pelne) + ico('sercePuste', R).repeat(Math.max(0, serc - pelne));
+  el.innerHTML = icoM('serceM', R).repeat(pelne) + icoM('sercePusteM', R).repeat(Math.max(0, serc - pelne));
   if (drgnij) {                                    // trafienie: serca drgają 200 ms
     el.classList.remove('drgnij'); void el.offsetWidth; el.classList.add('drgnij');
     clearTimeout(_drgT); _drgT = setTimeout(() => el.classList.remove('drgnij'), 200);
@@ -10483,15 +10536,15 @@ function renderWpns() {
     const evo = W.evoKey && P.evo[W.evoKey];
     const got = !evo && przepisGotowy(w);            // E2 K5: przepis gotowy — złota pulsująca obwódka + ikona dania w rogu
     const noze = w.key === 'scyzoryk' && P.nozeBonus ? `<i class="noze">+${P.nozeBonus}</i>` : '';   // E2 K8: noże Razoretty
-    return `<span class="wp${evo ? ' evo' : ''}${got ? ' gotowy' : ''}">${ico(evo ? W.evoIco : W.ico, 20)}<b>${w.lvl}${w.bonus > 0 ? '+' : ''}</b>${noze}`
-      + `${got ? `<i class="danie">${ico(W.evoIco, 10)}</i>` : ''}</span>`;   // E2: „5+" = Dokładki
+    return `<span class="wp${evo ? ' evo' : ''}${got ? ' gotowy' : ''}">${icoKafel(evo ? W.evoIco : W.ico)}<b>${w.lvl}${w.bonus > 0 ? '+' : ''}</b>${noze}`
+      + `${got ? `<i class="danie">${ico(W.evoIco, 14)}</i>` : ''}</span>`;   // E2: „5+" = Dokładki
   // PUSTE SLOTY = OSOBNE `<span>`, nie jeden z kropkami: w skórze „Warzywniak
   // Nonny" slot jest skrzynką na warzywa o stałym rozmiarze, więc trzy puste
   // sloty muszą być trzema skrzynkami, a nie jedną z trzema kropkami w środku.
   }).join('') + '<span class="wp empty">·</span>'.repeat(Math.max(0, 3 - P.weapons.length));
   // E2 K1: drugi rząd — sloty składników (mniejsze skrzynki, poziom cyfrą, puste „·")
   const sk = document.getElementById('skl');
-  if (sk) sk.innerHTML = (P.skl || []).map(k => `<span class="wp">${ico(PASSIVES[k].ico, 14)}<b>${P.passives[k] || 0}</b></span>`).join('')
+  if (sk) sk.innerHTML = (P.skl || []).map(k => `<span class="wp">${icoKafel(PASSIVES[k].ico)}<b>${P.passives[k] || 0}</b></span>`).join('')
     + '<span class="wp empty">·</span>'.repeat(Math.max(0, (P.slotySkl || 3) - (P.skl || []).length));
 }
 
@@ -12012,7 +12065,7 @@ function znWybierz() {
   }
   _znZlotaBylo = wchest.active;
   for (let i = 0; i < G.skrzynieKap.length; i++) znDodaj('kapral', G.skrzynieKap[i], znOdl(G.skrzynieKap[i].pos));
-  if (!G.cisza) {
+  if (!G.cisza && (Z.cele.garnek || Z.cele.skrzynka)) {
     let naj = null, nd = Z.garnekD;
     for (let i = 0; i < totems.length; i++) {
       const t = totems[i];
@@ -12020,8 +12073,8 @@ function znWybierz() {
       const d = znOdl(t.pos);
       if (d < nd) { nd = d; naj = t; }
     }
-    if (naj) znDodaj('garnek', naj, nd);
-    if (!znN) {                                      // zwykłe skrzynki: tylko blisko i tylko bez ważniejszych celów
+    if (naj && Z.cele.garnek) znDodaj('garnek', naj, nd);
+    if (!znN && Z.cele.skrzynka) {                                      // zwykłe skrzynki: tylko blisko i tylko bez ważniejszych celów
       let a = null, ad = Z.zwykleD, b = null, bd = Z.zwykleD;
       for (let i = 0; i < chests.length; i++) {
         const c = chests[i];
@@ -12115,7 +12168,7 @@ const BUFFS = [
   { key: 'slow', ico: 'zegar',   label: T('WROGOWIE ZWOLNILI', 'ENEMIES SLOWED'),      dur: 14,  waga: 1.0 },
   { key: 'kasa', ico: 'moneta',  label: T('PODWÓJNE MONETY', 'DOUBLE COINS'),          dur: 20,  waga: 0.9 },
   { key: 'niet', ico: 'tarcza',  label: T('NIETYKALNOŚĆ!', 'INVINCIBLE!'),             dur: 6,   waga: 0.5 },
-  { key: 'mroz', ico: 'wiatr',   label: T('MROŻONKI — HORDA STOI', 'DEEP FREEZE — THE HORDE STOPS'), dur: 3.5, waga: 0.6 },
+  { key: 'mroz', ico: 'mroz',    label: T('MROŻONKI — HORDA STOI', 'DEEP FREEZE — THE HORDE STOPS'), dur: 3.5, waga: 0.6 },
 ];
 const BUFF_WAG = BUFFS.reduce((a, b) => a + b.waga, 0);
 function losujBuff() {
@@ -12832,7 +12885,7 @@ function update(dt) {
   playerBB.update(dt, P.pos, P.y, ground);
   updateHitFlash();
   updateSmrod();
-  updateLettuce(dt);
+  updateCzasza(dt);
   updateKarabin(dt);
   // ziarna lecą dalej NIEZALEŻNIE od trybu — wystrzelone w ostatniej sekundzie
   // muszą dolecieć, a nie zniknąć w powietrzu
@@ -13519,6 +13572,7 @@ function updateDeath(dt) {
   refreshSpriteTilt();
   billboardQuat(playerBB.mesh.quaternion, Math.min(Math.PI / 2, t * 3.2));
   playerBB.mesh.position.y = P.y - Math.min(0.55, t * 0.5);
+  updateCzasza(dt);                                // śmierć w locie: czasza składa się (G.dying), nie wisi zamrożona
   // kamera zjeżdża blisko i niżej
   const k = Math.min(1, t / 1.4);
   const dist = CAM_DIST * (1 - 0.55 * k), hgt = CAM_H * (1 - 0.45 * k);
@@ -13976,7 +14030,7 @@ const statusGotowy = () => {
 // zagadka Nonny z narastającą podpowiedzią: prawie ≥ 2 → ikona składnika, ≥ 4 → pełna nazwa
 function zagadkaHTML(ek) {
   const R = PRZEPISY[ek], K = META.ksiazka[ek] || {};
-  let h = `${ico('postac', 14)} <i>${T('„', '“')}${R.podp}${T('"', '”')}</i>`;
+  let h = `${ico('nonna', 16)} <i>${T('„', '“')}${R.podp}${T('"', '”')}</i>`;
   if ((K.prawie || 0) >= 4) h += ` <b>${T(`Nonna: ${PASSIVES[R.skl].nm}, na litość boską!`, `Nonna: ${PASSIVES[R.skl].nm}, for heaven's sake!`)}</b>`;
   else if ((K.prawie || 0) >= 2) h += ` ${ico(PASSIVES[R.skl].ico, 14)}`;
   return h;
@@ -14825,7 +14879,7 @@ if (loadTip) {
     alphaTest: 0.4, side: THREE.DoubleSide });
   kapecMat = new THREE.MeshBasicMaterial({ map: kapecTexture(), transparent: true,
     alphaTest: 0.4, side: THREE.DoubleSide });
-  try { salataMat = (await flatMat('assets/salata_czasza.png')).mat; } catch { salataMat = null; }
+  // (salata_czasza.png nie jest już wczytywana — `salataMat` nie był nigdzie używany, a kosztował zapytanie przy starcie)
   // scyzoryk ze sprite'a wlasciciela; `scyzorykTexture()` zostaje jako awaryjny.
   // Rysunek jest po przekatnej kwadratu, wiec aspekt 1 i nieco wiekszy quad —
   // przy wirowaniu poczatkowy kat i tak przestaje mieć znaczenie.
@@ -14919,7 +14973,7 @@ if (loadTip) {
   } catch (err) { console.warn('mikser.png nie wstal — zostaje zaslepka', err); }
   initKrzak();
   initKino();
-  initLettuce();
+  initCzasza();          // 01.10: czasza 3D (awaryjnie stara kopuła — initLettuce)
   initKarabin();         // widok broni do trybu pierwszej osoby (nakładka 2D)
   karabinPocMat = new THREE.MeshBasicMaterial({ map: karabinPocTexture(), transparent: true,
     alphaTest: 0.4, side: THREE.DoubleSide, depthWrite: false });
@@ -15373,4 +15427,14 @@ if (loadTip) {
     },
   });
   if (DEV) Object.assign(window.HORDA, { KODY_NONNY, CFG_SPIZ, SPIZ_KOLEJNOSC, sklOdbl, sklMaxBiegu, cenaSpiz, KUP_MONETY, kodyTest: [] });   // Spiżarnia + Kod od Nonny (29.09)
+  // 01.10 CZASZA 3D: HORDA.czasza('torba' | 'salata') = wariant; HORDA.czasza() = stan (trójkąty, draw calle, otwarcie);
+  // HORDA.czasza(null, -0.2) = wychył przy pełnej prędkości (+ ku kierunkowi lotu, − czasza wlecze się z tyłu)
+  if (DEV) Object.assign(window.HORDA, {
+    czasza(w, przechyl) {
+      if (czasza && w) czasza.ustawWariant(w);
+      if (przechyl != null) ustawPrzechyl(przechyl);
+      return czasza ? czasza.info : 'stara kopuła (CZASZA_3D = false)';
+    },
+    get CZ() { return czasza; },
+  });
 })();

@@ -589,8 +589,14 @@ const ART = {
 };
 
 const cache = new Map();
-// zwraca data URL ikony (px = wielkość piksela)
+// zwraca data URL ikony (px = wielkość piksela). 01.10 IKONY v3: jeśli nazwa ma wersję v2/v3 (ART2), dostajesz ją
+// (z jasnym obrysem naklejki, siatka 18×18) — tła przycisków w biegu, tekstura dania nad Skrzynią Kaprala, strzałka.
 export function icon(name, px = 4) {
+  const n2 = nazwa2(name);
+  return n2 ? ikona2(n2, px) : iconStara(name, px);
+}
+// stara siatka 8×8 bez zmian (glify pada; arkusz „stare obok nowych")
+export function iconStara(name, px = 4) {
   const key = name + '@' + px;
   if (cache.has(key)) return cache.get(key);
   const art = ART[name];
@@ -653,9 +659,49 @@ export function iconObrys(name, px = 4, kol = '#1b1b22', kol2 = null) {
   cache.set(key, url);
   return url;
 }
-// gotowy tag <img> do wstawienia w innerHTML
+// gotowy tag <img> do wstawienia w innerHTML.
+// 01.10 IKONY v3: nazwa z wersją v2/v3 (ART2) → ikona 16×16 z obrysem (18×18) w rozmiarze `ik3px(size)` = CAŁKOWITA
+// liczba pikseli urządzenia na piksel siatki (bez rozmytych / nierównych pikseli). Serduszko w drobnym tekście (≤ 13 px)
+// = mini 9×8. Reszta (glify pada, rzeczy bez v2) — stara siatka 8×8 jak dawniej.
 export function ico(name, size = 32) {
-  return `<img class="pxi" src="${icon(name, 4)}" style="height:${size}px" alt="">`;
+  if (size <= 13 && ART2[name + 'M']) return icoM(name + 'M', size);
+  const n2 = nazwa2(name);
+  if (n2) { const s = ik3px(size); return `<img class="pxi ik3" src="${ikona2(n2, 4)}" style="width:${s}px;height:${s}px" alt="">`; }
+  return `<img class="pxi" src="${iconStara(name, 4)}" style="height:${size}px" alt="">`;
+}
+// kafelek o rozmiarze z CSS (sloty broni i składników w HUD: `--i3k40` itd., liczone w `ik3Zmienne`) — bez stylu inline
+export function icoKafel(name) {
+  const n2 = nazwa2(name);
+  return n2 ? `<img class="pxi ik3" src="${ikona2(n2, 4)}" alt="">` : `<img class="pxi" src="${iconStara(name, 4)}" style="height:20px" alt="">`;
+}
+// mini ikona (siatka 9×8 bez obrysu, np. serca w HUD) o wysokości `h` px — szerokość z proporcji jak stara 9×8
+export function icoM(name, h) {
+  return `<img class="pxi ik3m" src="${ikona2(name, 4, null)}" style="height:${h}px" alt="">`;
+}
+// rozmiar CSS ikony v2/v3 najbliższy `css`, ale w całych pikselach urządzenia na piksel siatki 18. `max` = największy
+// nie większy niż `css` (kafelki). Drobne (≤ 16 px) nie maleją poniżej 90% — przy dpr 2 „13 px" to 18, nie 9.
+export function ik3px(css, max = false) {
+  const d = (typeof devicePixelRatio === 'number' && devicePixelRatio > 0) ? devicePixelRatio : 1;
+  let k;
+  if (max) k = Math.max(1, Math.floor(css * d / SIATKA2 + 1e-6));
+  else {
+    k = Math.max(1, Math.round(css * d / SIATKA2));
+    if (k * SIATKA2 / d < css * (css <= 16 ? 0.9 : 0.68)) k++;
+  }
+  return k * SIATKA2 / d;
+}
+// zmienne CSS na :root (wołane przy starcie i przy zmianie rozmiaru / dpr): `--i3-N` (najbliższy), `--i3f-N` (≤ N)
+// i `--i3kN` (ikona w kafelku N px: ≤ N−6, a gdy wychodzi < 55% kafelka — ≤ N−4; dpr 1 i kafelek 40 → 36, dpr 2 → 27)
+const IK3_ROZM = [18, 20, 24, 28, 30, 32, 34, 36, 38, 40, 46, 56, 72, 96];
+const IK3_KAFLE = [24, 26, 34, 40];
+export function ik3Zmienne(el = document.documentElement) {
+  const st = el.style;
+  for (const n of IK3_ROZM) { st.setProperty('--i3-' + n, ik3px(n) + 'px'); st.setProperty('--i3f-' + n, ik3px(n, true) + 'px'); }
+  for (const n of IK3_KAFLE) {
+    let s = ik3px(n - 6, true);
+    if (s < n * 0.55) s = ik3px(n - 4, true);
+    st.setProperty('--i3k' + n, s + 'px');
+  }
 }
 export const ICON_NAMES = Object.keys(ART);
 
@@ -678,6 +724,8 @@ const PAL2 = {
   a: '#d0581a', A: '#ff9638', F: '#ffd060',             // pomarańcz (marchew, ogień)
   e: '#c98a2e', E: '#f2cc6e',                           // chips
   g: '#2e323a',                                         // ciemne wnętrze
+  i: '#9e2f63', I: '#e0619a', j: '#ffacd0',             // v3: róż (kapeć La Ciabatty, rzodkiewka)
+  u: '#6f7a1f', U: '#b4c23c',                           // v3: oliwka (Oliwa Nonny, kałuża)
 };
 const ART2 = {};
 export const ART2_NAZWY = [];
@@ -894,11 +942,365 @@ dodaj2('wskaznik', [
   '.....kzYYYyk....', '.....kzYYyk.....', '.....kzYyk......', '.....kzyk.......',
   '.....kYk........', '.....kk.........', '................', '................',
 ]);
+// @@ART3@@
+// ═════════════════════════════ IKONY v3 (01.10.2026: bronie, dania, składniki, przyprawy, HUD) ═════════════════════════════
+// Życzenie właściciela: „popraw ikonki broni i reszty rzeczy". Ten sam styl co v2: 16×16, ręczny ciemny kontur, światło
+// z lewej-góry, ciepła paleta PAL2. Siatki wygenerował skrypt pomocniczy (rampy cieni + kontur w 4-sąsiedztwie), potem
+// poprawki ręczne. Nazwy = stare nazwy z ART tam, gdzie znaczą to samo (ico()/icon() same biorą v3), nowe dla rzeczy,
+// które dzieliły jedną starą ikonę (fala → tupniecie / wypad, celownik → scyzoryk / bazylia, wiatr → wiatrowka / mroz).
+export const ART3_GRUPA = {};                          // nazwa → bron | danie | skl | przyp | hud (arkusz)
+export const IK3_STARE = {"kula": "kula", "czosnek": "czosnek", "tupniecie": "fala", "pioruny": "pioruny", "butelka": "butelka", "krzak": "krzak", "pizza": "pizza", "skarpeta": "skarpeta", "wiatrowka": "wiatr", "kukurydza": "kukurydza", "scyzoryk": "celownik", "kapec": "kapec", "wypad": "fala", "pestka": "pestka", "sokowirowka": "sokowirowka", "celownik": "celownik", "meteor": "kula", "mlyn": "czosnek", "sejsm": "fala", "burza": "pioruny", "kaluza": "butelka", "calamita": "pizza", "smrod": "skarpeta", "kaseta": "kukurydza", "wachlarz": "celownik", "doppia": "kapec", "selekcja": "tarcza", "jablon": "pestka", "ser": "ser", "filizanka": "filizanka", "klapki": "but", "papryczka": "papryczka", "rosol": "rosol", "lornetka": "lornetka", "pokrywka": "pokrywka", "sol": "plomien", "oliwa": "zegar", "pieprz": "gwiazda", "bazylia": "celownik", "pauza": "pauza", "wymiana": "wymiana", "strzalka": "strzalka", "klodka": "klodka", "puchar": "puchar", "plomien": "plomien", "tarcza": "tarcza", "mroz": "wiatr", "ostrzezenie": "ostrzezenie", "gwiazda": "gwiazda", "skok": "skok", "torba": "skok", "nonna": "postac", "nuta": "nuta", "fala": "fala", "cisza": "cisza"};   // v3 → stara 8×8 (arkusz „stare obok nowych")
+function dodaj3(nazwa, grupa, wiersze) { dodaj2(nazwa, wiersze); ART3_GRUPA[nazwa] = grupa; }
+// --- v3: BRONIE ---
+dodaj3('kula', 'bron', [
+  '................', '........kkkk....', '......kkzYYYkk..', '.....kzzyzzYzYk.',
+  '.....kzyzwwzzyk.', '..kkkzYyzwwzzYYk', '.kYYYYzYYzzzYYyk', 'kyYkkzYYYzzYYYyk',
+  '.kk..kzYYYYYYyk.', '....kzYyYYYYyyk.', '...kzYkkYyyykk..', '..kYYk..kYkk....',
+  '.kYYk..kYk......', 'kykk..kkYk......', '.k...kyYk.......', '......kk........',
+]);
+dodaj3('czosnek', 'bron', [
+  '............k...', '...........k....', '........k.k.....', '.......kwk......',
+  '......kwHHk.....', '.....kwHHHHk....', '....kwHHhHHhk...', '...kwvwhvwhvwk..',
+  '..kwhvwhvwhvwHk.', '..kwhvwhvwhvwhk.', '..kHhvwhvwhvwhk.', '...khvwhvwhvhk..',
+  '....kwhhHhhhk...', '.....khlllhk....', '......kkkkk.....', '................',
+]);
+dodaj3('tupniecie', 'bron', [
+  '................', '...kkkkk........', '..kllllOk.......', '..kloOOok.......',
+  '..kOllook.......', '..kOhOhOk.......', '..klOOOokkkk....', '..kOhOhllllOk...',
+  '..kllOlOOOOOOk..', '..klOOOOOOOOOOk.', '..kOooooooooook.', '.kddddddddddddk.',
+  '.kkkkkkkkkkkkkk.', 'kFAk........kAFk', 'FAk..........kAF', 'kk............kk',
+]);
+dodaj3('pioruny', 'bron', [
+  '.......kkkkkk...', '......kzzzzzyk..', '.....kzYYYYyk...', '....kzYYYYyk....',
+  '...kzYYYYykkkk..', '..kzyyYYYYzzzyk.', '...kkkzYYYYYyk..', '.....kzYYYYyk...',
+  '....kzYYYYyk....', '....kzYYYyk.....', '...kzYYYyk......', '...kzYyyk.......',
+  '..kzYykk........', '..kzyk..........', '..kyk...........', '...k............',
+]);
+dodaj3('butelka', 'bron', [
+  '......kkkk......', '.....klllOk.....', '.....kOoook.....', '......kmNk......',
+  '......kmnk......', '.....kmNNNk.....', '....kmNNNNNk....', '...kmNNNNNNNk...',
+  '...kNnnnnnnnk...', '...kwwHHwwwHk...', '...kwhRRwHHhk...', '...kHhHHhhhhk...',
+  '...kmmmmmmmNk...', '...kNnnnnnnnk...', '....kkkkkkkk....', '................',
+]);
+dodaj3('krzak', 'bron', [
+  '.....kkkkkk.....', '...kkmmmmNnkk...', '..kmmNNNnqqRmk..', '.kmnnnNNnqRrmNk.',
+  '.kNqqRmNnRrrmnk.', 'kmnqRrmnnNmmNNNk', 'kNnRrrNqqRmNNNnk', '.kNmmmnqRrmNNnk.',
+  '..kNnnnRrrNnnk..', '...kkkknnkkkk...', '..klllllllllok..', '...klOOOOOOok...',
+  '...kOOOOOOOok...', '....kOoooook....', '.....kkkkkk.....', '................',
+]);
+dodaj3('pizza', 'bron', [
+  '.......k........', '....kkklk.......', '...klOOok.......', '..klozYYk...kk..',
+  '.kloYYYYk..klOk.', '.kOYqRYYk.kYYOk.', '.kOzRrYYkkYYYOk.', 'kloYYYzNkYYYYlOk',
+  'kOoNYYYYYYYYYlok', '.kOYYYYYYqRYYOk.', '.kOYYqRYYRrYYOk.', '.kOOYRrYYYYYlok.',
+  '..kOOYYYNYYlok..', '...kOOOllOOok...', '....kkkOokkk....', '.......kk.......',
+]);
+dodaj3('skarpeta', 'bron', [
+  '............N...', '..kkkkk....N....', '.kwHHHhk...N....', '.kqRRRrk.N..N...',
+  '.kwHHHhkN...N.N.', '.kqRRRrkN....N..', '.kwwwwHk.N...N..', '.kwHHHhk.N....N.',
+  '.kwHHHhkkk......', '.kwHHHHwwHkk....', '.kHhHHHHHHHhk...', '.kDDwHHHHhDDDk..',
+  '..kDHhhhhDDDk...', '...kkkkkkkkk....', '................', '................',
+]);
+dodaj3('wiatrowka', 'bron', [
+  '..............k.', '..........kk.kSk', '.........kDdkSk.', '........kDdgSk..',
+  '.......kDdgSk...', '.......kBgSk....', '.......kkSk.....', '......kllOk.....',
+  '.....klOOok.....', '....klOOOoDk....', '...klOOOoDgk....', '..klOOOokkk.....',
+  '.klOOOok........', '.kOOOok.........', 'kDgOok..........', 'kgkkk...........',
+]);
+dodaj3('kukurydza', 'bron', [
+  '.......kk.......', '......kzYk......', '.....kzYzyk.....', '....kzYzYzyk....',
+  '....kYzYzYyk....', '....kzYzYzyk....', '...kmYzYzYymk...', '..kmnzYzYzymNk..',
+  '..kmnYzYzYymnk..', '.kmNnzYzYzymNNk.', '.kmNnYzYzYymNnk.', '.kNNNNzYzymNNnk.',
+  '..kNNNNyymNNnk..', '...kNnnnnNnnk...', '....kkknnkkk....', '.......kk.......',
+]);
+dodaj3('scyzoryk', 'bron', [
+  '..k.............', '.kwk............', '.kwSk...........', '.kSSSk..........',
+  '..kSSSk.........', '...kSSSk........', '....kSSSk.......', '.....kSSSk......',
+  '..kkkkkSDDkk....', '.kqqqqqqqRSDk...', 'kqRrRRRRRRRDdk..', 'kqrwRRRRRRRRk...',
+  'kRwwwqRRRRRrk...', 'kRRwqRRRRRRrk...', '.kRRrrrrrrrrk...', '..kkkkkkkkkk....',
+]);
+dodaj3('kapec', 'bron', [
+  '................', '................', '....kkk.........', '...kwwHk........',
+  '..kwHHHHk.......', '..kHHHHhk.......', '..kjHhhjIkk.....', '.kjIjjjIIjIkk...',
+  'kjIIIIIIIIIjikk.', 'kjIIIIIIIIIijjjk', 'kIiiiiiiiiiiIIik', '.klOOOOOOOOOOok.',
+  '..kkkkkkkkkkkk..', '................', '................', '................',
+]);
+dodaj3('wypad', 'bron', [
+  '......kk........', '.....kvPkkk.....', '...kkkvpkvPk....', '..kvPkvpkvpkkk..',
+  '..kvpkvpkvpkvPk.', '..kvpkvpkvpkvpk.', '.kkvPvPPvPPvPpk.', 'kvkvPPPPPPPPPpk.',
+  'kvvPPPPPPPPPPpk.', 'kPPPPPPPPPPPpk..', '.kPPPPPPPPPPpk..', '..kPppppppppk...',
+  '..kwwHwwwwwHk...', '..kwhYwHHHHhk...', '..kHhHhhhhhhk...', '...kkkkkkkkk....',
+]);
+dodaj3('pestka', 'bron', [
+  '....kk.....kk...', '...kmNkk.kkmnk..', '....kNNNkmNnk...', '.....kknnnkk....',
+  '.......knk......', '......kllOk.....', '.....klOOOOk....', '....klllOOOOk...',
+  '....klOoOoook...', '...klowwOwwlOk..', '...klowkOwklok..', '...kOOllOllOok..',
+  '....kOOOOOOok...', '.....kOooook....', '....kDgkkkDgk...', '.....kk...kk....',
+]);
+dodaj3('sokowirowka', 'bron', [
+  '.....kkkkkk.....', '....kFFAFAAk....', '...kFFAFAFFAk...', '...kAAaAaAaak...',
+  '..kSSSSSSSSSdk..', '...kSdddddddk...', '...kDccccccDk...', '...kDcAAAAcDk...',
+  '...kDcAAAAcDk...', '...kDcAAAAcDk...', '...kSSSSSSSdk...', '..kSDdDDDDDDdk..',
+  '..kSdNSDDDDdk...', '..kDdDdddddddk..', '...kkkkkkkkkk...', '................',
+]);
+dodaj3('celownik', 'bron', [
+  '.......kk.......', '.....kkwwkk.....', '...kkqrwwqRkk...', '..kqRrkkkkRRRk..',
+  '..kRkk....kkRk..', '.kqrk......kRRk.', '.krk...kk...krk.', 'kwwk..kRRk..kwwk',
+  'kwwk..kRRk..kwwk', '.kqk...kk...kqk.', '.kRRk......kqrk.', '..kRkk....kkRk..',
+  '..kRRRkkkkqRrk..', '...kkRrwwqrkk...', '.....kkwwkk.....', '.......kk.......',
+]);
+// --- v3: DANIA (przepisy, Książka Nonny) ---
+dodaj3('meteor', 'danie', [
+  '................', '.........kk.....', '......kkkDdkk...', '.....kRDAddddk..',
+  '....kRADdFgADdk.', '....kRDggAFDdgk.', '...kRAdADDDgggk.', '..kRAAdDddgFAgk.',
+  '..kRAFFddgADgk..', '..kRAFzzdgdgAk..', '.kkAFFzFFAARRRk.', 'kRAFFFFFARRkkk..',
+  'kRFFFFAARRk.....', '.kFFFAkkkk......', '.kFAARk.........', 'kRkkkk..........',
+]);
+dodaj3('mlyn', 'danie', [
+  '......kwk.......', '.....kwHhkk.....', '....kwvHvwzk....', '...kzhvHvhkzk...',
+  '....kkwhhk.k....', '.....klllk......', '......kkk.......', '................',
+  '..k.........k...', '.kwk.......kwk..', 'kwHhk.....kwHhk.', 'wvHvwk...kwvHvwk',
+  'hvHvhk...khvHvhk', 'kwhhzk....kwhhk.', 'klllkzk..kzlllk.', '.kkk.k....kkkk..',
+]);
+dodaj3('sejsm', 'danie', [
+  '.......kk.......', '..kk..kSDk..kk..', '.kSDk.kDdk.kSDk.', '.kDdk..kk..kDdk.',
+  '..kk........kk..', '.kkkkkkk........', 'kmNNNNNnk.......', 'kllllllOFkkkkkk.',
+  'klOOOOOoFmNNNNnk', 'klOOOOOoAlllllOk', 'klOOOOoAFlOOOOok', 'klOOOOoAlOOOOOok',
+  'klOOOOOOAlOOOOok', 'kOooooooFOoooook', '.kkkkkkkkkkkkkk.', '................',
+]);
+dodaj3('burza', 'danie', [
+  '.....kkk.kk.....', '...kkSSDkSDkk...', '..kSSDDDSDDSDk..', '.kSDDDDDDDDDDDk.',
+  '.kDDDDDDDDDDDdk.', '..kDdddddddddk..', '...kkkzykkkkk...', '..kkkzykkkk.....',
+  '.kwwHYywwwHkk...', '.kwHHwwHHHHHhk..', '.kHHHHHHHHhkkHk.', '..kHHHHHHhkkHk..',
+  '..kkHhhhhhHhk...', '.kSDDDDDDDDDdk..', '..kkkkkkkkkkk...', '................',
+]);
+dodaj3('kaluza', 'danie', [
+  '................', '................', '................', '......k..k......',
+  '.....kmkkmk.kk..', '....kmnkmNNkwmk.', '.kk.kNmmNnnkmmk.', 'kwmkkNmmnnNkkk..',
+  'kmmkkNmmnnNk....', '.kk.kNmmNmnk....', '.kkkmmmNNNnmkkk.', 'kmUUuNnnnnnmmmUk',
+  'kUzzmmmmmmmuuUuk', 'kUUUUUUUUUuzzUuk', '.kkkUuuuuuuukkk.', '....kkkkkkkk....',
+]);
+dodaj3('calamita', 'danie', [
+  '.kkkkkkkkkkk....', 'klOlOlOlOlOOk...', 'kolololololok...', '.kYYqRYYYYYk....',
+  '.kYYRrYzYYk.....', '..kYYYYYqRk.....', '..kYNYYYRrk.....', '...kYYYYYk......',
+  '...kYqRYkkkkkk..', '....kRrkkwSqqRk.', '....kYk.kSDRRRRk', '.....k...kkkqRrk',
+  '.........kkkqRrk', '........kwSqRRrk', '........kSDRrrk.', '.........kkkkk..',
+]);
+dodaj3('smrod', 'danie', [
+  '...kmk....kmk...', '....kmk..kmk....', '...kmkkkkkkmk...', '...kkkmmmNkk....',
+  '..kmmmNNNNmNk...', '.kmNNnnNNnnNNkk.', 'kmNNnkkmnkkmNmNk', 'kmNNnkkmnkkmNNnk',
+  'kmNNNNNnnNNNNNnk', 'kNNNnkkkkkkmNNnk', '.kNNnkwkwkmNNnk.', '..kNNmNmmNNNnk..',
+  '...kNnkNnkNnk...', '....kk.kk.kk....', '................', '................',
+]);
+dodaj3('kaseta', 'danie', [
+  '..........kFwFk.', '...........kFk..', '.........kk.k...', '........kzYk....',
+  '.kk....kzYzyk...', 'kwHk...kYzYyk.kk', 'wHHhk..kzYzykkwH', 'kHhk..kmYzYymwhh',
+  '.kk..kmnzYzymNkk', '..kk.kmnYzYymnk.', '.kwHkkmNNzymNnk.', 'kwHHhkNNNmmNnk..',
+  '.kHhk.kNnnnnk...', '..kk...kkkkwHk..', '.........kwHHhk.', '..........kHhk..',
+]);
+dodaj3('wachlarz', 'danie', [
+  '......kwSk......', '.kk...kwDk..kkk.', 'kwSk..kwDk.kwwSk', 'kwSSk.kwDkkwSSDk',
+  'kSSDk.kwDkkwSDk.', '.kSSSkkwDkwSDk..', '..kwSSkwSwSSDk..', '..kSSSwSSSSDk...',
+  '...kSDSSSSDk....', '....kNSDDDNk....', '....kSjjjIk.....', '.....kjIIik.....',
+  '....kjIIIIik....', '.....kIIiik.....', '......kikik.....', '.......k.k......',
+]);
+dodaj3('doppia', 'danie', [
+  '........kkk.....', '.......kwwHk....', '......kwHHhhk...', '......kjHhjIk...',
+  '.....kjIjjIIIkk.', '..kkkjIIIIIIijjk', '.kwwHIiiiiiiiik.', 'kwHHhhlOOOOOOOok',
+  'kjHhjIkkkkkkkkk.', 'jIjjIIIkkkkkkkk.', 'jIIIIIIjjjjIjjjk', 'IiiiiiiiiiiiIIik',
+  'klOOOOOOOOOOOok.', '.kkkkkkkkkkkkk..', '................', '................',
+]);
+dodaj3('selekcja', 'danie', [
+  '..kk........kk..', '.kzYk......kzYk.', 'kzYYyk....kzYYyk', '.kzykk....kkzyk.',
+  '.kzyqRk..kqrzyk.', '.kzykRRkkqrkzyk.', '.kzykkRRRrkkzyk.', '.kzyk.kkkk.kzyk.',
+  '.kzyk......kzyk.', '.kzyk......kzyk.', '.kzyk......kzyk.', '.kzyk......kzyk.',
+  'kzYYYk....kzYYYk', 'zyyyyyk..kzyyyyy', 'kkkkkk....kkkkkk', '................',
+]);
+dodaj3('jablon', 'danie', [
+  '.....kkkkkk.....', '....kmNmmmNk....', '...kmqRmNNNnk...', '..kmnRrmNNnqRk..',
+  '.kmnNmmNNNnRrmk.', '.kqRmNNNnnNmmnk.', '.kRrmNNnqRmNnnk.', '.kmmNNNnRrmnqRk.',
+  '.kNNNnnNmmNnRrk.', '..kNnqRmNNNNnk..', '...knRrNnnNnk...', '....kNlllonk....',
+  '.....kklokk.....', '.....kklokk.....', '....klOooOok....', '.....kkkkkk.....',
+]);
+// --- v3: SKŁADNIKI (Spiżarnia, sloty w biegu) ---
+dodaj3('ser', 'skl', [
+  '................', '...........k....', '.........kkEk...', '.......kkzezzk..',
+  '.....kkzezzzEk..', '...kkzezzzzzEk..', '..kzezzzzzzzEk..', '.kzzzzzzzzzzEk..',
+  '.kEzYzzzzzYYEk..', '.kEYyzyYYyyYEk..', '.kEzzyyzyYzyEk..', '.kEYYYzyyzYyek..',
+  '.kEyYyyyYyyyek..', '.keeeeeeeeeeek..', '..kkkkkkkkkkk...', '................',
+]);
+dodaj3('filizanka', 'skl', [
+  '.....k....k.....', '....kwk..kwk....', '....kwk..kwk....', '.....kwk..kwk...',
+  '...kkkwkkkkwk...', '..kwHHHHHHHHk...', '..kHoooooooHkkk.', '..kwwwwwwwwhHwHk',
+  '..kHHHHHHHhkkwhk', '...kHHHHHHhHHhk.', '..kkkHhhhhkkkk..', '.kSSSSSSSSSSdk..',
+  '..kDddddddddk...', '...kkkkkkkkk....', '................', '................',
+]);
+dodaj3('klapki', 'skl', [
+  '..kkkk....kkkk..', '.kwwwHk..kwwwHk.', 'kwhhhhhkkwhhhhhk', 'kcwcwcwkkcwcwcwk',
+  'kBwBwBwkkBwBwBwk', 'kBwBwBwkkBwBwBwk', 'kBBbBbbkkBBbBbbk', 'kwwwwhk..kwwwwHk',
+  'kwHHhk....kwHHhk', 'kwHHHHk..kwHHHhk', 'kwHHHHHkkwHHHHhk', 'kHHHHHhkkHHHHHhk',
+  '.kHhhhk..kHhhhk.', '..kkkk....kkkk..', '................', '................',
+]);
+dodaj3('papryczka', 'skl', [
+  '............k...', '...........kmk..', '.........kkmnk..', '........kmNnnk..',
+  '.......kqqqRnk..', '......kqRRRRRNk.', '.....kqRRRRRrrk.', '....kqRRRRRrkk..',
+  '...kqRRRRrrk....', '..kqRRRrrkk.....', '.kqRRRrkk.......', '.kqRRrk.........',
+  'kqRRrk..........', 'kqRrk...........', 'kRrk............', '.kk.............',
+]);
+dodaj3('rosol', 'skl', [
+  '....k....k......', '...kwk..kwk.....', '...kwk..kwk.....', '....kwk..kwk....',
+  '....kwk..kwk....', '.kkkkkkkkkkkkkk.', 'kwHHHHHHHHHHHHHk', 'kHYYAYzzYYYAYzHk',
+  'kHwHHHHHHHHHHwhk', '.kHqRRRRRRRRrHk.', '.kHwwwwwwwwwwhk.', '..kHhHHHHHHhhk..',
+  '...kkHhhhhhkk...', '....kSDDDDdk....', '.....kkkkkk.....', '................',
+]);
+dodaj3('lornetka', 'skl', [
+  '...kkk....kkk...', '..kDDdk..kDDdk..', '..kDdgk..kDdgk..', '.kDddddkkDddddk.',
+  '.kDdddgkkDdddgk.', '.kDddddDDddddgk.', '.kDddddggddddgk.', 'kDddddgkkDdddddk',
+  'kDddddgkkDddddgk', 'kDgggggkkDgggggk', 'kdcBBBdkkdcBBBdk', 'kdBccBdkkdBccBdk',
+  'kdBBBbdkkdBBBbdk', 'kdddddgkkdddddgk', '.kkkkkk..kkkkkk.', '................',
+]);
+dodaj3('pokrywka', 'skl', [
+  '................', '................', '......kkkk......', '.....kqqqRk.....',
+  '.....kRrrrk.....', '.....kkSDkk.....', '...kkSSDDSDkk...', '..kSDDDDDDDSDk..',
+  '.kSdwSDDDDDDDDk.', 'kSwwSDDDDDDDDDDk', 'kSSSDDDDDDDDDDdk', 'SDDDDDDDDDDDDDDD',
+  'Dddddddddddddddd', 'kkkkkkkkkkkkkkkk', '................', '................',
+]);
+// --- v3: PRZYPRAWY NONNY ---
+dodaj3('sol', 'przyp', [
+  '................', '................', '......kkkk......', '.....kSSSdk.....',
+  '....kSkSdkSk....', '....kDDddDdk....', '....kDddddgk....', '...kwSSwwwwSk...',
+  '...kSwwwSSSDk...', '...kSwwSSSSDk...', '...kwwSSSSSDk...', '...kwSSSSSSDk...',
+  '...kSSSSSSSDk...', '....kSDDDDDk....', '.....kkkkkk.....', '................',
+]);
+dodaj3('oliwa', 'przyp', [
+  '.......kk.......', '......klOk......', '......kOok......', '......kcBk......',
+  '......kcbk......', '.....kcbbbk.....', '....kBmmmUBk....', '...kcmUUUUUck...',
+  '...kBmUUUUuBk.kk', '...kBmUUUUuBkkmn', '...kbUUUUUubkmnk', '....kBUuuuBdmUk.',
+  '.....kcBBbkmUuk.', '......kkkkkUuk..', '...........kk...', '................',
+]);
+dodaj3('pieprz', 'przyp', [
+  '.......kk.......', '......kSdk......', '.....klllOk.....', '....kloooook....',
+  '....kSDDDDdk....', '.....klllok.....', '......klok......', '.....klOOOk.....',
+  '....klOOOOOk....', '....klOOOOok....', '....kOOOOOok....', '.....klOOok.....',
+  '....kloooook....', '...kSDDDDDDdk...', '....kkkkkkkk....', '................',
+]);
+dodaj3('bazylia', 'przyp', [
+  '.......kk.......', '......kmNk......', '.....kmNNnk.....', '...kkkkNnkkkk...',
+  '..kmmNknkkmmNk..', '.kmNNnknkmNNnk..', '..kNNNNnmNNnk...', '...kNnnnNnnk....',
+  '..kkkkknkkkkk...', '.kmmmNknkmmmNk..', 'kmNNNnknkmNNNnk.', '.kNnNNNnmNNnnk..',
+  '..kkNnnnNnnkk...', '....kkknkkk.....', '......knk.......', '.......k........',
+]);
+// --- v3: HUD, KARTY, EKRANY ---
+dodaj3('pauza', 'hud', [
+  '................', '...kkkk..kkkk...', '..kwwwHkkwwwHk..', '..kwHHhkkwHHhk..',
+  '..kwHHhkkwHHhk..', '..kwHHhkkwHHhk..', '..kwHHhkkwHHhk..', '..kwHHhkkwHHhk..',
+  '..kwHHhkkwHHhk..', '..kwHHhkkwHHhk..', '..kwHHhkkwHHhk..', '..kwHHhkkwHHhk..',
+  '..kwHHhkkwHHhk..', '..kHhhhkkHhhhk..', '...kkkk..kkkk...', '................',
+]);
+dodaj3('wymiana', 'hud', [
+  '.........k......', '........kzk.....', '.kkkkkkkkzYk....', 'kzzzzzzzzYYYkk..',
+  'kzYYYYYYYYYYYyk.', 'kYyyyyyyyYYykk..', '.kkkkkkkkzyk....', '......k.kyk.....',
+  '.....kmk.k......', '....kmnkkkkkkkk.', '..kkmNNmmmmmmmNk', '.kmNNNNNNNNNNNnk',
+  '..kkNNNnnnnnnnnk', '....kNnkkkkkkkk.', '.....knk........', '......k.........',
+]);
+dodaj3('strzalka', 'hud', [
+  '................', '........kk......', '.......kzYk.....', '.......kzYYk....',
+  '.......kzYYYk...', '.kkkkkkkzYYYYk..', 'kzzzzzzzYYYYYYk.', 'kzYYYYYYYYYYYYYk',
+  'kzYYYYYYYYYYYYyk', 'kYyyyyyyYYYYYyk.', '.kkkkkkkzYYYyk..', '.......kzYYyk...',
+  '.......kzYyk....', '.......kYyk.....', '........kk......', '................',
+]);
+dodaj3('klodka', 'hud', [
+  '.....kkkkkk.....', '....kSDDDDDk....', '...kSdkkkkSDk...', '...kSdk..kSdk...',
+  '...kSdk..kSdk...', '..kkDdkkkkDdkk..', '.kzzzzzzzzzzzYk.', '.kzYYYYYYYYYYyk.',
+  '.kzYYYYyyYYYYyk.', '.kzYYYykkzYYYyk.', '.kzYYYykkzYYYyk.', '.kzYYYYYkzYYYyk.',
+  '.kzYYYYykzYYYyk.', '.kYyyyyyYyyyyyk.', '..kkkkkkkkkkkk..', '................',
+]);
+dodaj3('puchar', 'hud', [
+  '..kkkkkkkkkkkk..', 'kkzzzzzzzzzzzYkk', 'zYyYYYYYYYYYYyYY', 'YkkzYYYYYYYYykkY',
+  'ykkzYYYYYYYYykky', 'kYkzYYYYYYYYykYk', '.kzyYYYYYYYYyyk.', '..kkYyYYYYyykk..',
+  '....kkYYYykk....', '......kzyk......', '.....kkzykk.....', '....kzYyyYyk....',
+  '...klllllllOk...', '...klOOOOOOok...', '...kOoooooook...', '....kkkkkkkk....',
+]);
+dodaj3('plomien', 'hud', [
+  '.......k........', '......kqk.......', '.....kqrk..k....', '....kqRRRkkqk...',
+  '....kqRrRRkqRk..', '...kqRrFRRqRRRk.', '..kqRrFAARRRRRRk', '.kqRrFaaaARRRRrk',
+  '.kqrFaFFFAARRrk.', '.kqrAFFFFFFAqrk.', '.kqrAFFzFFFaqrk.', '.kRraFzzzFaqrk..',
+  '..kRRAFFFAqRrk..', '...kRRRRRRrrk...', '....kkkkkkkk....', '................',
+]);
+dodaj3('tarcza', 'hud', [
+  '.kkkkkkkkkkkkkk.', 'kwSSSSSSSSSSSSSk', 'kSccccBBcccccBSk', 'kScBBbzYBBBBBbSk',
+  'kScbbzYYYBbBBbSk', 'kSBzYYYYYYycBbSk', 'kSccBYYYyccBBbSk', 'kScBBBYycBBBBbSk',
+  'kDBBBBccBBBBBbDk', '.kwcBBBBBBBBbwk.', '.kDBBBBBBBBBbDk.', '..kSBBBBBBBbSk..',
+  '...kSBBBBBbSk...', '....kSBbbbSk....', '.....kwSSDk.....', '......kkkk......',
+]);
+dodaj3('mroz', 'hud', [
+  '.k.....k.....k..', 'kck...kck...kck.', '.kck..kck..kck..', '..kckkccckkck...',
+  '...kckkckkck....', '...kkckckckk....', '.kkckkBcBkkckk..', 'kccccccwcccccck.',
+  '.kkckkBcBkkckk..', '...kkckckckk....', '...kckkckkck....', '..kckkccckkck...',
+  '.kck..kck..kck..', 'kck...kck...kck.', '.k.....k.....k..', '................',
+]);
+dodaj3('ostrzezenie', 'hud', [
+  '.......kk.......', '......kzYk......', '.....kzYYYk.....', '.....kzYYyk.....',
+  '....kzYyyYYk....', '....kzykkzyk....', '...kzYykkzYYk...', '...kzYykkzYyk...',
+  '..kzYYykkzYYYk..', '..kzYYykkzYYyk..', '.kzYYYYYYYYYYYk.', '.kzYYYykkzYYYyk.',
+  'kzYYYYykkzYYYYYk', 'kYyyyyyYYyyyyyyk', '.kkkkkkkkkkkkkk.', '................',
+]);
+dodaj3('gwiazda', 'hud', [
+  '................', '................', '.......kk.......', '......kzYk......',
+  '......kzyk......', '..kkkkzYYYkkkk..', '.kzzzzYYYYzzzyk.', '..kYYYYYYYYYyk..',
+  '...kYYYYYYYyk...', '....kzYYYYyk....', '....kzYYYYyk....', '....kzyyyyyk....',
+  '...kzykkkkYYk...', '...kyk....kyk...', '....k......k....', '................',
+]);
+dodaj3('skok', 'hud', [
+  '.......kk.......', '......kzYk......', '.....kzyyYk.....', '....kzykkYYk....',
+  '...kzyk..kYYk...', '..kzyk....kYyk..', '...kk..kk..kk...', '......kzYk......',
+  '.....kzyyYk.....', '....kzykkYYk....', '...kzyk..kYYk...', '..kzyk....kYyk..',
+  '...kkkkkkkkkk...', '..kwHHHHHHHHhk..', '...kkkkkkkkkk...', '................',
+]);
+dodaj3('torba', 'hud', [
+  '................', '.....kkkkkk.....', '...kkwwwwwSkk...', '..kSwwSSSSDcSk..',
+  '.kwwwSSSSSSScwk.', 'kwSwSSSSSSSSwSSk', 'kSDSSDDSDDDSSDDk', '.kkSDkkDkkkSDkk.',
+  '..kkk..kk..kkk..', '...k....k...k...', '....kk.kk.kk....', '.....kkmnkk.....',
+  '.....kFFFAk.....', '.....kAAAak.....', '......kAak......', '.......kk.......',
+]);
+dodaj3('nonna', 'hud', [
+  '......kSDk......', '.....kSDDDk.....', '....kSDDDDDk....', '...kSddddddDk...',
+  '..kSdwwwwwHDDk..', '..kdwhhHHhhhdk..', '..kwkBkwhkBkwk..', '..kHkkkwhkkkHk..',
+  '..kHqwwhhwHqHk..', '..kHwHhrrwHwhk..', '...kHHHwwHHhk...', '....kHhhhhhk....',
+  '...kqqqqqqqRk...', '..kqrrrrrrrrrk..', '...kkkkkkkkkk...', '................',
+]);
+dodaj3('nuta', 'hud', [
+  '......kkkkkkkk..', '.....kzzzzzzzYk.', '.....kzYyyyyYyk.', '.....kzykkkkzyk.',
+  '.....kzyk..kzyk.', '.....kzyk..kzyk.', '.....kzyk..kzyk.', '...kkkzyk.kkzyk.',
+  '..kzzzyk.kzzYyk.', '.kzYYYYYkzYYYYYk', '.kYYYYYykYYYYYyk', '..kYyyyk.kYyyyk.',
+  '...kkkk...kkkk..', '................', '................', '................',
+]);
+dodaj3('fala', 'hud', [
+  '.......k........', '...k..kFk..k....', '..kFkkFAAkkFk...', '..kAAkFAakFak...',
+  '.kkkFFaaaFakkk..', 'kFFFAaFFFAAFFak.', '.kAAaFFzFFFAak..', '..kFaFzzzFFak...',
+  '.kFAaFFzFFFAAk..', 'kFaaAAFFFFAaaak.', '.kkkFaFFFaakkk..', '..kFakFAakAAk...',
+  '..kakkAAakkak...', '...k..kak..k....', '.......k........', '................',
+]);
+dodaj3('cisza', 'hud', [
+  '................', '................', '......kk........', '.....kdk........',
+  '....kDDk.kk...kk', '.kkkSDdkkqRk.kqr', '.kwSDDgk.kRRkqrk', '.kwDDdgk..kqqrk.',
+  '.kDDDDdk..kqrrk.', '.kkkSDdk.kqrkRRk', '....kDgkkqrk.kRr', '.....kdk.kk...kk',
+  '......kk........', '................', '................', '................',
+]);
+// --- v3: MINI 9×8 (serca w HUD: ten sam obrys i rozmiar co stare 9×8, kolory v2; bez jasnego obrysu). `ico(n, ≤ 13)` bierze
+// `n + 'M'`, jeśli jest — czaszka przy „RANGA" (linia 14 px nad paskiem rangi) i serce w opisie wroga w Aktach ---
+export const ART2_MINI = ['serceM', 'sercePusteM', 'czaszkaM'];
+ART2.czaszkaM = ['..kkkkk..', '.kzEEEEk.', 'kzEEEEEek', 'kEkkEkkek', 'kEkkEkkek', '.kEEkEEk.', '.kEkEkEk.', '..kkkkk..'];
+ART2.serceM = ['..kk.kk..', '.kqRkRRk.', 'kqwRRRRrk', 'kqRRRRRrk', '.kRRRRrk.', '..kRRrk..', '...krk...', '....k....'];
+ART2.sercePusteM = ['..kk.kk..', '.kddkddk.', 'kdgggggdk', 'kdgggggdk', '.kdgggdk.', '..kdgdk..', '...kdk...', '....k....'];
+// @@ART3-KONIEC@@
 // @@ART2-KONIEC@@
 
 export const SIATKA2 = 18;                             // 16 + jasny obrys z obu stron
 export const maIkone2 = n => !!ART2[n];
 export const art2 = n => ART2[n];                      // arkusz (narzedzia/arkusz_ikon.html)
+// stara nazwa → ikona v2/v3: ta sama nazwa albo alias (stara „skrzynia" = złota skrzynia, „play" = trójkąt znacznika)
+const ALIAS3 = { skrzynia: 'zlota', play: 'wskaznik' };
+function nazwa2(n) { return ART2[n] ? n : (ALIAS3[n] && ART2[ALIAS3[n]] ? ALIAS3[n] : null); }
 // data URL ikony v2: `px` = piksele canvasu na piksel siatki, `obrys` = kolor jasnego obrysu (null = bez, siatka 16×16),
 // `zamiana` = { znak palety: kolor } (np. strzałka znacznika w kolorze typu: { Y, z, y })
 export function ikona2(name, px = 4, obrys = '#f2e3bf', zamiana = null) {
@@ -907,21 +1309,22 @@ export function ikona2(name, px = 4, obrys = '#f2e3bf', zamiana = null) {
   const art = ART2[name];
   if (!art) return '';
   const PAL = zamiana ? Object.assign({}, PAL2, zamiana) : PAL2;
-  const m = obrys ? 1 : 0, w = 16 + 2 * m, h = 16 + 2 * m;
+  const W = art[0].length, H = art.length;             // 16×16 (v2/v3) albo mini (serca HUD 9×8)
+  const m = obrys ? 1 : 0, w = W + 2 * m, h = H + 2 * m;
   const c = document.createElement('canvas');
   c.width = w * px; c.height = h * px;
   const g = c.getContext('2d');
-  const pelny = (x, y) => y >= 0 && y < 16 && x >= 0 && x < 16 && PAL[art[y][x]];
+  const pelny = (x, y) => y >= 0 && y < H && x >= 0 && x < W && PAL[art[y][x]];
   if (obrys) {                                         // obrys: każdy pusty piksel obok zamalowanego (8-sąsiedztwo)
     g.fillStyle = obrys;
-    for (let y = -1; y <= 16; y++) for (let x = -1; x <= 16; x++) {
+    for (let y = -1; y <= H; y++) for (let x = -1; x <= W; x++) {
       if (pelny(x, y)) continue;
       let obok = false;
       for (let dy = -1; dy <= 1 && !obok; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && pelny(x + dx, y + dy)) { obok = true; break; }
       if (obok) g.fillRect((x + m) * px, (y + m) * px, px, px);
     }
   }
-  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const col = PAL[art[y][x]];
     if (!col) continue;
     g.fillStyle = col;

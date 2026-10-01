@@ -237,7 +237,26 @@
   100%{box-shadow:var(--hud-rama3)}
 }
 #wpns .wp .noze{position:absolute;right:-4px;top:-6px;font-style:normal;font-size:11px;font-weight:900;color:#ff9d3f;text-shadow:var(--hud-obrys)}   /* E2 K8 */
-#wpns .wp .danie{position:absolute;left:-4px;top:-5px;line-height:0;filter:drop-shadow(0 0 3px #ffd75e)}
+#wpns .wp .danie{position:absolute;left:-7px;top:-8px;line-height:0;filter:drop-shadow(0 0 3px #ffd75e)}
+
+/* ================= 01.10 IKONY v3 W KAFELKACH =================
+   Ikona 16×16 z jasnym obrysem (18×18) w CAŁYCH pikselach urządzenia: `--i3kN` liczy `ik3Zmienne()` (icons.js) przy
+   starcie i zmianie rozmiaru — kafelek 40 px przy dpr 1 → 36, dpr 2 → 27, telefon (34 px, dpr 2–3) → 24–27.
+   Kafelki zostają w tym samym miejscu i rozmiarze, rośnie tylko ikona w środku. */
+#wpns .wp img.ik3{width:var(--i3k40,18px);height:var(--i3k40,18px)}
+#skl .wp img.ik3{width:var(--i3k26,18px);height:var(--i3k26,18px)}
+@media (max-height:520px){
+  #wpns .wp img.ik3{width:var(--i3k34,18px);height:var(--i3k34,18px)}
+  #skl .wp img.ik3{width:var(--i3k24,18px);height:var(--i3k24,18px)}
+}
+/* przyciski akcji (karabin, Sokowirówka, aura) i dawna strzałka do skrzyni: ikona v3 jako tło, rozmiar w całych pikselach */
+#karabinBtn .kimg{width:var(--i3f-38,38px);height:var(--i3f-38,38px);image-rendering:pixelated}
+#stawBtn .kimg,#smrodBtn .kimg{width:var(--i3f-34,34px);height:var(--i3f-34,34px);image-rendering:pixelated}
+#wArrow .ar{width:var(--i3f-46,46px);height:var(--i3f-46,46px);image-rendering:pixelated}
+@media (max-height:520px){
+  #karabinBtn .kimg{width:var(--i3f-30,30px);height:var(--i3f-30,30px)}
+  #stawBtn .kimg,#smrodBtn .kimg{width:var(--i3f-28,28px);height:var(--i3f-28,28px)}
+}
 @media (prefers-reduced-motion:reduce){#wpns .wp.gotowy{animation:none;box-shadow:-3px 0 0 0 var(--hud-zloto), 3px 0 0 0 var(--hud-zloto), 0 -3px 0 0 var(--hud-zloto), 0 3px 0 0 var(--hud-zloto)}}
 
 /* ================= PASEK BOSSA = ciężka deska z pomidorem ================= */
@@ -376,7 +395,7 @@
   #cards .card,#swapList .card{width:calc((100vw - 40px) / 3);padding:8px 5px 9px;border-width:6px;
     box-shadow:inset 0 0 0 2px rgba(0,0,0,.45), 0 0 0 3px var(--kontur,#1b1b22), 0 4px 0 3px var(--cien,rgba(0,0,0,.45))}
   #cards .card .ico,#swapList .card .ico{font-size:24px}
-  #cards .card .ico img,#swapList .card .ico img{height:28px!important}
+  #cards .card .ico img,#swapList .card .ico img{width:var(--i3-28,28px)!important;height:var(--i3-28,28px)!important}
   #cards .card .nm,#swapList .card .nm{font-size:11px;margin:5px 0 3px;line-height:1.15}
   #cards .card .ds,#swapList .card .ds{font-size:9.5px;line-height:1.25}
 }
