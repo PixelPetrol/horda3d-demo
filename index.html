@@ -693,10 +693,10 @@
      a przy RÓWNEJ specyficzności wygrywa arkusz późniejszy w dokumencie. Gdyby
      <link> stał w <head> nad <style>, każda stara reguła `.bigbtn` biłaby nową.
      Kolejność między plikami: tokeny → menu → HUD (HUD dokłada drugi agent). -->
-<link rel="stylesheet" href="ui-base.css?v=4">
-<link rel="stylesheet" href="ui-menu.css?v=4">
-<link rel="stylesheet" href="ui-warzywniak.css?v=3">
-<link rel="stylesheet" href="ui-hud.css?v=22">
+<link rel="stylesheet" href="ui-base.css?v=5">
+<link rel="stylesheet" href="ui-menu.css?v=5">
+<link rel="stylesheet" href="ui-warzywniak.css?v=4">
+<link rel="stylesheet" href="ui-hud.css?v=23">
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -723,6 +723,8 @@
   <div id="wpns"></div>
   <div id="skl"></div>
   <div id="wArrow"><div class="ar"></div><div class="dist">0 m</div></div>
+  <!-- 01.10: znaczniki skrzyń (lib/znaczniki.js; pula 3 elementów tworzona w JS, pointer-events:none) -->
+  <div id="znaczniki"></div>
 </div>
 <div id="vign"></div>
 <div id="bossOv"></div>
@@ -810,49 +812,49 @@
   <!-- PANELE: kredowa tablica nad sceną (klasa `panel-open` na #startOv z handlera zakładek).
        Panel Map (`panel-mapy`) = pełny ekran z mapą osiedla we mgle. -->
   <div id="panele">
-    <button class="btn2" id="panelBack" data-pl="‹ WRÓĆ" data-en="‹ BACK">‹ WRÓĆ</button>
+    <button class="btn2" id="panelBack" data-ik2="strzL" data-pl="WRÓĆ" data-en="BACK">WRÓĆ</button>
 
   <div class="panel on" id="p-graj"></div>
 
   <div class="panel" id="p-mapy">
     <div id="mapGrid"></div>
   </div>
-  <div class="panel" id="p-postacie"><h2 data-pl="POSTACIE" data-en="HEROES">POSTACIE</h2>
+  <div class="panel" id="p-postacie"><h2 data-ik2="postac" data-pl="POSTACIE" data-en="HEROES">POSTACIE</h2>
     <div id="postStat"></div>
     <div class="grid" id="charGrid"></div></div>
   <!-- AKTA FAMIGLII = bestiariusz + statystyki (dawne dwie zakładki) -->
   <div class="panel" id="p-akta">
-    <h2 data-pl="AKTA FAMIGLII" data-en="FAMIGLIA FILES">AKTA FAMIGLII</h2>
+    <h2 data-ik2="teczka" data-pl="AKTA FAMIGLII" data-en="FAMIGLIA FILES">AKTA FAMIGLII</h2>
     <p class="lore" data-pl="Osiedle Grządkowo żyło spokojnie, aż przyjechała La Famiglia Snackoni — mafia przekąsek Dona Chipso. Plan: sól, cukier i automat w miejscu warzywniaka. Warzywa na to: „nie na moim osiedlu”. Broń: witaminy." data-en="the Blockyard was quiet until La Famiglia Snackoni rolled in — Don Chipso’s snack mafia. The plan: salt, sugar and a vending machine where the veggie stand stood. The vegetables said “not on my block.” Weapon: vitamins.">Osiedle Grządkowo żyło spokojnie, aż przyjechała La Famiglia Snackoni — mafia przekąsek Dona Chipso. Plan: sól, cukier i automat w miejscu warzywniaka. Warzywa na to: „nie na moim osiedlu”. Broń: witaminy.</p>
     <p><span data-pl="Encyklopedia hordy. Wpis odblokowuje się po PIERWSZYM zabiciu danego typu. Odkryto:"
              data-en="An encyclopedia of the horde. An entry unlocks the FIRST time you kill that type. Discovered:">Encyklopedia hordy. Wpis odblokowuje się po PIERWSZYM zabiciu danego typu.
        Odkryto:</span> <b id="bestProg">0/0</b></p>
     <div class="grid" id="bestGrid"></div>
-    <h3 class="sekcja"><span data-pl="SKŁADNIKI NONNY" data-en="NONNA'S INGREDIENTS">SKŁADNIKI NONNY</span> <b id="aktaSklProg"></b></h3>
+    <h3 class="sekcja" data-ik2="sloik"><span data-pl="SKŁADNIKI NONNY" data-en="NONNA'S INGREDIENTS">SKŁADNIKI NONNY</span> <b id="aktaSklProg"></b></h3>
     <div id="aktaSkl"></div>
-    <h3 class="sekcja" data-pl="STATYSTYKI" data-en="STATS">STATYSTYKI</h3>
+    <h3 class="sekcja" data-ik2="zegar" data-pl="STATYSTYKI" data-en="STATS">STATYSTYKI</h3>
     <div id="statsList"></div>
   </div>
-  <div class="panel" id="p-ksiazka"><h2 data-pl="KSIĄŻKA NONNY" data-en="NONNA'S COOKBOOK">KSIĄŻKA NONNY</h2><div id="menuKsiazka"></div></div>
+  <div class="panel" id="p-ksiazka"><h2 data-ik2="ksiazka" data-pl="KSIĄŻKA NONNY" data-en="NONNA'S COOKBOOK">KSIĄŻKA NONNY</h2><div id="menuKsiazka"></div></div>
   <!-- ZESZYT NONNY — miejsce na E4 K2 (logika jeszcze nie istnieje) -->
-  <div class="panel" id="p-zeszyt"><h2 data-pl="ZESZYT NONNY" data-en="NONNA'S NOTEBOOK">ZESZYT NONNY</h2>
+  <div class="panel" id="p-zeszyt"><h2 data-ik2="zeszyt" data-pl="ZESZYT NONNY" data-en="NONNA'S NOTEBOOK">ZESZYT NONNY</h2>
     <p data-pl="Wkrótce." data-en="Coming soon.">Wkrótce.</p></div>
   <div class="panel" id="p-sklep">
-    <h2 data-pl="SKLEP" data-en="SHOP">SKLEP</h2>
+    <h2 data-ik2="sklep" data-pl="SKLEP" data-en="SHOP">SKLEP</h2>
     <p><span data-pl="Monety zbierasz w biegach — zostają po śmierci. Masz:"
              data-en="You earn coins in runs — they survive your death. You have:">Monety zbierasz w biegach — zostają po śmierci. Masz:</span> <b id="shopCoins">0</b></p>
     <div class="grid" id="shopItems"></div>
     <!-- SPIŻARNIA NONNY (29.09): 5 składników do kupienia raz + Większy słoik; tabliczka o wsparciu (main.js renderSpizarnia) -->
-    <h3 class="sekcja" id="spizNaglowek"><span data-pl="SPIŻARNIA NONNY" data-en="NONNA'S PANTRY">SPIŻARNIA NONNY</span> <b id="spizLicz"></b></h3>
+    <h3 class="sekcja" id="spizNaglowek" data-ik2="sloik"><span data-pl="SPIŻARNIA NONNY" data-en="NONNA'S PANTRY">SPIŻARNIA NONNY</span> <b id="spizLicz"></b></h3>
     <p class="spizOpis" data-pl="Składnik kupujesz raz, na zawsze — dopiero wtedy trafia do kart w biegu. Każdy kolejny jest droższy."
        data-en="Buy an ingredient once and keep it forever — only then does it show up on cards in a run. Each one costs more than the last.">Składnik kupujesz raz, na zawsze — dopiero wtedy trafia do kart w biegu. Każdy kolejny jest droższy.</p>
     <div class="grid" id="spizItems"></div>
     <div class="nonnaTab" id="nonnaSklep"></div>
   </div>
   <div class="panel" id="p-ustawienia">
-    <h2 data-pl="USTAWIENIA" data-en="SETTINGS">USTAWIENIA</h2>
+    <h2 data-ik2="zebatka" data-pl="USTAWIENIA" data-en="SETTINGS">USTAWIENIA</h2>
 
-    <h3 class="sekcja" data-pl="DŹWIĘK" data-en="SOUND">DŹWIĘK</h3>
+    <h3 class="sekcja" data-ik2="glosnik" data-pl="DŹWIĘK" data-en="SOUND">DŹWIĘK</h3>
     <p data-pl="Muzyka rusza po pierwszym kliknięciu — tak wymagają przeglądarki. W menu gra motyw główny, w biegu utwór losowany, przy bossie osobny kawałek. Efekty są generowane na żywo (nie ważą nic), więc bez obaw o pakiet."
        data-en="Music starts on your first click — browsers insist on it. The menu plays the main theme, a run gets a random track, the boss gets his own. Effects are generated live (they weigh nothing), so no worries about your data.">Muzyka rusza po pierwszym kliknięciu — tak wymagają przeglądarki.
        W menu gra motyw główny, w biegu utwór losowany, przy bossie osobny kawałek.
@@ -868,7 +870,7 @@
     </div>
     <!-- JĘZYK — ten sam przełącznik co w prawym górnym rogu menu (main.js spina
          oba zestawy przycisków w `initJezykUI`). Zmiana przeładowuje stronę. -->
-    <h3 class="sekcja" data-pl="JĘZYK" data-en="LANGUAGE">JĘZYK</h3>
+    <h3 class="sekcja" data-ik2="jezyk" data-pl="JĘZYK" data-en="LANGUAGE">JĘZYK</h3>
     <div id="langBox">
       <div class="snd"><label data-pl="Język / Language" data-en="Language / Język">Język / Language</label>
         <button class="btn2" id="langPl2">PL</button><button class="btn2" id="langEn2">EN</button></div>
@@ -878,7 +880,7 @@
     <!-- EKRAN. `#btnInstall` jest ukryty do czasu `beforeinstallprompt` (tylko
          Chrome/Android; iOS i desktop go nie wysyłają), a `#btnFs` znika tam,
          gdzie Fullscreen API nie istnieje — main.js decyduje, nie CSS. -->
-    <h3 class="sekcja" data-pl="EKRAN" data-en="SCREEN">EKRAN</h3>
+    <h3 class="sekcja" data-ik2="ekran" data-pl="EKRAN" data-en="SCREEN">EKRAN</h3>
     <div id="ekranBox">
       <button class="btn2" id="btnFs"><i class="fsIco"></i><span data-pl="PEŁNY EKRAN" data-en="FULLSCREEN">PEŁNY EKRAN</span></button>
       <button class="btn2" id="btnInstall" style="display:none" data-pl="ZAINSTALUJ GRĘ" data-en="INSTALL THE GAME">ZAINSTALUJ GRĘ</button>
@@ -888,24 +890,29 @@
     </div>
 
     <!-- E2 K4: GRA — animacja złotej skrzyni (pełna / szybka), META.ui.skrzyniaSzybka -->
-    <h3 class="sekcja" data-pl="GRA" data-en="GAMEPLAY">GRA</h3>
+    <h3 class="sekcja" data-ik2="zlota" data-pl="GRA" data-en="GAMEPLAY">GRA</h3>
     <div id="animBox">
       <div class="snd"><label data-pl="Animacja skrzyni" data-en="Crate animation">Animacja skrzyni</label>
         <button class="btn2" id="skrzPelna" data-pl="PEŁNA" data-en="FULL">PEŁNA</button><button class="btn2" id="skrzSzybkaBtn" data-pl="SZYBKA" data-en="QUICK">SZYBKA</button></div>
+      <!-- 01.10: znaczniki skrzyń w HUD (META.ui.wskazniki); wył. = dawna jedna strzałka na środku ekranu -->
+      <div class="snd"><label data-pl="Wskaźniki skrzyń" data-en="Crate markers">Wskaźniki skrzyń</label>
+        <button class="btn2" id="wskWl" data-pl="WŁ." data-en="ON">WŁ.</button><button class="btn2" id="wskWyl" data-pl="WYŁ." data-en="OFF">WYŁ.</button></div>
+      <div class="info" data-pl="Ikony przy krawędzi ekranu prowadzą do złotej skrzyni, Skrzyni Kaprala i Garnka Nonny. Wył. = jedna strzałka na środku jak dawniej."
+           data-en="Edge icons lead you to the golden crate, the Corporal's Crate and Nonna's Pot. Off = the single centre arrow, as before.">Ikony przy krawędzi ekranu prowadzą do złotej skrzyni, Skrzyni Kaprala i Garnka Nonny. Wył. = jedna strzałka na środku jak dawniej.</div>
     </div>
 
     <!-- STEROWANIE: rzędy generuje main.js (renderSterowanie), bo glify muszą się
          przerysować po podłączeniu pada innej rodziny i po każdej zmianie mapowania.
          Cała reszta instrukcji sterowania (klawiatura, dotyk) też jest tutaj —
          `#startFoot` skrócony do jednej linii właśnie dlatego. -->
-    <h3 class="sekcja" data-pl="STEROWANIE" data-en="CONTROLS">STEROWANIE</h3>
+    <h3 class="sekcja" data-ik2="pad" data-pl="STEROWANIE" data-en="CONTROLS">STEROWANIE</h3>
     <p data-pl="Klawiatura: <span class='gl gl-kl dl'>WASD</span> ruch · <span class='gl gl-kl dl'>SPACJA</span> skok · <span class='gl gl-kl'>Q</span><span class='gl gl-kl'>E</span> obrót kamery · <span class='gl gl-kl dl'>ESC</span> pauza.<br>Telefon: lewa połowa ekranu = joystick, prawa = obrót kamery, skok przyciskiem po prawej.<br>Podpowiedzi pada same dopasują się do jego rodziny (Xbox, PlayStation, Switch, Steam Deck)."
        data-en="Keyboard: <span class='gl gl-kl dl'>WASD</span> move · <span class='gl gl-kl dl'>SPACE</span> jump · <span class='gl gl-kl'>Q</span><span class='gl gl-kl'>E</span> turn the camera · <span class='gl gl-kl dl'>ESC</span> pause.<br>Phone: left half of the screen = joystick, right half = camera, jump with the button on the right.<br>Pad prompts match your pad family by themselves (Xbox, PlayStation, Switch, Steam Deck).">Klawiatura: <span class='gl gl-kl dl'>WASD</span> ruch · <span class='gl gl-kl dl'>SPACJA</span> skok · <span class='gl gl-kl'>Q</span><span class='gl gl-kl'>E</span> obrót kamery · <span class='gl gl-kl dl'>ESC</span> pauza.<br>
        Telefon: lewa połowa ekranu = joystick, prawa = obrót kamery, skok przyciskiem po prawej.<br>
        Podpowiedzi pada same dopasują się do jego rodziny (Xbox, PlayStation, Switch, Steam Deck).</p>
     <div id="ctrlBox"></div>
     <!-- KOD OD NONNY (29.09): kody na monety dla wspierających — widoczne zawsze (nie tylko DEV); w źródle tylko hashe (kody.json) -->
-    <h3 class="sekcja" data-pl="KOD OD NONNY" data-en="A CODE FROM NONNA">KOD OD NONNY</h3>
+    <h3 class="sekcja" data-ik2="koperta" data-pl="KOD OD NONNY" data-en="A CODE FROM NONNA">KOD OD NONNY</h3>
     <div id="kodBox">
       <input id="kodInput" type="text" placeholder="XXXX-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="24"
              aria-label="Kod od Nonny" data-pl="Kod od Nonny" data-en="A code from Nonna" data-attr="aria-label">
@@ -914,7 +921,7 @@
     </div>
     <div class="nonnaTab" id="nonnaKod"></div>
     <!-- FABUŁA i KAWA przeniesione z ekranu głównego (audyt: cele dotyku 20 px). Kawa tylko web — main.js (KAWA_URL, JEST_APKA). -->
-    <h3 class="sekcja" data-pl="FABUŁA" data-en="STORY">FABUŁA</h3>
+    <h3 class="sekcja" data-ik2="komiks" data-pl="FABUŁA" data-en="STORY">FABUŁA</h3>
     <div id="wFabulaBox">
       <a id="fabulaBtn" class="btn2" href="#" data-pl="OBEJRZYJ KOMIKS" data-en="WATCH THE COMIC">OBEJRZYJ KOMIKS</a>
       <a id="kawaBtn" class="btn2" href="#" target="_blank" rel="noopener" style="display:none"
@@ -1023,6 +1030,6 @@
     addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
   }
 </script>
-<script type="module" src="main.js?v=311"></script>
+<script type="module" src="main.js?v=312"></script>
 </body>
 </html>

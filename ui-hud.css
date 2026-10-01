@@ -743,3 +743,29 @@ body.pad-foot .glRog{display:none}
 }
 @keyframes xpKarty{50%{filter:brightness(1.25)}}
 @media (prefers-reduced-motion:reduce){ #xpbar.karty{animation:none} }
+
+/* ═══════════ ZNACZNIKI SKRZYŃ (01.10.2026, lib/znaczniki.js) ═══════════
+   Kontener na cały ekran (współrzędne okna, jak getBoundingClientRect). Znacznik = punkt (0×0) przesuwany TYLKO
+   `transform` przez --zx/--zy z JS; ikona i strzałka wyśrodkowane na nim. `kraw` = przy krawędzi (strzałka + odległość),
+   `kadr` = nad celem w kadrze (sama ikona, odległość od 20 m, zanik z bliska przez opacity z JS), `lg` = odległość NAD ikoną
+   (strzałka w dół), `nowy` = puls nowej złotej skrzyni. Kolor napisu z typu (`t-*`); ramka = obrys ikony v2 w kolorze typu. */
+#znaczniki{position:fixed;inset:0;pointer-events:none;z-index:4;--zik:24px;--zorb:17px}
+#znaczniki .zn{position:absolute;left:0;top:0;width:0;height:0;transform:translate3d(var(--zx,-999px),var(--zy,-999px),0);
+  will-change:transform;--zkol:var(--hud-zloto)}
+#znaczniki .znI,#znaczniki .znS{position:absolute;left:calc(var(--zik) / -2);top:calc(var(--zik) / -2);width:var(--zik);height:var(--zik);
+  background:center/100% 100% no-repeat;image-rendering:pixelated}
+#znaczniki .znI{filter:drop-shadow(0 2px 0 rgba(0,0,0,.45))}
+#znaczniki .znS{transform:rotate(var(--za,0deg)) translateX(var(--zorb))}
+#znaczniki .znD{position:absolute;left:0;top:calc(var(--zik) / 2 + 1px);transform:translateX(-50%);white-space:nowrap;
+  font-size:13px;line-height:1;letter-spacing:.5px;color:var(--zkol);text-shadow:var(--hud-obrys)}
+#znaczniki .znD:empty{display:none}
+#znaczniki .zn.lg .znD{top:auto;bottom:calc(var(--zik) / 2 + 1px)}
+#znaczniki .zn.kadr .znS{display:none}
+#znaczniki .zn.kadr .znI{filter:drop-shadow(0 2px 0 rgba(0,0,0,.35))}
+#znaczniki .zn.t-kapral{--zkol:#c07bff}
+#znaczniki .zn.t-garnek{--zkol:#7ee7ff}
+#znaczniki .zn.t-skrzynka{--zkol:#f2d0a0}
+#znaczniki .zn.nowy .znI{animation:znPuls .5s steps(2) infinite}
+@keyframes znPuls{50%{transform:scale(1.25)}}
+@media (max-height:520px){ #znaczniki .znD{font-size:12px} }
+@media (prefers-reduced-motion:reduce){ #znaczniki .zn.nowy .znI{animation:none} }

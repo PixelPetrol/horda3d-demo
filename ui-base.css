@@ -297,7 +297,8 @@
 .card.nieWyk{filter:grayscale(.8) brightness(.6);cursor:not-allowed}
 .card .wykX{position:absolute;top:2px;left:6px;z-index:3;font-size:22px;font-weight:900;color:#ff5a4e;text-shadow:0 2px 0 #000}
 .card .wykDs{margin-top:5px;font-size:10px;font-weight:800;color:#ff9a8e}
-.card .glKarta{position:absolute;bottom:-12px;left:50%;transform:translateX(-50%);z-index:3}
+/* 01.10 Piotr: cyfry 1/2/3 na dole zasłaniały treść karty („Nonna poleca…") — teraz róg lewy górny, poza treścią */
+.card .glKarta{position:absolute;top:-11px;left:-11px;z-index:3;transform:scale(.85);transform-origin:top left}
 @media (max-height:520px){
   #cardsBtns{margin-top:15px;gap:6px}
   #cardsBtns .btn2{padding:4px 12px;font-size:12px}

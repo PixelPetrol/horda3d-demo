@@ -89,3 +89,5 @@
 
 /* E2 K8: REGUŁA POSTACI — kafelek w zakładce Postacie */
 .tile .regula{margin-top:5px;font-size:clamp(11px,2.5vw,12px);font-weight:800;line-height:1.3;color:#ffd75e}
+/* 01.10: opis opcji „Wskaźniki skrzyń" (sekcja GRA) — jak opisy w Języku i Ekranie */
+#animBox .info{color:var(--limonka);max-width:none}

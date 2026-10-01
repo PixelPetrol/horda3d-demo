@@ -1,8 +1,9 @@
 // HORDA 3D v4 — teren 3D + kamera za plecami + meta-progresja (monety/sklep)
 import * as THREE from './lib/three.module.js';
 import { SPRITEDATA } from './spritedata.js?v=11';
-import { icon, iconObrys, ico } from './icons.js?v=9';
-import { AUDIO } from './audio.js?v=8';            // muzyka wg fazy gry + kwestie głosowe + efekty
+import { icon, iconObrys, ico, ikona2, maIkone2, SIATKA2 } from './icons.js?v=10';   // ?v= TEN SAM co w audio.js
+import { AUDIO } from './audio.js?v=9';            // muzyka wg fazy gry + kwestie głosowe + efekty
+import { Znaczniki } from './lib/znaczniki.js?v=1';   // 01.10: znaczniki skrzyń w HUD (sekcja „ZNACZNIKI SKRZYŃ W HUD")
 import { initKomiks, pokazKomiks } from './komiks.js?v=2';   // komiks wprowadzający (Etap 2)
 import { generujSzkielet, siatkaGalezi, RNG } from './lib/drzewa-szkielet.js?v=2';
 import { wczytajModeleNatury } from './lib/modele-natura.js?v=2';
@@ -12,7 +13,7 @@ import * as TO from './lib/teren-osiedle.js?v=2';  // mapa „Osiedle": układ k
 // (ten sam kontrakt), zamień ścieżkę na './lib/osiedle-rekwizyty.js'. Reszta kodu woła tylko `OSR.*`.
 import * as OSR from './lib/osiedle-rekwizyty.js?v=2';   // 30.09: prawdziwe modele (zaślepki: lib/osiedle-zaslepki.js)
 import * as MS from './lib/modele-skrzynie.js?v=1';     // 30.09: skrzynie i kapliczki 3D (sekcja „SKRZYNIE I KAPLICZKI 3D" niżej)
-import * as ML from './lib/modele-laki.js?v=1';         // 30.09: stosy skrzyń, podesty, schody na Łąkach/Wąwozach (sekcja „ŁĄKI — MODELE 3D")
+import * as ML from './lib/modele-laki.js?v=2';         // 30.09: stosy skrzyń, podesty, schody na Łąkach/Wąwozach (sekcja „ŁĄKI — MODELE 3D")
 import * as MM from './lib/modele-market.js?v=2';       // 30.09: Market — modele, atlas towaru, posadzka w shaderze (sekcja „MARKET — PRZEBUDOWA")
 import * as UM from './lib/uklad-marketu.js?v=2';       // 30.09: Market — układ chunka (strefy, alejki, hale, plamy)
 
@@ -3593,7 +3594,8 @@ function loadMeta() {
     ui: { pwaHint: false, komiks: false,
           skrzyniaSzybka: null, ksiazkaNowe: false, ksiazkaPodp: false,   // E2: animacja skrzyni (null = wg systemu), kropka Książki, podpowiedź
           // E3: podpowiedzi przy znacznikach (3× na typ), pierwsza Stolnica (toast), celowanie karabinu na dotyku
-          podp: { stolnica: 0, wyzwanie: 0, garnek: 0 }, stolnicaToast: false, celKarabinu: 'auto' },
+          podp: { stolnica: 0, wyzwanie: 0, garnek: 0 }, stolnicaToast: false, celKarabinu: 'auto',
+          wskazniki: true },                     // 01.10: znaczniki skrzyń w HUD (Ustawienia → GRA); false = dawna strzałka #wArrow
     ksiazka: {},                                 // E2: evoKey → { odk: 0|1, prawie: n, ile: n } (Książka kucharska)
     // B12: prośba o kawę na ekranie końca — `dzien` = data ostatniego pokazu, `spokojDo` = ms (po kliknięciu kawy +30 dni),
     // `czasy` = długości ostatnich 20 pełnych biegów (mediana gracza), `krotkie` = porażki < 2 min z rzędu
@@ -3945,7 +3947,7 @@ function renderPick() {
   const wiersze = [
     ['but', T('SZYBK.', 'SPEED'), mn(C.spd)],
     ['serce', T('SERCA', 'HEARTS'), serca],
-    ['kula', T('OBRAŻ.', 'DAMAGE'), mn(C.dmg)],
+    ['sila', T('OBRAŻ.', 'DAMAGE'), mn(C.dmg)],   // 01.10: v2 — hantla (dawniej „kula")
     ['magnes', T('MAGNES', 'MAGNET'), mn(C.mag)],
   ].map(([i, k, v]) => `<div class="hs">${mIk(i)}<span>${k}</span><b>${v}</b></div>`).join('');
   const st = document.getElementById('heroStat'); if (st) st.innerHTML = wiersze;
@@ -3959,11 +3961,11 @@ function renderPick() {
     try { if (gpSel && mp.contains(gpSel)) m0 = gpSel.dataset.m; } catch (_) {}   // gpSel w TDZ przy pierwszym renderze
     const wybor = menuStan() >= 1, strz = wybor && Object.keys(MAPS).filter(mapaOdbl).length > 1;
     const kr = wybor && kropkiMenu().includes('mapy') ? '<i class="wKropka"></i>' : '';
-    const nazwa = `${mIk(M.ico)}<span class="k">${T('MAPA', 'MAP')}</span><b>${M.nm}</b>`;
-    mp.innerHTML = (strz ? `<button class="wNav wStrz" data-m="-1" aria-label="‹">‹</button>` : '')
+    const nazwa = `${mIk(IK2_MAPY[mapKey] || M.ico)}<span class="k">${T('MAPA', 'MAP')}</span><b>${M.nm}</b>`;
+    mp.innerHTML = (strz ? `<button class="wNav wStrz" data-m="-1" aria-label="‹">${strzIk(-1)}</button>` : '')
       + (wybor ? `<button class="wNav mNm" data-m="0" style="position:relative;background:none;border:0;font:inherit;color:inherit">${nazwa}${kr}<span class="wGl" data-mglif="mapa"></span></button>`
                : `<div class="mNm">${nazwa}</div>`)
-      + (strz ? `<button class="wNav wStrz" data-m="1" aria-label="›">›</button>` : '');
+      + (strz ? `<button class="wNav wStrz" data-m="1" aria-label="›">${strzIk(1)}</button>` : '');
     if (m0 != null) { const el = mp.querySelector(`[data-m="${m0}"]`); if (el) gpMark(el); }
     menuGlifyOdswiez();
   }
@@ -4033,15 +4035,16 @@ function renderSkladnikiAkta() {
 }
 
 function renderShop() {
-  document.getElementById('shopCoins').innerHTML = ico('moneta', 16) + ' ' + META.coins;
+  document.getElementById('shopCoins').innerHTML = ik2('moneta', 18) + ' ' + META.coins;   // 01.10: monety v2
   const wrap = document.getElementById('shopItems'); wrap.innerHTML = '';
   const deny = d => d.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }], { duration: 200 });
   for (const it of SHOP) {
     const lvl = META.up[it.key], maxed = lvl >= it.max;
     const d = document.createElement('div');
     d.className = 'tile' + (maxed ? ' lock' : '');
-    d.innerHTML = `<div class="ico">${ico(it.ico, 40)}</div><div class="nm">${it.nm} ${lvl}/${it.max}</div>
-      <div class="ds">${it.ds}</div><div class="pr">${maxed ? T('MAX', 'MAX') : ico('moneta', 15) + ' ' + shopPrice(it)}</div>`;
+    // 01.10: ulepszenia na ikonach v2 (IK2_SKLEP); odblokowania niżej zostają przy ikonach broni z HUD
+    d.innerHTML = `<div class="ico">${IK2_SKLEP[it.key] ? ik2(IK2_SKLEP[it.key], 40) : ico(it.ico, 40)}</div><div class="nm">${it.nm} ${lvl}/${it.max}</div>
+      <div class="ds">${it.ds}</div><div class="pr">${maxed ? T('MAX', 'MAX') : ik2('moneta', 16) + ' ' + shopPrice(it)}</div>`;
     if (!maxed) d.onclick = () => {
       const pr = shopPrice(it);
       if (META.coins < pr) return deny(d);
@@ -4054,7 +4057,7 @@ function renderShop() {
     const d = document.createElement('div');
     d.className = 'tile' + (owned ? ' lock' : '');
     d.innerHTML = `<div class="ico">${ico(it.ico, 40)}</div><div class="nm">${it.nm}</div>
-      <div class="ds">${it.ds}</div><div class="pr">${owned ? T('MASZ', 'OWNED') : ico('moneta', 15) + ' ' + liczba(cenaOdbl(it))}</div>`;
+      <div class="ds">${it.ds}</div><div class="pr">${owned ? T('MASZ', 'OWNED') : ik2('moneta', 16) + ' ' + liczba(cenaOdbl(it))}</div>`;
     if (!owned) d.onclick = () => {
       const pr = cenaOdbl(it);
       if (META.coins < pr) return deny(d);
@@ -4076,7 +4079,7 @@ function renderSpizarnia(deny) {
   const kafel = (ikona, nm, ds, stopka, masz, onBuy) => {
     const d = document.createElement('div');
     d.className = 'tile spiz' + (masz ? ' lock' : '');
-    d.innerHTML = `<div class="ico">${ico(ikona, 40)}${masz ? '' : `<i class="spizKl">${ico('klodka', 16)}</i>`}</div><div class="nm">${nm}</div>
+    d.innerHTML = `<div class="ico">${maIkone2(ikona) && ikona === 'sloik' ? ik2(ikona, 40) : ico(ikona, 40)}${masz ? '' : `<i class="spizKl">${ico('klodka', 16)}</i>`}</div><div class="nm">${nm}</div>
       <div class="ds">${ds}</div><div class="pr">${stopka}</div>`;
     if (!masz) d.onclick = () => onBuy(d);
     wrap.appendChild(d);
@@ -4084,7 +4087,7 @@ function renderSpizarnia(deny) {
   for (const k of SPIZ_KOLEJNOSC) {
     const S = PASSIVES[k], masz = sklOdbl(k);
     const ds = T('Na poziom: ', 'Per level: ') + S.ef(1, 0);
-    kafel(S.ico, S.nm, ds, masz ? T('W SPIŻARNI', 'IN THE PANTRY') : ico('moneta', 15) + ' ' + liczba(cena), masz, d => {
+    kafel(S.ico, S.nm, ds, masz ? T('W SPIŻARNI', 'IN THE PANTRY') : ik2('moneta', 16) + ' ' + liczba(cena), masz, d => {
       const c = cenaSpiz();
       if (META.coins < c) return deny(d);
       META.coins -= c; META.unlocked[k] = 1; saveMeta();
@@ -4096,7 +4099,7 @@ function renderSpizarnia(deny) {
   const slMasz = !!META.unlocked.sloik || !blokady;
   kafel('sloik', T('Większy słoik', 'Bigger Jar'),
     T(`Składnik w biegu do poz. 5 (bez słoika: ${trudn().karty.sklMax})`, `Ingredients go up to lv. 5 in a run (without it: ${trudn().karty.sklMax})`),
-    slMasz ? T('MASZ', 'OWNED') : ico('moneta', 15) + ' ' + liczba(CFG_SPIZ.sloik), slMasz, d => {
+    slMasz ? T('MASZ', 'OWNED') : ik2('moneta', 16) + ' ' + liczba(CFG_SPIZ.sloik), slMasz, d => {
       if (META.coins < CFG_SPIZ.sloik) return deny(d);
       META.coins -= CFG_SPIZ.sloik; META.unlocked.sloik = 1; saveMeta();
       STATY.zdarzenie('spizarnia/sloik', 'Spiżarnia: słoik');
@@ -4143,7 +4146,20 @@ const odslUi = () => META.ui.odsl || (META.ui.odsl = {});   // META.ui kopiowane
 // stan odsłonięcia menu (§10.4): 0 = pierwsza sesja, 1 / 2 = po 1. / 2. biegu, 3 = pełny (od 3. biegu)
 const menuStan = () => Math.min(3, biegi());
 // ikona z icons.js BEZ stylu inline (rozmiar daje CSS w `--p`, `ico()` wpisuje sztywne px)
-const mIk = (n) => `<img class="ikp" src="${iconObrys(n, 4, '#1b1b22', '#f2e3bf')}" alt="">`;   // 29.09: kontur + jasny obrys (siatka 12×12)
+// 01.10 IKONY v2: siatka 16×16 z konturem + jasny obrys (18×18, `ikona2`). `--ik24/36/48` (menuSkala) = wielokrotności
+// 18 pikseli URZĄDZENIA. Każda ikona menu MUSI mieć wersję v2 (inaczej stara 12×12 dostałaby rozmiar siatki 18 — ostrzeżenie w DEV).
+const mIk = (n) => {
+  if (maIkone2(n)) return `<img class="ikp" src="${ikona2(n, 4)}" alt="">`;
+  if (DEV) console.warn('mIk: brak ikony v2 —', n);
+  return `<img class="ikp" src="${iconObrys(n, 4, '#1b1b22', '#f2e3bf')}" alt="">`;
+};
+// ikona v2 o rozmiarze najbliższym `css` px, ale w CAŁYCH pikselach urządzenia na piksel siatki (panele: Sklep, Spiżarnia)
+const ik2px = css => { const d = devicePixelRatio || 1; return Math.max(1, Math.round(css * d / SIATKA2)) * SIATKA2 / d; };
+const ik2 = (n, css) => { const s = ik2px(css); return `<img class="pxi" src="${ikona2(n, 4)}" style="width:${s}px;height:${s}px" alt="">`; };
+// v2 dla rzeczy, których stara nazwa ikony znaczy co innego albo jest wspólna z HUD (bronie zostają przy starych ikonach)
+const IK2_MAPY = { laki: 'laka', osiedle: 'dom', wawozy: 'wawozy', market: 'market' };
+const IK2_SKLEP = { serce: 'serce', dmg: 'sila', szyb: 'but', magnes: 'magnes', klatwa: 'klatwa', karabin: 'naboje' };
+const strzIk = d => mIk(d < 0 ? 'strzL' : 'strzP');
 // skrzynka → od którego stanu stoi na ladzie
 const SKRZ_OD = { postacie: 1, sklep: 1, akta: 2, ksiazka: 3, zeszyt: 99 };
 const SKRZ_ODSL = { r1: ['postacie', 'sklep'], r2: ['akta'], r3: ['ksiazka'] };
@@ -4188,10 +4204,13 @@ function menuSkala() {
   w.style.setProperty('--tx', String(Math.max(2, Math.round(2 * s))));
   // PC: poziomy margines sceny (px ekranu), żeby na 1920 elementy nie uciekały w rogi
   w.style.setProperty('--bx', (pcx ? Math.max(0, Math.round((W - 1320 * s) / 2)) : 0) + 'px');
-  // IKONY (8×8 + kontur + jasny obrys = siatka 12×12, `mIk`): rozmiar CSS = całkowita wielokrotność siatki w pikselach
+  // IKONY v2 (16×16 + jasny obrys = siatka 18×18, `mIk`): rozmiar CSS = całkowita wielokrotność siatki w pikselach
   // URZĄDZENIA (pixelated bez rozmycia i bez nierównych pikseli). --ikN = ikona projektowana na N px makiety.
+  // Nagłówki paneli (stałe px, bez --s): --ikH2 / --ikH3.
   const dpr = devicePixelRatio || 1;
-  for (const n of [24, 36, 48]) w.style.setProperty('--ik' + n, (Math.max(1, Math.round(n * s * dpr / 12)) * 12 / dpr) + 'px');
+  for (const n of [24, 36, 48]) w.style.setProperty('--ik' + n, (Math.max(1, Math.round(n * s * dpr / SIATKA2)) * SIATKA2 / dpr) + 'px');
+  w.style.setProperty('--ikH2', ik2px(innerHeight >= 560 ? 36 : 27) + 'px');
+  w.style.setProperty('--ikH3', ik2px(innerHeight >= 560 ? 22 : 24) + 'px');   // PC dpr 1 → 18, telefon dpr 2 → 27, dpr 3 → 24
   w.classList.toggle('w-pc', MENU.pc);
   w.classList.toggle('w-pcx', pcx);
   if (document.getElementById('startOv').classList.contains('panel-mapy')) mapaRysuj(1);
@@ -4240,6 +4259,19 @@ function odswiezRog() {
   if (m) m.innerHTML = mIk('moneta') + ' ' + liczba(META.coins);
   const z = document.querySelector('#wZebatka i');
   if (z && !z.firstChild) z.innerHTML = mIk('zebatka');
+  // 01.10: strzałki szyldu postaci = ikony v2 (dawniej znak ‹ › czcionką); span bez data-pl, więc język go nie nadpisze
+  for (const [id, d] of [['wPostL', -1], ['wPostP', 1]]) {
+    const s = document.getElementById(id)?.firstElementChild;
+    if (s && !s.querySelector('img')) s.innerHTML = strzIk(d);
+  }
+}
+// 01.10 IKONY v2 W NAGŁÓWKACH PANELI: `data-ik2="nazwa"` (index.html) → `::before` z tłem `--ik2` (CSS: ui-warzywniak.css).
+// Przez ::before, bo zastosujJezyk() nadpisuje innerHTML elementów z data-pl — <img> w środku by zniknął.
+function menuIkonyNaglowkow() {
+  for (const el of document.querySelectorAll('#warzywniak [data-ik2]')) {
+    if (maIkone2(el.dataset.ik2)) el.style.setProperty('--ik2', `url(${ikona2(el.dataset.ik2, 4)})`);
+    else if (DEV) console.warn('data-ik2: brak ikony v2 —', el.dataset.ik2);
+  }
 }
 
 // TABLICA „DZIŚ U NONNY" (§10.5) albo liścik Nonny w pierwszej sesji (z makiety B)
@@ -4635,6 +4667,7 @@ function menuInit() {
   const w = document.getElementById('warzywniak');
   if (!w) return;
   menuSkala();
+  menuIkonyNaglowkow();                            // 01.10: ikony v2 w nagłówkach paneli
   addEventListener('resize', menuSkala);
   addEventListener('orientationchange', () => setTimeout(menuSkala, 120));
   document.getElementById('wPostL').onclick = () => menuPostac(-1);
@@ -6494,7 +6527,12 @@ const CFG_MAPA = {
   wlaczone: { kapliczki: true, wydarzenia: true, pulaMap: true, sylwetki: true, karabinAuto: true },
   // §1 kapliczki — wspólne
   miejsce:  { rMin: 30, rMax: 60, odstep: 20, spadekMax: 0.25, prob: 40, przenies: 110, prosta: 8 },
-  znaczniki:{ max: 3, garnekD: 45, hz: 30, margines: { gora: 58, dol: 76, bok: 64 }, podpowiedzi: 3, podpD: 14 },
+  // 01.10 (sekcja „ZNACZNIKI SKRZYŃ W HUD"): pozycje co klatkę, wybór celów i zasłonięcie co `wybor` s, strefa HUD co `strefaCo` s.
+  // `margines` = odstęp od zmierzonego HUD (góra: pod sercami/zegarem; dół i boki: od krawędzi ekranu) — przyciski dotyku,
+  // bronie i podpowiedzi pada to prostokąty wykluczeń mierzone z DOM (dawne stałe 58/76/64 px nie pasowały do kolumny
+  // przycisków na telefonie poziomo: x 700–782 przy 812 px). `ik` = ikona [niski ekran, ≥ 700 px] przed zaokrągleniem do siatki 18.
+  znaczniki:{ max: 3, garnekD: 45, zwykleD: 22, zwykleMax: 2, wybor: 0.1, strefaCo: 0.5, ik: [24, 32], nowyCzas: 2.5,
+              margines: { gora: 6, dol: 8, bok: 10 }, podpowiedzi: 3, podpD: 14 },
   garnek:   { n: 3, r: 1.6, cd: 45 },
   stolnica: { r: 3.5, rMarket: 2.6, czas: 4.0, zanik: 0.5, reset: 6, cd: 50, pierwsza: 45, odBiegu: 1,
               premiaRz: { nieb: 0.10, fiol: 0.05 }, minRz: 'nieb' },
@@ -10654,7 +10692,9 @@ function buildChunk(cx, cz) {
     // Kolizje (`solids`: pozycje, hw/hl, top) i liczba wywołań rng() BEZ ZMIAN względem prostych brył sprzed 30.09.
     // Wygląd: stos skrzyń na warzywa / taras na palach / kamienne schody — cała struktura chunka = JEDNA scalona
     // siatka (`flushLaki`: 1 draw call + 1 w cieniu; dawniej 3 / 6 / 3 Meshe bez cieni).
-    const laki = new ML.Zbior();
+    // 01.10: Wąwozy mają własny WYGLĄD (skrzynie flisackie, pomost na palach z rusztowaniem, schody z piaskowca, cokół
+    // skalny do gruntu) — kolizje i rng() poniżej wspólne dla obu map (sekcja „ŁĄKI — MODELE 3D" → „Wąwozy").
+    const laki = new ML.Zbior({ styl: mapKey === 'wawozy' ? 'wawozy' : 'laki' });
     let lakiDawniej = 0;                           // ile Meshy stawiała stara wersja (strumień bota — patrz flushLaki)
     const rr = rng();
     if (rr < 0.30) {
@@ -10856,15 +10896,22 @@ function wodaChunka(cx, cz, rocks) {
 // buildChunk jak dawniej; tu tylko wygląd: prefaby z modułu (cache) przepisane do świata → JEDNA siatka na chunk,
 // stopy (podstawy stojące na ziemi) zjeżdżają do rysowanego gruntu (`gruntDoSadzenia`) — na stoku nic nie wisi.
 // Materiał wspólny (toon + ton cienia + wiatr trawy/naci/chorągiewek + cień chmur liczony w nim, NIE addCloudShadow).
-const LAKI = { chunki: 0, tris: 0, ms: 0, msMax: 0, rozgrzewka: null };   // DEV: HORDA.laki3D()
+const LAKI = { chunki: 0, tris: 0, ms: 0, msMax: 0, rozgrzewka: null, cieple: {} };   // DEV: HORDA.laki3D()
 let _lakiMat = null;
-function lakiMat() {
-  if (!_lakiMat) {
-    _lakiMat = ML.materialLak(THREE, { czas: windU, chmury: { tex: cloudShadowU, off: cloudOffU, skala: CLOUD_SCALE } });
-    // wszystkie warianty prefabów od razu (pierwszy chunk = ekran ładowania / zmiana mapy): zimny prefab to do ~16 ms,
-    // a nowy wariant wpadałby w bieg przy przekroczeniu granicy chunka. Bez obiektów three → bez Math.random.
-    LAKI.rozgrzewka = ML.rozgrzej();
-  }
+// Wąwozy: daszek budki na pomoście wycina się przy kamerze, gdy zasłania postać (jak regały w markecie) — odcinek
+// kamera → pierś gracza, co render (`lakiKlatka` w syncInstancje); a = b → wyłączone (menu, karabin z oczu, inne mapy)
+const lakCutA = { value: new THREE.Vector3() }, lakCutB = { value: new THREE.Vector3() };
+function lakiKlatka() {
+  if (!_lakiMat) return;
+  if (G.running && mapKey === 'wawozy' && !(G.fps && G.fps.on)) { lakCutA.value.copy(camera.position); lakCutB.value.set(P.pos.x, P.y + 1.15, P.pos.z); }
+  else lakCutB.value.copy(lakCutA.value);
+}
+function lakiMat(styl = 'laki') {
+  if (!_lakiMat) _lakiMat = ML.materialLak(THREE, { czas: windU, chmury: { tex: cloudShadowU, off: cloudOffU, skala: CLOUD_SCALE }, ciecie: { a: lakCutA, b: lakCutB } });
+  // wszystkie warianty prefabów STYLU od razu (pierwszy chunk mapy = ekran ładowania / zmiana mapy): zimny prefab to do
+  // ~16 ms, a nowy wariant wpadałby w bieg przy przekroczeniu granicy chunka. Bez obiektów three → bez Math.random.
+  // Materiał jeden dla Łąk i Wąwozów (inny materiał = inny UUID = przesunięty strumień bota).
+  if (!LAKI.cieple[styl]) LAKI.rozgrzewka = LAKI.cieple[styl] = ML.rozgrzej(styl);
   return _lakiMat;
 }
 // `dawniej` = ile Meshy stawiała w tym chunku stara wersja (3 skrzynie / pomost + 4 pale + stopień / 3 stopnie).
@@ -10874,8 +10921,9 @@ function lakiMat() {
 function flushLaki(zb, rocks, dawniej) {
   let m = null;
   if (!zb.pusty) {
-    const mat = lakiMat(), t0 = performance.now();   // materiał (+ rozgrzewka prefabów) poza pomiarem budowy chunka
-    const geo = zb.geo(THREE, gruntDoSadzenia);
+    const mat = lakiMat(zb.styl), t0 = performance.now();   // materiał (+ rozgrzewka prefabów) poza pomiarem budowy chunka
+    // Wąwozy: elementy leniwe (cokół, rusztowanie, strona daszku, żyłki wędek) liczone tu z gruntu i lustra wody
+    const geo = zb.geo(THREE, gruntDoSadzenia, wodaY);
     m = new THREE.Mesh(geo, mat);
     m.castShadow = true; m.receiveShadow = true;
     m.wlasnaGeo = true;                            // ensureChunks zwolni geometrię razem z chunkiem
@@ -11869,6 +11917,8 @@ function updateWeaponChest(dt) {
       otworzKufer3D('zlota', wchest.pos, wchest.t, () => pchnijOverlay(() => otworzZlotaSkrzynie('mapa')));
     }
   }
+  // 01.10: znaczniki skrzyń w HUD (domyślnie wł.) zastępują tę strzałkę; wył. w Ustawieniach = strzałka jak dawniej
+  if (ZN && META.ui.wskazniki !== false) { if (arrow.style.display !== 'none') arrow.style.display = 'none'; return; }
   // E1-bieg K7: strzałka prowadzi do BLIŻSZEJ z dwóch: Skrzyni Kaprala (fiolet) albo złotej. Dawniej fiolet
   // miał bezwzględne pierwszeństwo, więc niepodniesiona Skrzynia Kaprala zasłaniała złotą do końca biegu.
   let kap = najblizszaSkrzyniaKaprala();
@@ -11888,6 +11938,150 @@ function updateWeaponChest(dt) {
   arrow.style.display = 'flex';
   ar.style.transform = `rotate(${Math.atan2(-sy, sx)}rad)`;    // ikona wskazuje w prawo przy 0°
   arrow.querySelector('.dist').textContent = Math.round(d) + ' m';
+}
+
+// ============================== ZNACZNIKI SKRZYŃ W HUD (01.10.2026) ==============================
+// Życzenie właściciela: „może strzałki wskazujące skrzynki". Ekran (rzut przez macierze kamery, krawędź strefy, wypychanie
+// z prostokątów HUD, pula DOM, zero alokacji): lib/znaczniki.js. TU: które cele i czy są zasłonięte.
+// Priorytet: złota skrzynia → Skrzynie Kaprala → najbliższy GOTOWY Garnek Nonny ≤ garnekD (na Markecie to witryna — ten sam
+// cel, inny kostium) → zwykłe skrzynki ≤ zwykleD, tylko gdy nie ma żadnego z tamtych; najwyżej `max`, w typie najbliższe.
+// Od ciszy 9:52 zostają tylko złota i kapral (nagrody; garnek i skrzynki nie odciągają od Dona — spec E3 §1.2).
+// Ukryte: menu, pauza i nakładki, tryb karabinu, animacja śmierci, opcja wył. (Ustawienia → GRA, META.ui.wskazniki).
+// E3 (Stolnica, Wyzwanie, cel wydarzenia): dopisz typ do ZN_TYPY (prio, ikona v2, kolor) i cel w znWybierz — reszta działa sama.
+const ZN_TYPY = {
+  zlota:    { prio: 0, ik: 'zlota',    kol: '#ffd75e', wys: 2.0, strz: null },
+  kapral:   { prio: 1, ik: 'kapral',   kol: '#c07bff', wys: 2.0, strz: { Y: '#9a62d4', z: '#d2b2f6', y: '#5a2f86' } },
+  garnek:   { prio: 2, ik: 'garnek',   kol: '#7ee7ff', wys: 2.2, strz: { Y: '#69b2ee', z: '#c4ecff', y: '#2f6db8' } },
+  skrzynka: { prio: 3, ik: 'skrzynka', kol: '#e8c49a', wys: 1.7, strz: { Y: '#d89a5a', z: '#f6dcae', y: '#a8642e' } },
+};
+let ZN = null;                                      // lib/znaczniki.js (initZnaczniki w boot)
+const ZN_CELE = [];                                  // pula celów — obiekty tworzone raz
+for (let i = 0; i < 24; i++) ZN_CELE.push({ typ: '', prio: 0, x: 0, y: 0, z: 0, d: 0, zasl: false, nowy: false, ref: null });
+const ZN_GORA = ['xpwrap', 'lvl', 'ranga', 'rangawrap', 'timer', 'hearts', 'kills', 'coins', 'pauseBtn', 'fsBtn', 'bossHp'];
+const ZN_WYK = ['jbtn', 'karabinBtn', 'stawBtn', 'smrodBtn', 'wpns', 'skl', 'padHud'];
+let znN = 0, _znT = 0, _znStrefaT = 0, _znW = 0, _znH = 0, _znZlotaOd = -9, _znZlotaBylo = false, _znEl = null;
+const _znDiag = { wybor: 0, rysuj: 0, zasl: 0, n: 0 };   // DEV: HORDA.znaczniki()
+function initZnaczniki() {
+  const el = document.getElementById('znaczniki');
+  if (!el) return;
+  ZN = new Znaczniki(el, CFG_MAPA.znaczniki.max);
+  for (const k of Object.keys(ZN_TYPY)) {
+    const t = ZN_TYPY[k];
+    ZN.typ(k, { ikona: ikona2(t.ik, 4, t.kol), strzalka: ikona2('wskaznik', 4, t.kol, t.strz) });   // obrys w kolorze typu = „ramka"
+  }
+  _znEl = { hud: document.getElementById('hud'), gora: ZN_GORA.map(id => document.getElementById(id)).filter(Boolean),
+            wyk: ZN_WYK.map(id => document.getElementById(id)).filter(Boolean) };
+}
+const znOdl = p => { const dx = p.x - P.pos.x, dz = p.z - P.pos.z; return Math.sqrt(dx * dx + dz * dz); };   // nie Math.hypot (alokuje w V8)
+// wysokość podstawy celu: kufry się unoszą (nośnik `mesh`), skrzynka i garnek stoją na `y0`
+const znY = (typ, ref) => (typ === 'zlota' || typ === 'kapral') ? ref.mesh.position.y + (ref.danie ? 0.9 : 0)
+  : (ref.y0 != null ? ref.y0 : terrainH(ref.pos.x, ref.pos.z));
+function znDodaj(typ, ref, d) {
+  if (znN >= ZN_CELE.length) return;
+  const c = ZN_CELE[znN++], t = ZN_TYPY[typ];
+  c.typ = typ; c.prio = t.prio; c.ref = ref; c.d = d; c.zasl = false; c.nowy = false;
+  c.x = ref.pos.x; c.z = ref.pos.z; c.y = znY(typ, ref) + t.wys;
+}
+// LINIA WZROKU kamera → cel: 12 próbek; teren (mesy, ściany Wąwozów) i bryły (`ch.solids`: regały, bloki osiedla, pnie, głazy)
+function znZasloniety(x, y, z) {
+  const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+  const M = MAPS[mapKey], teren = !M.indoor && !M.osiedle;
+  const dx = x - cx, dy = y - cy, dz = z - cz;
+  for (let i = 1; i < 12; i++) {
+    const k = i / 12, px = cx + dx * k, py = cy + dy * k, pz = cz + dz * k;
+    if (teren && terrainH(px, pz) > py + 0.25) return true;
+    const lista = chunkiWokol(Math.floor(px / CHUNK), Math.floor(pz / CHUNK));
+    for (let a = 0; a < lista.length; a++) {
+      const sol = lista[a].solids.siatka ? mkKomorka(lista[a].solids.siatka, px, pz) : lista[a].solids;
+      for (let b = 0; b < sol.length; b++) {
+        const s = sol[b];
+        if (py > s.top) continue;                    // linia nad bryłą
+        if (s.c) { const ex = px - s.x, ez = pz - s.z; if (ex * ex + ez * ez < s.r * s.r) return true; }
+        else if (Math.abs(px - s.x) < s.hw && Math.abs(pz - s.z) < s.hl) return true;
+      }
+    }
+  }
+  return false;
+}
+function znWybierz() {
+  const Z = CFG_MAPA.znaczniki;
+  znN = 0;
+  if (wchest.active) {
+    if (!_znZlotaBylo) _znZlotaOd = G.time;          // nowa złota skrzynia → puls
+    znDodaj('zlota', wchest, znOdl(wchest.pos));
+  }
+  _znZlotaBylo = wchest.active;
+  for (let i = 0; i < G.skrzynieKap.length; i++) znDodaj('kapral', G.skrzynieKap[i], znOdl(G.skrzynieKap[i].pos));
+  if (!G.cisza) {
+    let naj = null, nd = Z.garnekD;
+    for (let i = 0; i < totems.length; i++) {
+      const t = totems[i];
+      if (t.cd > 0) continue;
+      const d = znOdl(t.pos);
+      if (d < nd) { nd = d; naj = t; }
+    }
+    if (naj) znDodaj('garnek', naj, nd);
+    if (!znN) {                                      // zwykłe skrzynki: tylko blisko i tylko bez ważniejszych celów
+      let a = null, ad = Z.zwykleD, b = null, bd = Z.zwykleD;
+      for (let i = 0; i < chests.length; i++) {
+        const c = chests[i];
+        if (c.opened) continue;
+        const d = znOdl(c.pos);
+        if (d < ad) { b = a; bd = ad; a = c; ad = d; } else if (d < bd) { b = c; bd = d; }
+      }
+      if (a) znDodaj('skrzynka', a, ad);
+      if (b && Z.zwykleMax > 1) znDodaj('skrzynka', b, bd);
+    }
+  }
+  // sortowanie wstawianiem (≤ 24 celów): priorytet, potem odległość
+  for (let i = 1; i < znN; i++) {
+    const c = ZN_CELE[i];
+    let j = i - 1;
+    while (j >= 0 && (ZN_CELE[j].prio > c.prio || (ZN_CELE[j].prio === c.prio && ZN_CELE[j].d > c.d))) { ZN_CELE[j + 1] = ZN_CELE[j]; j--; }
+    ZN_CELE[j + 1] = c;
+  }
+  const k = Math.min(znN, Z.max), t0 = DEV ? performance.now() : 0;
+  for (let i = 0; i < k; i++) {
+    const c = ZN_CELE[i], r = c.ref;
+    // linia wzroku do ŚRODKA bryły (punkt znacznika wisi nad nią i łatwo przechodził nad regałem); histereza 0..3 na
+    // obiekcie celu — stan zmienia się po dwóch zgodnych odczytach, więc znacznik nie miga na krawędzi regału
+    const z = znZasloniety(c.x, c.y - ZN_TYPY[c.typ].wys + 0.8, c.z);
+    r._znZ = Math.max(0, Math.min(3, (r._znZ || 0) + (z ? 1 : -1)));
+    c.zasl = r._znZ >= 2;
+    c.nowy = c.typ === 'zlota' && G.time - _znZlotaOd < Z.nowyCzas;
+  }
+  if (DEV) _znDiag.zasl = performance.now() - t0;
+}
+// strefa bezpieczna: pod górnym pasem HUD (serca, zegar, pauza, pasek bossa) + wykluczenia (przyciski, bronie, podpowiedzi pada)
+function znStrefa(W, H) {
+  const M = CFG_MAPA.znaczniki.margines;
+  let gora = 0;
+  for (const e of _znEl.gora) { const r = e.getBoundingClientRect(); if (r.width > 0 && r.height > 0 && r.top < H * 0.4) gora = Math.max(gora, r.bottom); }
+  const hr = _znEl.hud.getBoundingClientRect();        // #hud jest wciągnięty o env(safe-area-inset-*) — notch iPhone'a
+  ZN.strefa(Math.max(0, hr.left) + M.bok, Math.max(gora, hr.top) + M.gora, Math.min(W, hr.right || W) - M.bok, H - M.dol);
+  ZN.wyczyscWyk();
+  for (const e of _znEl.wyk) { const r = e.getBoundingClientRect(); if (r.width > 0 && r.height > 0) ZN.dodajWyk(r.left, r.top, r.right, r.bottom); }
+}
+function updateZnaczniki(dt) {
+  if (!ZN) return;
+  const on = G.running && !G.paused && !G.dying && !G.fps.on && META.ui.wskazniki !== false && !ovWidoczny()
+    && !document.body.classList.contains('w-menu');
+  if (!on) { ZN.pokaz(false); _znT = 0; return; }
+  const Z = CFG_MAPA.znaczniki, W = innerWidth, H = innerHeight, t0 = DEV ? performance.now() : 0;
+  if (W !== _znW || H !== _znH || (_znStrefaT -= dt) <= 0) {
+    _znW = W; _znH = H; _znStrefaT = Z.strefaCo;
+    znStrefa(W, H);
+    ZN.rozmiar(ik2px(H >= 700 ? Z.ik[1] : Z.ik[0]));
+  }
+  if ((_znT -= dt) <= 0) { _znT = Z.wybor; znWybierz(); }
+  else for (let i = 0, k = Math.min(znN, Z.max); i < k; i++) {   // między wyborami: pozycje i odległości na bieżąco
+    const c = ZN_CELE[i];
+    c.x = c.ref.pos.x; c.z = c.ref.pos.z; c.d = znOdl(c.ref.pos);
+    if (c.typ === 'zlota' || c.typ === 'kapral') c.y = znY(c.typ, c.ref) + ZN_TYPY[c.typ].wys;
+  }
+  const t1 = DEV ? performance.now() : 0;
+  ZN.rysuj(camera, W, H, ZN_CELE, Math.min(znN, Z.max));   // macierze kamery z renderer.render (loop) albo z haka DEV
+  if (DEV) { _znDiag.wybor = t1 - t0; _znDiag.rysuj = performance.now() - t1; _znDiag.n = Math.min(znN, Z.max); }
 }
 
 // ============================== GARNEK NONNY (dawne totemy) ==============================
@@ -14011,6 +14205,9 @@ function loop() {
     _menuRnd = 0;
     try { renderer.render(scene, camera); } catch (err) { console.error(err); }
   }
+  // 01.10: znaczniki skrzyń PO renderze — render przeliczył macierze kamery ustawionej w update() (bez drugiego
+  // updateMatrixWorld); zmiany DOM z tego samego wywołania rAF trafiają do tej samej klatki
+  try { updateZnaczniki(dt); } catch (err) { console.error(err); }
   if (DEV) devHudTick(t0, t1, performance.now());
 }
 let _menuRnd = 0;
@@ -14063,6 +14260,7 @@ const _kotwica = new THREE.Vector3();
 function syncInstancje() {
   osKlatka();                                      // osiedle: zasięg chunków + przycinanie przy kamerze (przed KAŻDYM renderem)
   mkKlatka();                                      // market: chunki za mgłą nie rysują się
+  lakiKlatka();                                    // Wąwozy: daszek budki przycinany przy kamerze
   if (!coinMat || !glowMat || !ringMat || !eliteRingMat || !pigulkaMat) return;   // przed bootem
   if (!pulaCien) {
     pulaCien = new InstPula(blobGeo, blobMat, { cap: 512, nazwa: 'cienie wrogów' });
@@ -14729,6 +14927,7 @@ if (loadTip) {
   setMap(mapKey);        // buduje świat + rozstawia skrzynie/totemy
   await ladowanie(T('Ukrywanie skrzyń…', 'Hiding the crates…'));
   initSkrzynie3D();         // 30.09: modele skrzyń, kufrów i garnka (liczone z kodu, raz) + efekty
+  initZnaczniki();          // 01.10: znaczniki skrzyń w HUD (pula DOM, ikony v2)
   spawnChests(9);
   await ladowanie(T('Stawianie garnków Nonny…', "Setting out Nonna's pots…"));
   spawnTotems(3);
@@ -14903,6 +15102,16 @@ if (loadTip) {
   document.getElementById('skrzPelna').onclick = () => { META.ui.skrzyniaSzybka = false; saveMeta(); odswiezAnimSkrz(); };
   document.getElementById('skrzSzybkaBtn').onclick = () => { META.ui.skrzyniaSzybka = true; saveMeta(); odswiezAnimSkrz(); };
   odswiezAnimSkrz();                                 // prefers-reduced-motion = szybka domyślnie, dopóki gracz nie wybierze
+  // 01.10: Wskaźniki skrzyń wł./wył. (META.ui.wskazniki; wył. = dawna jedna strzałka #wArrow na środku ekranu)
+  const odswiezWsk = () => {
+    const on = META.ui.wskazniki !== false;
+    document.getElementById('wskWl')?.classList.toggle('sel', on);
+    document.getElementById('wskWyl')?.classList.toggle('sel', !on);
+  };
+  const wskWl = document.getElementById('wskWl'), wskWyl = document.getElementById('wskWyl');
+  if (wskWl) wskWl.onclick = () => { META.ui.wskazniki = true; saveMeta(); odswiezWsk(); };
+  if (wskWyl) wskWyl.onclick = () => { META.ui.wskazniki = false; saveMeta(); odswiezWsk(); };
+  odswiezWsk();
   // E1-bieg K9: wyjście do menu = ta sama ścieżka końca co śmierć i wygrana (rozliczenie, liczniki, GoatCounter)
   document.getElementById('btnQuit').onclick = () => koniecBiegu('menu');
   addEventListener('keydown', e => {
@@ -15084,7 +15293,7 @@ if (loadTip) {
       if (o.reset) Object.assign(LAKI, { chunki: 0, tris: 0, ms: 0, msMax: 0 });   // pomiar budowy od teraz (bez rozgrzewki w starcie)
       let n = 0, tri = 0;
       for (const ch of chunkMap.values()) for (const m of ch.rocks) if (m.userData.laki3D) { n++; tri += m.geometry.attributes.position.count / 3; }
-      return { siatki: n, tris: tri, trisSzt: ML.liczTrojkaty(), zbudowane: LAKI.chunki, msSr: +(LAKI.ms / Math.max(1, LAKI.chunki)).toFixed(3),
+      return { siatki: n, tris: tri, trisSzt: ML.liczTrojkaty(mapKey === 'wawozy' ? 'wawozy' : 'laki'), zbudowane: LAKI.chunki, msSr: +(LAKI.ms / Math.max(1, LAKI.chunki)).toFixed(3),
                msMax: +LAKI.msMax.toFixed(2), rozgrzewka: LAKI.rozgrzewka };
     },
     skrzynie3D() {
@@ -15152,5 +15361,16 @@ if (loadTip) {
     },
   };
   if (DEV) Object.assign(window.HORDA, { menuAudyt, menuPodstaw, renderMenu, mapaOdbl, MENU, MAPA_GRAF });   // menu A (E4 K11)
+  // 01.10 DEV: znaczniki skrzyń — `HORDA.znaczniki(true)` = wymuś wybór celów i rysowanie teraz (np. po HORDA.step na pauzie)
+  if (DEV) Object.assign(window.HORDA, {
+    ZN: () => ZN, ZN_TYPY, znZasloniety,
+    znKrok(wybor, kam) { if (wybor) _znT = 0; if (kam) camera.updateMatrixWorld(); updateZnaczniki(1 / 60); },   // pomiar kosztu/alokacji (bez raportu)
+    znaczniki(wymus) {
+      if (wymus && ZN) { _znT = 0; _znStrefaT = 0; camera.updateMatrixWorld(); const p = G.paused; G.paused = false; updateZnaczniki(1 / 60); G.paused = p; }
+      return { ...(_znDiag), cele: ZN_CELE.slice(0, Math.min(znN, CFG_MAPA.znaczniki.max)).map(c => ({ typ: c.typ, d: +c.d.toFixed(1), zasl: c.zasl, nowy: c.nowy })),
+        el: ZN ? ZN.p.map(p => ({ on: p.on, x: p.x, y: p.y, tryb: p.tryb, kat: p.kat * 5, txt: p.txt })) : null,
+        strefa: ZN ? [ZN.L, ZN.T, ZN.R, ZN.B, ZN.nWyk, ZN.ik] : null };
+    },
+  });
   if (DEV) Object.assign(window.HORDA, { KODY_NONNY, CFG_SPIZ, SPIZ_KOLEJNOSC, sklOdbl, sklMaxBiegu, cenaSpiz, KUP_MONETY, kodyTest: [] });   // Spiżarnia + Kod od Nonny (29.09)
 })();
