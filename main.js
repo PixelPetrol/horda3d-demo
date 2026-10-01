@@ -3851,8 +3851,9 @@ const KODY_NONNY = {
     const wpis = lista.find(x => x && x.h === h);
     if (!wpis) return zly();
     const monety = Math.max(0, Math.min(1000000, Math.round(+wpis.m || 0)));
-    if (!monety) return zly();
-    return { ok: true, monety, klucz };
+    const mapy = wpis.mapy === 1 || wpis.mapy === true;   // 01.10: kod „wszystkie mapy" (kod_monet.py --mapy)
+    if (!monety && !mapy) return zly();
+    return { ok: true, monety, mapy, klucz };
   },
 };
 
@@ -14839,11 +14840,16 @@ if (loadTip) {
     }
     const w = await KODY_NONNY.sprawdz(surowy);
     if (w.ok) {
-      META.coins += w.monety; META.kody[w.klucz] = Date.now(); saveMeta();
-      renderShop(); odswiezRog();
+      META.coins += w.monety; META.kody[w.klucz] = Date.now();
+      if (w.mapy) {                                 // 01.10: wszystkie mapy otwarte (ta sama ścieżka co migracja `st.mapyOtw`)
+        META.st.mapyOtw = Object.assign(META.st.mapyOtw || {}, Object.fromEntries(Object.keys(MAPA_WARUNEK).map(k => [k, 1])));
+      }
+      saveMeta();
+      renderShop(); odswiezRog(); renderPick(); renderMaps();
       AUDIO.sfx('zlota'); blysk('#ffd75e', 0.35);
-      STATY.zdarzenie('kod/ok', 'Kod od Nonny: przyjęty');
-      kodKom(T(`Nonna dorzuca ${liczba(w.monety)} monet!`, `Nonna chips in ${liczba(w.monety)} coins!`));
+      STATY.zdarzenie('kod/ok' + (w.mapy ? '-mapy' : ''), 'Kod od Nonny: przyjęty');
+      const tm = w.mapy ? T('Wszystkie mapy otwarte!', 'All maps unlocked!') : '';
+      kodKom(w.monety ? T(`Nonna dorzuca ${liczba(w.monety)} monet!`, `Nonna chips in ${liczba(w.monety)} coins!`) + (tm ? ' ' + tm : '') : tm);
       kodInput.value = '';
       return;
     }
