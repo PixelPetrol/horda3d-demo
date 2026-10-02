@@ -148,9 +148,11 @@ const CHARS = {
   // BALANS: nie silniejsza od Carrotella (spec właściciela) — bez jego szybkości i magnesu (×1), 5 serc,
   // broń krótkiego zasięgu ze spowolnieniem; pomiar bota vs Carrotello w INFO-PROJEKT.md.
   czekotubka: { nm: 'Czekotubka',
-                ds: T('Czekoladowa zdrajczyni Famiglii — tryska czekoladą, a oblepieni zwalniają.',
-                      'The chocolate turncoat of the Famiglia — squirts chocolate, and the smeared slow down.'),
-                char: 'czekotubka', price: 0, bonus: true, model3d: true, skala3d: 0.95, startWpn: 'strumien',
+                ds: T('Postać eventowa! Czekoladowa zdrajczyni Famiglii — tryska czekoladą, a oblepieni zwalniają.',
+                      'Event character! The chocolate turncoat of the Famiglia — squirts chocolate, and the smeared slow down.'),
+                // 02.10 Piotr: POSTAĆ EVENTOWA (afera czekotubkowa w polskim internecie) — widoczna dla wszystkich,
+                // odblokowanie po 2000 pokonanych wrogach (licznik całego zapisu, jak Beetino 450); kod CZEKOTUBKA działa dalej
+                char: 'czekotubka', price: 0, ewent: true, killGoal: 2000, model3d: true, skala3d: 0.95, startWpn: 'strumien',
                 spd: 1.0, hp: 0, dmg: 1.0, mag: 1.0, scale: 1,
                 regula: T('Słodka zdrada: Snackoni czasem (5%) zawahają się i przez 1 s jej nie biją',
                           'Sweet treason: Snackoni sometimes (5%) hesitate and leave her alone for 1 s') },
@@ -4111,7 +4113,7 @@ function renderChars() {
     if (!postacWidoczna(key)) continue;            // bonus z kodu: do wpisania kodu tej postaci w ogóle nie ma
     const owned = maszPostac(key);
     const d = document.createElement('div');
-    d.className = 'tile' + (key === charKey ? ' sel' : '') + (owned ? '' : ' lock') + (C.bonus ? ' bonus' : '');
+    d.className = 'tile' + (key === charKey ? ' sel' : '') + (owned ? '' : ' lock') + (C.bonus || C.ewent ? ' bonus' : '');
     // postać za zabójstwa pokazuje POSTĘP, nie cenę — inaczej nie wiadomo, po co grać
     const cel = C.killGoal
       ? `<div class="pr">${ico('czaszka', 15)} ${Math.min(META.st.kills, C.killGoal)}/${C.killGoal}</div>
@@ -4124,7 +4126,7 @@ function renderChars() {
     // 72 px, nie 62: po auto-przycięciu portret jest KWADRATEM z 3 px marginesu,
     // więc sama postać zajmuje mniej niż w dawnym, ciasnym kadrze 64×77
     d.innerHTML = `<div class="ico"><img class="pxi${rh ? ' hd' : ''}" src="${rh || portret(C.char, 72)}" style="height:72px"></div>
-      ${C.bonus ? `<div class="bonusZn">BONUS</div>` : ''}<div class="nm">${C.nm}</div>
+      ${C.bonus || C.ewent ? `<div class="bonusZn">${C.ewent ? T('EVENT', 'EVENT') : 'BONUS'}</div>` : ''}<div class="nm">${C.nm}</div>
       <div class="ds">${C.ds}</div>${C.regula ? `<div class="regula">${C.regula}</div>` : ''}${owned ? '' : cel}`;
     d.onclick = () => {
       if (!owned) {
@@ -4172,7 +4174,7 @@ function renderPick() {
   ].map(([i, k, v]) => `<div class="hs">${mIk(i)}<span>${k}</span><b>${v}</b></div>`).join('');
   const st = document.getElementById('heroStat'); if (st) st.innerHTML = wiersze;
   const ps = document.getElementById('postStat');
-  if (ps) ps.innerHTML = `<div class="nm">${C.nm}${C.bonus ? ' <span class="bonusZn">BONUS</span>' : ''}</div>` + wiersze;
+  if (ps) ps.innerHTML = `<div class="nm">${C.nm}${C.bonus || C.ewent ? ` <span class="bonusZn">${C.ewent ? 'EVENT' : 'BONUS'}</span>` : ''}</div>` + wiersze;
   // TABLICZKA MAPY: 0 biegów = sama nazwa (bez wyboru); potem ‹ nazwa › (nazwa otwiera mapę osiedla)
   const mp = document.getElementById('heroMapa');
   if (mp) {
@@ -6620,7 +6622,7 @@ const CFG_TRUDNOSC = {
       // 30.09 wieczór, Piotr po v307: „trochę za trudne, daj mniej wrogów o 1/3 na początku, bo nie mogę dotrzeć do 5 min"
       // → do 3:00 tempo i podłoga ×0,67 (1:00: 80 → 54 żywych, 2:00: 130 → 87), potem liniowo do ×1 w 5:00
       start: [[0, 0.67], [180, 0.67], [300, 1]],
-      hp: { zwykly: 1.7, elita: 1.35, kapral: 1.5, don: 1.5 },   // 01.10 „zmniejsz trudność trochę": zwykli 2 → 1,7, elity 1,5 → 1,35
+      hp: { zwykly: 1.45, elita: 1.2, kapral: 1.4, don: 1.4 },   // 02.10 „trudność trzeba zmniejszyć": 1,7/1,35/1,5/1,5 → 1,45/1,2/1,4/1,4   // 01.10 „zmniejsz trudność trochę": zwykli 2 → 1,7, elity 1,5 → 1,35
       lagodny: false, rekaPierwszy: true,
     },
     bieg: {
@@ -6685,7 +6687,7 @@ const CFG_TRUDNOSC = {
     // a taka sama ilość tabletek", „bronie 4× droższe", „stanowczo za prosta"). Mnożniki działają w NORMALNYM biegu —
     // łagodny 1. bieg bez zmian (ekonBieg = 1); ceny broni zawsze. Sekcja „EKONOMIA ×½ / ×4" w INFO-PROJEKT.md.
     ekon: {
-      serceElity: 0.5,                               // szansa serca z elity × → 4% → 2%
+      serceElity: 0.75,                              // szansa serca z elity × (02.10: 0,5 → 0,75, czyli 4% → 3%)
       serceKapral: 0.5,                              // piniata kaprala (i boss): 1 serce (+1 litość przy HP ≤ 30%) → 50% na 1 serce, przy HP ≤ 30% pewne 1
       rosolRegen: 0.5,                               // regeneracja Rosołu: 0,006 → 0,003 serca/s na jednostkę (5 j.: 1 serce co 33 → 67 s)
       rosolLecz: 0.5,                                // leczenie przy wzięciu Rosołu: do pełna → połowa brakujących (w górę, nowe serce zawsze pełne)
