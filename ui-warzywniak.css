@@ -251,6 +251,19 @@ body.pad-foot #startOv.panel-open #warzywniak #panele{bottom:calc(58px + env(saf
 #warzywniak #postStat .hs b{color:var(--zloto)}
 #warzywniak #postStat .nm{width:100%;color:var(--zloto);font-size:16px}
 #warzywniak #postStat img{width:var(--ik24);height:var(--ik24)}
+/* 06.10 SKÓRKI: przełącznik KLASYCZNA / 3D pod statystykami (kłódka + warunek z paskiem, gdy zablokowana) */
+#warzywniak #postSkorka{margin:-6px auto 16px;max-width:560px;clear:both}
+#warzywniak #postSkorka[hidden]{display:none}
+#warzywniak #postSkorka .skRzad{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:2px 6px}
+#warzywniak #postSkorka .skT{color:var(--kreda-ciemna);font-size:14px;letter-spacing:1px;margin-right:6px}
+#warzywniak #postSkorka .btn2{margin:6px 5px 12px;min-width:104px;gap:6px}
+#warzywniak #postSkorka .btn2.lock{filter:grayscale(.45) brightness(.82)}
+#warzywniak #postSkorka .btn2 img{width:16px;height:16px}
+#warzywniak #postSkorka .skWar{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px 6px;font-size:13px;color:var(--kreda)}
+#warzywniak #postSkorka .skWar b{color:var(--zloto)}
+#warzywniak #postSkorka .pbar{margin:7px auto 0;width:min(320px,80%);height:9px;background:var(--drewno-ciemne);box-shadow:0 0 0 2px var(--kontur)}
+#warzywniak #postSkorka .pbar i{display:block;height:100%;background:repeating-linear-gradient(90deg,var(--zloto) 0 6px,#e0a832 6px 12px)}
+#warzywniak .tile .skZn{background:#7ee7ff;color:#10303a}
 #warzywniak #wFabulaBox{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
 #warzywniak #wFabulaBox .btn2,#warzywniak #panele .btn2{min-height:44px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}
 #warzywniak #panele .tile{min-height:44px}

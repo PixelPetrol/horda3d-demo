@@ -695,7 +695,7 @@
      Kolejność między plikami: tokeny → menu → HUD (HUD dokłada drugi agent). -->
 <link rel="stylesheet" href="ui-base.css?v=6">
 <link rel="stylesheet" href="ui-menu.css?v=6">
-<link rel="stylesheet" href="ui-warzywniak.css?v=4">
+<link rel="stylesheet" href="ui-warzywniak.css?v=5">
 <link rel="stylesheet" href="ui-hud.css?v=24">
 </head>
 <body>
@@ -821,6 +821,8 @@
   </div>
   <div class="panel" id="p-postacie"><h2 data-ik2="postac" data-pl="POSTACIE" data-en="HEROES">POSTACIE</h2>
     <div id="postStat"></div>
+    <!-- 06.10 SKÓRKI: przełącznik KLASYCZNA / 3D (main.js skorkaHTML; ukryty dla postaci bez skórek) -->
+    <div id="postSkorka" hidden></div>
     <div class="grid" id="charGrid"></div></div>
   <!-- AKTA FAMIGLII = bestiariusz + statystyki (dawne dwie zakładki) -->
   <div class="panel" id="p-akta">
@@ -1030,6 +1032,6 @@
     addEventListener('unhandledrejection', e => window.__err.push('PROMISE: ' + (e.reason && e.reason.stack || e.reason)));
   }
 </script>
-<script type="module" src="main.js?v=316"></script>
+<script type="module" src="main.js?v=317"></script>
 </body>
 </html>

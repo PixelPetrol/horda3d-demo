@@ -15,6 +15,9 @@ import * as OSR from './lib/osiedle-rekwizyty.js?v=2';   // 30.09: prawdziwe mod
 import * as MS from './lib/modele-skrzynie.js?v=1';     // 30.09: skrzynie i kapliczki 3D (sekcja „SKRZYNIE I KAPLICZKI 3D" niżej)
 import { Czasza, ustawPrzechyl } from './lib/czasza.js?v=2';   // 01.10: czasza 3D do szybowania (sekcja „CZASZA 3D" w INFO-PROJEKT.md)
 import { stworzCzekotubke } from './lib/czekotubka.js?v=3';  // 01.10: Czekotubka — jedyna postać 3D, bonusowa (sekcja „CZEKOTUBKA" w INFO-PROJEKT.md)
+// 06.10: SKÓRKI 3D (Razoretta 3D) — model z Meshy z własnym szkieletem; GLB wczytywany w tle (sekcja „SKÓRKI (RAZORETTA 3D)")
+import { GLTFLoader } from './lib/GLTFLoader.js';      // ten sam specyfikator co w lib/modele-natura.js = jeden moduł
+import { wczytajPostacMeshy, stworzPostacMeshy, KONFIGI as KONFIGI_MESHY } from './lib/postac-meshy.js?v=1';
 import * as ML from './lib/modele-laki.js?v=2';         // 30.09: stosy skrzyń, podesty, schody na Łąkach/Wąwozach (sekcja „ŁĄKI — MODELE 3D")
 import * as MM from './lib/modele-market.js?v=2';       // 30.09: Market — modele, atlas towaru, posadzka w shaderze (sekcja „MARKET — PRZEBUDOWA")
 import * as UM from './lib/uklad-marketu.js?v=2';       // 30.09: Market — układ chunka (strefy, alejki, hale, plamy)
@@ -144,7 +147,7 @@ const CHARS = {
   // Przekąska, która zdradziła La Famiglię Snackoni i przeszła na stronę warzyw. `bonus: true` = NIEWIDOCZNA
   // (wybór postaci, sklep, cele), dopóki gracz nie wpisze kodu CZEKOTUBKA w Ustawienia → KOD OD NONNY
   // (META.chars.czekotubka = 1). `model3d` = zamiast Billboardu rysuje się model z lib/czekotubka.js
-  // (klasa GraczCzekotubka niżej). `char` = klucz bez arkusza — wszystko, co czyta LIB[...char], pyta najpierw `is3D`.
+  // (klasa Gracz3D niżej, dawniej GraczCzekotubka). `char` = klucz bez arkusza — wszystko, co czyta LIB[...char], pyta najpierw `is3D`.
   // BALANS: nie silniejsza od Carrotella (spec właściciela) — bez jego szybkości i magnesu (×1), 5 serc,
   // broń krótkiego zasięgu ze spowolnieniem; pomiar bota vs Carrotello w INFO-PROJEKT.md.
   czekotubka: { nm: 'Czekotubka',
@@ -159,6 +162,53 @@ const CHARS = {
 };
 // postać bonusowa (z kodu) jest NIEWIDOCZNA, dopóki jej nie odblokowano — nie „zablokowana z ceną", tylko jej nie ma
 const postacWidoczna = key => !CHARS[key].bonus || !!META.chars[key];
+
+// ============================== SKÓRKI (06.10, decyzja właściciela 05.10) ==============================
+// Skórka = INNY WYGLĄD tej samej postaci: staty, bronie i reguła postaci bez zmian. Pierwsza: Razoretta 3D — model z Meshy
+// z własnym szkieletem (lib/postac-meshy.js, assets/postacie3d/razoretta.glb). Odblokowanie za wynik grania tą postacią:
+// `warunek.typ 'killePostaci'` = pokonani wrogowie ŁĄCZNIE ze wszystkich biegów tą postacią (META.st.killePostaci[postac]),
+// próg = `warunek.ile` (JEDNO miejsce w kodzie; alternatywa w PAKIET-DLA-PIOTRA B37: „przetrwaj 5:00 Razorettą").
+// Zapis: META.skorki[id] = 1 (odblokowane), META.ui.skorka[postac] = 'pixel' | id (wybór) — oba na białej liście loadMeta.
+// Kolejne (Beetino / Carrotello 3D): wpis tutaj + KONFIGI w lib/postac-meshy.js; UI, wczytanie i render są ogólne.
+//   skala3d — skala modelu w grze (1,15 = jak sprite i Czekotubka), czasAtaku — ile s model patrzy w stronę serii noży.
+const SKORKI = {
+  razoretta3d: { postac: 'razoretta', nm: T('Razoretta 3D', 'Razoretta 3D'), krotko: '3D', model: 'assets/postacie3d/razoretta.glb', konfig: 'razoretta',
+                 skala3d: 1.15, czasAtaku: 0.6, warunek: { typ: 'killePostaci', ile: 1000 },
+                 warTxt: T('Pokonaj {n} wrogów Razorettą', 'Defeat {n} enemies as Razoretta') },
+};
+const SKORKI_ID = Object.keys(SKORKI);
+const skorkiPostaci = key => SKORKI_ID.filter(id => SKORKI[id].postac === key);
+// postęp warunku (dziś jeden typ: zabójstwa tą postacią)
+const skorkaPostep = id => { const S = SKORKI[id]; return S.warunek.typ === 'killePostaci' ? ((META.st.killePostaci || {})[S.postac] || 0) : 0; };
+const skorkaOdbl = id => !!(META.skorki && META.skorki[id]) || skorkaPostep(id) >= SKORKI[id].warunek.ile;
+const skorkaWarTxt = id => SKORKI[id].warTxt.replace('{n}', SKORKI[id].warunek.ile);
+// wybrana I odblokowana skórka postaci (null = klasyczna, pixelowa) — bez względu na to, czy model już się wczytał
+function skorkaWybrana(key) {
+  const id = META.ui.skorka && META.ui.skorka[key];
+  return id && id !== 'pixel' && SKORKI[id] && SKORKI[id].postac === key && skorkaOdbl(id) ? id : null;
+}
+// WCZYTANIE MODELU W TLE (raz na sesję): przy wyborze skórki, na ekranie menu i po biegu — nigdy w trakcie biegu
+// (parsowanie GLB to ~1,3 MB na głównym wątku). Dopóki modelu nie ma, postać gra sprite'em (`wariantGracza`).
+const SKORKI_DANE = {}, _skorkiLad = {}, _skorkiBlad = {};
+function wczytajSkorke(id) {
+  if (SKORKI_DANE[id]) return Promise.resolve(SKORKI_DANE[id]);
+  if (_skorkiLad[id]) return _skorkiLad[id];
+  if (_skorkiBlad[id] && performance.now() - _skorkiBlad[id] < 30000) return Promise.resolve(null);   // nie młóć sieci po błędzie
+  const S = SKORKI[id];
+  return (_skorkiLad[id] = wczytajPostacMeshy(THREE, GLTFLoader, S.model, KONFIGI_MESHY[S.konfig])
+    .then(d => { SKORKI_DANE[id] = d; _skorkiLad[id] = null; skorkaWczytana(id); return d; })
+    .catch(e => { console.warn('skórka ' + id + ': model się nie wczytał — zostaje sprite', e); _skorkiLad[id] = null; _skorkiBlad[id] = performance.now(); return null; }));
+}
+// menu / koniec biegu: wczytaj w tle WYBRANE skórki (odblokowane, ale niewybrane czekają do wyboru)
+function skorkiWTle() { for (const id of SKORKI_ID) if (!SKORKI_DANE[id] && skorkaWybrana(SKORKI[id].postac) === id) wczytajSkorke(id); }
+// WARIANT GRACZA: id skórki (gdy wybrana i model JUŻ wczytany) | klucz postaci 3D (Czekotubka) | 'pixel' (sprite z arkusza).
+// `celGracza` = wartość `playerBB.char`, jaką gracz powinien mieć — newGame i wczytanie modelu porównują ją z bieżącym.
+const wariantGracza = key => { const id = skorkaWybrana(key); return id && SKORKI_DANE[id] ? id : (CHARS[key].model3d ? key : 'pixel'); };
+const celGracza = key => { const w = wariantGracza(key); return w === 'pixel' ? CHARS[key].char : w; };
+// model doszedł: w menu portrety (kafel, scena) i podmiana gracza w świecie za menu (renderPick → graczWgSkorki: menu jest
+// nieprzezroczyste, ale świat rysuje się 2×/s, więc shadery modelu kompilują się przed GRAJ). W biegu nic — newGame.
+function skorkaWczytana() { if (!G.running) odswiezPostacie(); }
+function graczWgSkorki() { if (playerBB && playerBB.char !== celGracza(charKey)) setPlayerChar(charKey); }
 // ============================== PORTRETY ==============================
 // RENDERY HD: duże obrazki (~280×420) trzech postaci — używane w scence menu
 // i na kafelkach w zakładce Postacie. Dla pozostałych wchodzi `portret()`.
@@ -173,7 +223,9 @@ const RENDER_PORTRET = {
 };
 // render HD z pliku albo — dla postaci 3D (Czekotubka) — obrazek wyrenderowany RAZ z modelu (`portret3D`, sekcja GRACZ 3D)
 // (zapas: ikona postaci, gdyby render portretu się nie udał — pusty `src` = żądanie URL-a strony i zepsuty obrazek)
-const renderPortret = key => RENDER_PORTRET[key] || (CHARS[key] && CHARS[key].model3d ? (portret3D() || icon('postac', 6)) : null);
+// 06.10 SKÓRKI: wybrana skórka 3D = portret z jej modelu; dopóki model się wczytuje — klasyczny render (podmiana po wczytaniu)
+const portretSkorki = key => { const sk = skorkaWybrana(key); return sk ? portret3D(sk) : ''; };
+const renderPortret = key => portretSkorki(key) || RENDER_PORTRET[key] || (CHARS[key] && CHARS[key].model3d ? (portret3D(key) || icon('postac', 6)) : null);
 // portret postaci = pierwsza klatka `idle` w kierunku „south", PRZYCIĘTA PO ALFIE.
 //
 // DLACZEGO AUTO-PRZYCIĘCIE, A NIE STAŁY PROSTOKĄT (zgłoszenie właściciela 18.09):
@@ -3045,16 +3097,20 @@ const faceAngle = (x, z) => { const a = Math.atan2(x, z); return a < 0 ? a + Mat
 //    regały i drzewa (−2), tak jak sylwetki wrogów; w ścisku (≥ 3 wrogów bliżej kamery w 1,8 j. — warunek kopii
 //    Billboardu) 900 = także przez hordę.
 //  • nietykalność: czerwony puls modelu (uBlyskKol/uBlysk) zamiast nakładki hitFlash (ta bierze klatkę sprite'a).
-//  • JEDNA instancja na sesję (`_gracz3D`): zmiana postaci w menu tylko odpina ją ze sceny (bez ponownej kompilacji).
+//  • JEDNA instancja na sesję NA WARIANT (`_gracze3D`): zmiana postaci w menu tylko odpina ją ze sceny (bez ponownej kompilacji).
 // Zero alokacji na klatkę (stały ctx, wektory modułowe).
-let _gracz3D = null;
+// 06.10 SKÓRKI: adapter uogólniony (`Gracz3D`, dawniej GraczCzekotubka) — dostaje FABRYKĘ modelu z tym samym API
+// (lib/czekotubka.js albo lib/postac-meshy.js). `char` = wariant ('czekotubka' | id skórki, np. 'razoretta3d') —
+// newGame/menu porównują go z `celGracza(charKey)`. `czasAtaku` = ile s model patrzy w stronę ataku (strumień 0,45,
+// seria scyzoryków 0,6). Rozgrywka (staty, bronie, reguły) nie wie o skórce — tylko wygląd.
+const _gracze3D = {};
 const _g3L = new THREE.Vector3(), _g3P = new THREE.Vector3(), _g3R = new THREE.Vector3();
-class GraczCzekotubka {
-  constructor(skala) {
-    this.char = 'czekotubka'; this.is3D = true;
-    const t = this.t3 = stworzCzekotubke(THREE, { scena: scene, skala, obrys: true, ziemia: terrainH,
+class Gracz3D {
+  constructor(id, fabryka, o = {}) {
+    this.char = id; this.is3D = true; this.czasAtaku = o.czasAtaku || 0.45; this.bezAtakuWLocie = !!o.bezAtakuWLocie;
+    const t = this.t3 = fabryka({ scena: scene, skala: o.skala || 1, obrys: true, ziemia: terrainH,
       chmury: { tex: cloudShadowU, off: cloudOffU, skala: CLOUD_SCALE }, kopia: { krycie: KOPIA_KRYCIE, bias: 0.55 },
-      kropleMn: 2.4 });                            // strumień grubszy niż w podglądzie: z kamery gry krople miały ~2 px
+      ...(o.opcje || {}) });
     t.material.userData.U.uBlyskKol.value.setHex(0xff2a2a);   // błysk trafienia = czerwony, jak miganie sprite'ów
     this.mesh = t.grupa;
     this.h = t.info.wysokosc;
@@ -3072,7 +3128,13 @@ class GraczCzekotubka {
     this.mesh.visible = this.shadow.visible = true;
   }
   play() {}                                        // sprite'owe 'run' / 'jump' / 'idle' — stan liczy update() z P
-  atak(kat, zasieg = 1) { this.katAtaku = kat; this.atakT = 0.45; this.t3.zasiegStrumienia(zasieg); this.t3.ustawStan('atak'); }
+  atak(kat, zasieg = 1) {
+    this.katAtaku = kat; this.atakT = this.czasAtaku;
+    // skórka z Meshy: w locie obie dłonie trzymają uchwyty torby (cięcie przejmowało prawą rękę z IK szybowania i linka
+    // czaszy zjeżdżała do pasa) — noże lecą dalej, model tylko patrzy w stronę serii
+    if (this.bezAtakuWLocie && this._ctx.szybuje) return;
+    this.t3.zasiegStrumienia(zasieg); this.t3.ustawStan('atak');
+  }
   reset() { this.t3.reset(); this.atakT = 0; }
   update(dt, pos, ty, groundY = ty) {
     const t = this.t3, c = this._ctx, gra = G.running && !G.over;
@@ -3106,34 +3168,68 @@ class GraczCzekotubka {
   }
   dispose() { scene.remove(this.mesh); scene.remove(this.shadow); scene.remove(this.t3.efekty); }
 }
-// gracz dla klucza postaci: model 3D albo Billboard z arkusza
+// gracz dla klucza postaci: model 3D (Czekotubka, wybrana i wczytana skórka 3D) albo Billboard z arkusza
 function nowyGracz(key) {
-  const C = CHARS[key];
-  if (!C.model3d) return new Billboard(C.char, C.scale, true);   // gracz zawsze widoczny nad hordą (kopia)
-  if (!_gracz3D) _gracz3D = new GraczCzekotubka(C.skala3d || 1); else _gracz3D.przypnij();
-  return _gracz3D;
+  const C = CHARS[key], w = wariantGracza(key);
+  if (w === 'pixel') return new Billboard(C.char, C.scale, true);   // gracz zawsze widoczny nad hordą (kopia)
+  let g = _gracze3D[w];
+  if (g) { g.przypnij(); return g; }
+  try {
+    if (SKORKI[w]) {                               // skórka z Meshy (lib/postac-meshy.js): dane GLB już w pamięci (wariantGracza)
+      const S = SKORKI[w];
+      g = new Gracz3D(w, op => stworzPostacMeshy(THREE, SKORKI_DANE[w], op), { skala: S.skala3d, czasAtaku: S.czasAtaku, bezAtakuWLocie: true });
+    } else g = new Gracz3D(key, op => stworzCzekotubke(THREE, op), { skala: C.skala3d || 1,
+      opcje: { kropleMn: 2.4 } });                 // strumień grubszy niż w podglądzie: z kamery gry krople miały ~2 px
+  } catch (e) {
+    if (!SKORKI[w]) throw e;                       // Czekotubka nie ma sprite'a — błąd ma być widać
+    console.warn('skórka ' + w + ': model nie wstał — sprite', e);
+    delete SKORKI_DANE[w]; _skorkiBlad[w] = Infinity;   // do przeładowania: klasyczna (bez pętli newGame → setPlayerChar)
+    return new Billboard(C.char, C.scale, true);
+  }
+  return (_gracze3D[w] = g);
 }
 // PORTRET DO MENU z modelu 3D — renderowany RAZ (data URL, jak render HD z pliku). Główny renderer na chwilę dostaje
 // mały bufor: tło w kolorze-kluczu (magenta, w modelu takiego piksela nie ma; antialias wyłączony → krawędź 0/1),
 // render 2× i zmniejszenie z wygładzaniem = gładki brzeg z alfą. Poza: spoczynek z kciukiem w górę i oczkiem.
-let _portret3D = null;
-function portret3D() {
-  if (_portret3D != null) return _portret3D;
-  const W = 300, H = 420, SS = 2;
+// 06.10 SKÓRKI: uogólniony — `portret3D(id)`, id = 'czekotubka' albo id skórki 3D (wpis w PORTRET_3D: fabryka modelu,
+// poza, kamera). Skórka bez wczytanego modelu → '' BEZ zapamiętania (renderPortret bierze wtedy klasyczny render).
+const PORTRET_3D = {
+  czekotubka: {
+    stworz: () => stworzCzekotubke(THREE, { obrys: true }),
+    poza(t) {
+      t.kat = 0.32;
+      Object.assign(t._st, { tGest: 0.7, nastMrug: 1e9, nastPatrz: 1e9, nastKropla: 1e9 });
+      t.update(1 / 60, { predkosc: 0, kierunek: 0.32 });
+    },
+    kam: { yaw: 0.42, pitch: 0.16, d: 5.4, cy: 0.98 },
+  },
+};
+// skórki z Meshy: poza „wygrana" (lewa ręka na biodrze, scyzoryk w górze — „No i co mi zrobisz?"), ustalona po ~1,2 s symulacji
+for (const id of SKORKI_ID) PORTRET_3D[id] = {
+  gotowy: () => !!SKORKI_DANE[id],
+  stworz: () => stworzPostacMeshy(THREE, SKORKI_DANE[id], { obrys: true, skala: SKORKI[id].skala3d }),
+  poza(t) { t.kat = 0.32; t.ustawStan('wygrana'); for (let i = 0; i < 72; i++) t.update(1 / 60, { predkosc: 0, kierunek: 0.32 }); },
+  kam: { yaw: 0.42, pitch: 0.16, d: 5.4, cy: 0.98 },
+  roz: 1.8,                                        // smukła sylwetka: przy 1,0 portret miał 317 px wysokości, a scena PC (DPR 2) rysuje ~1100 px
+};
+const _portrety3D = {};
+function portret3D(id = 'czekotubka') {
+  if (_portrety3D[id] != null) return _portrety3D[id];
+  const P3 = PORTRET_3D[id];
+  if (!P3 || (P3.gotowy && !P3.gotowy())) return '';
+  const R = P3.roz || 1, W = Math.round(300 * R), H = Math.round(420 * R), SS = 2;   // `roz` = rozdzielczość (ten sam kadr)
   let t = null;
-  _portret3D = '';
+  _portrety3D[id] = '';
   try {
     const sc = new THREE.Scene();
     sc.background = new THREE.Color().setRGB(1, 0, 1);
     sc.add(new THREE.HemisphereLight(0xd8ecff, 0x3e6b2f, 0.85));
     const sl = new THREE.DirectionalLight(0xfff2d0, 1.35); sl.position.set(2.4, 3.6, 3.2); sc.add(sl);
-    t = stworzCzekotubke(THREE, { obrys: true });
+    t = P3.stworz();
     sc.add(t.grupa);
-    t.kat = 0.32;
-    Object.assign(t._st, { tGest: 0.7, nastMrug: 1e9, nastPatrz: 1e9, nastKropla: 1e9 });
-    t.update(1 / 60, { predkosc: 0, kierunek: 0.32 });
+    P3.poza(t);
     const cam = new THREE.PerspectiveCamera(26, W / H, 0.1, 50);
-    const yaw = 0.42, pitch = 0.16, d = 5.4, cy = 0.98;
+    const { yaw, pitch, d, cy } = P3.kam;
     cam.position.set(Math.sin(yaw) * Math.cos(pitch) * d, cy + Math.sin(pitch) * d, Math.cos(yaw) * Math.cos(pitch) * d);
     cam.lookAt(0, cy, 0);
     renderer.setPixelRatio(1); renderer.setSize(W * SS, H * SS, false);
@@ -3151,17 +3247,17 @@ function portret3D() {
     }
     if (x1 >= 0) {
       g.putImageData(im, 0, 0);
-      const m = 6 * SS;                            // oddech z boków i u góry, stopy przy dolnej krawędzi (scena lady)
+      const m = Math.round(6 * SS * R);            // oddech z boków i u góry, stopy przy dolnej krawędzi (scena lady)
       x0 = Math.max(0, x0 - m); x1 = Math.min(cv.width - 1, x1 + m); y0 = Math.max(0, y0 - m); y1 = Math.min(cv.height - 1, y1 + SS);
       const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
       const out = document.createElement('canvas'); out.width = Math.round(bw / SS); out.height = Math.round(bh / SS);
       const og = out.getContext('2d'); og.imageSmoothingEnabled = true; og.imageSmoothingQuality = 'high';
       og.drawImage(cv, x0, y0, bw, bh, 0, 0, out.width, out.height);
-      _portret3D = out.toDataURL('image/png');
+      _portrety3D[id] = out.toDataURL('image/png');
     }
-  } catch (e) { console.warn('portret Czekotubki:', e); applyResolution(); }
+  } catch (e) { console.warn('portret 3D (' + id + '):', e); applyResolution(); }
   finally { if (t) t.dispose(); }
-  return _portret3D;
+  return _portrety3D[id];
 }
 
 // ---- LIŚĆ SAŁATY (lotnia) — pixelowa tekstura + mesh nad postacią ----
@@ -3327,8 +3423,8 @@ function updateCzasza(dt) {
   if (!playerBB) return;
   if (_czBB !== playerBB) {                        // nowa postać (start biegu / zmiana w menu): wysokości z jej arkusza
     _czBB = playerBB;
-    if (playerBB.is3D) {                           // model 3D: od stóp (pivot) do czubka nakrętki, linki do pięści modelu
-      _czS.top = 1; _czS.stopy = 0; _czS.nazwa = 'czekotubka';
+    if (playerBB.is3D) {                           // model 3D: od stóp (pivot) do czubka (nakrętka / liście), linki do pięści modelu
+      _czS.top = 1; _czS.stopy = 0; _czS.nazwa = playerBB.char;   // 06.10: 'czekotubka' | 'razoretta3d' (BARKI = zapas; linki idą do dlon())
       _czS.barkL = _czS3L; _czS.barkP = _czS3P;
     } else {
       const L = LIB[playerBB.char];
@@ -3799,7 +3895,8 @@ function loadMeta() {
           // E3 (spec 09 §8): kapliczki, wydarzenia, karabin; `karabinPierwszy` = gwarantowany karabin już był
           stolnice: 0, wyzwania: 0, wyzwaniaWyg: 0, wydarzenia: 0, zmyci: 0, przygnieceni: 0, karabiny: 0,
           karabinPierwszy: false,
-          bestMapa: {} },                           // 29.09: najdłużej przeżyty czas per mapa (odblokowania map)
+          bestMapa: {},                             // 29.09: najdłużej przeżyty czas per mapa (odblokowania map)
+          killePostaci: {} },                       // 06.10 SKÓRKI: pokonani wrogowie per postać (warunek skórki 3D); stare zapisy od 0
     bestiary: {},                                  // typ wroga -> ile razy zabity (bestiariusz)
     audio: { muz: 0.15, glos: 0.9, efe: 0.7, mute: 0 },   // głośności i wyciszenie (zakładka Dźwięk)
     // KONTROLER (zakładka Sterowanie). `map` trzyma INDEKSY przycisków w układzie
@@ -3816,7 +3913,9 @@ function loadMeta() {
           skrzyniaSzybka: null, ksiazkaNowe: false, ksiazkaPodp: false,   // E2: animacja skrzyni (null = wg systemu), kropka Książki, podpowiedź
           // E3: podpowiedzi przy znacznikach (3× na typ), pierwsza Stolnica (toast), celowanie karabinu na dotyku
           podp: { stolnica: 0, wyzwanie: 0, garnek: 0 }, stolnicaToast: false, celKarabinu: 'auto',
-          wskazniki: true },                     // 01.10: znaczniki skrzyń w HUD (Ustawienia → GRA); false = dawna strzałka #wArrow
+          wskazniki: true,                       // 01.10: znaczniki skrzyń w HUD (Ustawienia → GRA); false = dawna strzałka #wArrow
+          skorka: {} },                          // 06.10 SKÓRKI: wybór per postać — 'pixel' | id skórki (brak = klasyczna)
+    skorki: {},                                  // 06.10 SKÓRKI: odblokowane skórki (id → 1)
     ksiazka: {},                                 // E2: evoKey → { odk: 0|1, prawie: n, ile: n } (Książka kucharska)
     // B12: prośba o kawę na ekranie końca — `dzien` = data ostatniego pokazu, `spokojDo` = ms (po kliknięciu kawy +30 dni),
     // `czasy` = długości ostatnich 20 pełnych biegów (mediana gracza), `krotkie` = porażki < 2 min z rzędu
@@ -3836,7 +3935,9 @@ function loadMeta() {
       // stare zapisy (sprzed liczników `pelne`/`smierci`): każdy dawny bieg liczy się jak pełny, a dawne
       // nie-wygrane jak porażki — weteran nie dostanie drugi raz łagodnego biegu ani „pierwszej porażki"
       st: Object.assign(d.st, m.st, m.st && m.st.pelne == null
-        ? { pelne: m.st.runs || 0, smierci: Math.max(0, (m.st.runs || 0) - (m.st.wins || 0)) } : {}),
+        ? { pelne: m.st.runs || 0, smierci: Math.max(0, (m.st.runs || 0) - (m.st.wins || 0)) } : {},
+        // 06.10 SKÓRKI: licznik per postać dopełniany PO KLUCZU (stary zapis bez pola = wszystkie od 0)
+        { killePostaci: Object.assign({}, m.st && typeof m.st.killePostaci === 'object' ? m.st.killePostaci : null) }),
       // stare zapisy nie mają bestiariusza — domyślnie pusty, nic nie psujemy
       bestiary: Object.assign(d.bestiary, m.bestiary),
       // stare zapisy nie mają ustawień dźwięku — biorą domyślne
@@ -3845,7 +3946,9 @@ function loadMeta() {
       // skasować mapowania, które gracz już sobie przestawił
       pad: Object.assign(d.pad, m.pad, { map: Object.assign(d.pad.map, m.pad && m.pad.map) }),
       // stare zapisy: podpowiedzi jeszcze niepokazane; E3 `ui.podp` dopełniane PO KLUCZU (nowy typ kapliczki nie kasuje liczników)
-      ui: Object.assign(d.ui, m.ui, { podp: Object.assign(d.ui.podp, m.ui && m.ui.podp) }),
+      ui: Object.assign(d.ui, m.ui, { podp: Object.assign(d.ui.podp, m.ui && m.ui.podp),
+                                      skorka: Object.assign(d.ui.skorka, m.ui && typeof m.ui.skorka === 'object' ? m.ui.skorka : null) }),   // 06.10 SKÓRKI
+      skorki: Object.assign(d.skorki, m.skorki),   // 06.10 SKÓRKI: BIAŁA LISTA (bez tej linii odblokowana skórka znikałaby po przeładowaniu)
       // E2: Książka kucharska — BIAŁA LISTA (bez tej linii pierwszy saveMeta() kasowałby odkrycia)
       ksiazka: Object.assign(d.ksiazka, m.ksiazka),
       kawa: Object.assign(d.kawa, m.kawa),        // B12: BIAŁA LISTA (inaczej 30 dni spokoju znikałoby po przeładowaniu)
@@ -4106,6 +4209,73 @@ function sprawdzOdblokowaniaPostaci() {
     }
   }
 }
+// 06.10 SKÓRKI: to samo dla skórek (z `killEnemy`, po liczniku per postać) — toast + dźwięk W TRAKCIE biegu, kamienie milowe
+// na 1/3 i 2/3 progu (Razoretta 3D: 333, 667). Po odblokowaniu skórka od razu WYBRANA (decyzja B37): ten bieg zostaje
+// sprite'em, model wczyta się na ekranie końca / w menu, a następny bieg (newGame) już jest w 3D. Powrót: Postacie → KLASYCZNA.
+function sprawdzOdblokowaniaSkorek() {
+  for (let i = 0; i < SKORKI_ID.length; i++) {
+    const id = SKORKI_ID[i], S = SKORKI[id];
+    if (S.postac !== charKey || META.skorki[id]) continue;
+    const ile = S.warunek.ile, n = skorkaPostep(id);
+    if (n >= ile) {
+      META.skorki[id] = 1; META.ui.skorka[S.postac] = id; saveMeta();
+      toastBuff(T('NOWA SKÓRKA: ', 'NEW SKIN: ') + S.nm.toUpperCase() + '!');
+      AUDIO.sfx('zlota');
+      STATY.zdarzenie('skorka/' + id, 'Skórka odblokowana: ' + id);
+      setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 3200);
+    } else if (n === Math.round(ile / 3) || n === Math.round(ile * 2 / 3)) {
+      toastBuff(T('SKÓRKA ', 'SKIN ') + S.nm.toUpperCase() + ': ' + n + '/' + ile);
+      setTimeout(() => { if (!G.buff.key) document.getElementById('buff').style.opacity = 0; }, 2600);
+    }
+  }
+}
+// odświeżenie kafli i sceny BEZ gubienia zaznaczenia pada/klawiatury (kafel po data-k, przełącznik skórki po data-sk) —
+// renderChars przebudowuje DOM, a model skórki dochodzi asynchronicznie, gdy gracz może stać padem na kafelku
+function odswiezPostacie() {
+  let k = null, sk = null;
+  try { if (gpSel) { k = gpSel.dataset.k || null; sk = gpSel.dataset.sk || null; } } catch (_) {}   // gpSel w TDZ przed startem menu
+  renderChars(); renderPick();
+  const el = k ? document.querySelector(`#charGrid .tile[data-k="${k}"]`) : sk ? document.querySelector(`#postSkorka [data-sk="${sk}"]`) : null;
+  if (el) gpMark(el);
+}
+// 06.10 SKÓRKI: przełącznik w panelu Postacie (pod statystykami): [KLASYCZNA] [3D]. Zablokowana = kłódka na przycisku
+// + warunek z postępem i paskiem; klik w zablokowaną tylko trzęsie przyciskiem. Wybór → META.ui.skorka[postać] (zapis).
+// Przyciski to `.btn2` z `data-sk` → pad i strzałki nawigują po nich jak po reszcie panelu (navItems).
+function skorkaHTML(key) {
+  const ids = skorkiPostaci(key);
+  if (!ids.length) return '';
+  const wyb = skorkaWybrana(key);
+  let h = `<div class="skRzad"><span class="skT">${T('SKÓRKA', 'SKIN')}</span>`
+    + `<button class="btn2${wyb ? '' : ' sel'}" data-sk="pixel">${T('KLASYCZNA', 'CLASSIC')}</button>`;
+  for (const id of ids) {
+    const odb = skorkaOdbl(id);
+    h += `<button class="btn2${wyb === id ? ' sel' : ''}${odb ? '' : ' lock'}" data-sk="${id}" aria-disabled="${!odb}">`
+      + `${odb ? '' : ico('klodka', 16) + ' '}${SKORKI[id].krotko}</button>`;
+  }
+  h += '</div>';
+  if (ids.some(skorkaOdbl)) h += `<div class="skWar">${T('Skórka to tylko wygląd — staty i bronie bez zmian', 'A skin is just a look — same stats and weapons')}</div>`;
+  for (const id of ids) {
+    if (skorkaOdbl(id)) continue;
+    const ile = SKORKI[id].warunek.ile, n = Math.min(skorkaPostep(id), ile);
+    h += `<div class="skWar">${ico('klodka', 14)}<span>${skorkaWarTxt(id)}:</span> <b>${n}/${ile}</b></div>`
+      + `<div class="pbar"><i style="width:${(n / ile * 100).toFixed(1)}%"></i></div>`;
+  }
+  return h;
+}
+function skorkaKlik(e) {
+  const b = e.target.closest('[data-sk]');
+  if (!b) return;
+  const id = b.dataset.sk;
+  if (id !== 'pixel' && !skorkaOdbl(id)) {        // zablokowana: tylko „nie" (jak kafel postaci za zabójstwa)
+    b.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }], { duration: 200 });
+    return;
+  }
+  META.ui.skorka[charKey] = id; saveMeta();
+  if (id !== 'pixel') wczytajSkorke(id);          // model w tle; portret i gracz podmienią się po wczytaniu (skorkaWczytana)
+  if (!G.running) graczWgSkorki();                 // klasyczna / już wczytana 3D — od razu
+  odswiezPostacie();
+  STATY.zdarzenie('skorka-wybor/' + id, 'Wybór skórki: ' + id);
+}
 function renderChars() {
   const wrap = document.getElementById('charGrid'); wrap.innerHTML = '';
   for (const key of Object.keys(CHARS)) {
@@ -4114,6 +4284,7 @@ function renderChars() {
     const owned = maszPostac(key);
     const d = document.createElement('div');
     d.className = 'tile' + (key === charKey ? ' sel' : '') + (owned ? '' : ' lock') + (C.bonus || C.ewent ? ' bonus' : '');
+    d.dataset.k = key;                             // odswiezPostacie: zaznaczenie pada wraca na ten sam kafel
     // postać za zabójstwa pokazuje POSTĘP, nie cenę — inaczej nie wiadomo, po co grać
     const cel = C.killGoal
       ? `<div class="pr">${ico('czaszka', 15)} ${Math.min(META.st.kills, C.killGoal)}/${C.killGoal}</div>
@@ -4125,8 +4296,9 @@ function renderChars() {
     const rh = renderPortret(key);
     // 72 px, nie 62: po auto-przycięciu portret jest KWADRATEM z 3 px marginesu,
     // więc sama postać zajmuje mniej niż w dawnym, ciasnym kadrze 64×77
+    const sk3 = skorkaWybrana(key);                // 06.10 SKÓRKI: plakietka wybranej skórki (np. „3D") nad nazwą
     d.innerHTML = `<div class="ico"><img class="pxi${rh ? ' hd' : ''}" src="${rh || portret(C.char, 72)}" style="height:72px"></div>
-      ${C.bonus || C.ewent ? `<div class="bonusZn">${C.ewent ? T('EVENT', 'EVENT') : 'BONUS'}</div>` : ''}<div class="nm">${C.nm}</div>
+      ${C.bonus || C.ewent ? `<div class="bonusZn">${C.ewent ? T('EVENT', 'EVENT') : 'BONUS'}</div>` : ''}${sk3 ? `<div class="bonusZn skZn">${SKORKI[sk3].krotko}</div>` : ''}<div class="nm">${C.nm}</div>
       <div class="ds">${C.ds}</div>${C.regula ? `<div class="regula">${C.regula}</div>` : ''}${owned ? '' : cel}`;
     d.onclick = () => {
       if (!owned) {
@@ -4149,6 +4321,8 @@ function renderChars() {
 function renderPick() {
   // ---- MENU A „WARZYWNIAK": postać za ladą, szyld ‹ › i tabliczka mapy (E4 K11a) ----
   const C = CHARS[charKey], M = MAPS[mapKey];
+  if (!G.running) skorkiWTle();                    // 06.10 SKÓRKI: model wybranej skórki wczytuje się w tle (nigdy w biegu)
+  if (!G.running && document.body.classList.contains('w-menu')) graczWgSkorki();
   const por = document.getElementById('heroPortret');
   if (por) {
     // `render` gdy jest w mapie, inaczej klatka ze sprite'a w 256 px. Klasa `mini` = sprite (nearest, niżej).
@@ -4175,6 +4349,9 @@ function renderPick() {
   const st = document.getElementById('heroStat'); if (st) st.innerHTML = wiersze;
   const ps = document.getElementById('postStat');
   if (ps) ps.innerHTML = `<div class="nm">${C.nm}${C.bonus || C.ewent ? ` <span class="bonusZn">${C.ewent ? 'EVENT' : 'BONUS'}</span>` : ''}</div>` + wiersze;
+  // 06.10 SKÓRKI: przełącznik KLASYCZNA / 3D pod statystykami (tylko postać, która ma skórki)
+  const psk = document.getElementById('postSkorka');
+  if (psk) { const h = skorkaHTML(charKey); psk.innerHTML = h; psk.hidden = !h; }
   // TABLICZKA MAPY: 0 biegów = sama nazwa (bez wyboru); potem ‹ nazwa › (nazwa otwiera mapę osiedla)
   const mp = document.getElementById('heroMapa');
   if (mp) {
@@ -4806,8 +4983,9 @@ function mapaWezel(k) {
 }
 // sprite postaci z atlasu (idle, kierunek „south"), ostry, animowany CSS-em po klatkach arkusza
 function mapaSprite(el, h) {
-  if (CHARS[charKey].model3d) {                    // postać 3D: portret z modelu (bez arkusza klatek)
-    const p3 = portret3D() || icon('postac', 6);   // zapas: ikona postaci, gdyby render portretu się nie udał
+  const p3s = portretSkorki(charKey);              // 06.10 SKÓRKI: skórka 3D — portret z jej modelu (gdy już wczytany)
+  if (CHARS[charKey].model3d || p3s) {             // postać 3D: portret z modelu (bez arkusza klatek)
+    const p3 = p3s || portret3D(charKey) || icon('postac', 6);   // zapas: ikona postaci, gdyby render portretu się nie udał
     el.className = 'spr'; el.style.cssText = `width:${h}px;height:${h}px;background:url(${p3}) center bottom/contain no-repeat`; return;
   }
   const nm = CHARS[charKey].char, L = LIB[nm], D = SPRITEDATA[nm];
@@ -4898,6 +5076,7 @@ function menuInit() {
   addEventListener('orientationchange', () => setTimeout(menuSkala, 120));
   document.getElementById('wPostL').onclick = () => menuPostac(-1);
   document.getElementById('wPostP').onclick = () => menuPostac(1);
+  { const sk = document.getElementById('postSkorka'); if (sk) sk.onclick = skorkaKlik; }   // 06.10 SKÓRKI: KLASYCZNA / 3D
   document.getElementById('heroMapa').onclick = e => {
     const b = e.target.closest('[data-m]');
     if (!b) return;
@@ -6315,6 +6494,8 @@ function killEnemy(e, i) {
   // do menu z pauzy kasowało cały bieg, a na tym liczniku wisi odblokowanie postaci.
   META.st.kills++;
   sprawdzOdblokowaniaPostaci();
+  { const kp = META.st.killePostaci; kp[charKey] = (kp[charKey] || 0) + 1; }   // 06.10 SKÓRKI: licznik per postać (warunek skórki)
+  sprawdzOdblokowaniaSkorek();
   G.rangaKille++;
   sprawdzRange();
   // KILL + combo (kille w oknie 1.3 s nabijają serię)
@@ -8873,6 +9054,7 @@ const WEAPONS = {
       for (let i = 0; i < ile + bonus; i++) {
         G.seria.push({ kat, opoznienie: i * 0.11, lvl: w.lvl, bonusNoz: i >= ile });
       }
+      if (playerBB && playerBB.atak) playerBB.atak(kat);   // 06.10 SKÓRKI: Razoretta 3D — 3 cięcia scyzorykiem w stronę serii
       if (bonus) { P.nozeBonus = 0; G.nozeBonusSuma = (G.nozeBonusSuma || 0) + bonus; G.nozeSerie = (G.nozeSerie || 0) + 1; renderWpns(); }
       else G.nozeSerie = (G.nozeSerie || 0) + 1;
     },
@@ -14055,6 +14237,7 @@ function koniecBiegu(powod = 'smierc') {
   const dane = doMenu ? null : daneKonca(wygrana);
   winieta(false); pasy(false);
   G.over = !doMenu; G.running = false;
+  if (!BOT.on) skorkiWTle();                       // 06.10 SKÓRKI: skórka odblokowana w tym biegu — model w tle, JESZCZE RAZ już w 3D
   AUDIO.endRun();                                  // koniec biegu = powrót do motywu głównego
   document.getElementById('vign').style.opacity = 0;
   document.getElementById('wArrow').style.display = 'none';
@@ -14496,6 +14679,9 @@ function newGame() {
   // E1-bieg K10: łagodny pierwszy bieg (spec §7) — pierwszy w historii zapisu albo druga szansa po śmierci przed 5:00
   G.lagodny = czyLagodny(); G.rekaNonny = false; G.nonnaDo = -1;
   G.zdrady = 0;                                     // Czekotubka: licznik „Słodkiej zdrady" w biegu
+  // 06.10 SKÓRKI: wariant gracza wg wyboru — model skórki wczytany po wyborze / na ekranie końca → od TEGO biegu 3D;
+  // niewczytany → ten bieg sprite'em (GRAJ nigdy nie czeka na sieć)
+  if (playerBB && playerBB.char !== celGracza(charKey)) setPlayerChar(charKey);
   if (playerBB && playerBB.is3D) playerBB.reset();  // model 3D: z pozy śmierci/wygranej z poprzedniego biegu od razu do ruchu
   G.pierwszyBieg = (META.st.pelne || 0) === 0;       // E2 K2: pierwszy bieg w historii zapisu — nauka rzadkości kart
   Object.assign(L_BIEG, G.lagodny ? CFG_BIEG.trybLagodny.L : L_NORMALNY);
@@ -15021,7 +15207,14 @@ async function botBieg(o = {}) {
   const w = { tryb, postac, seed, czas: 0, lvlAt: {}, killsAt: {}, pierwszyKill: null, pierwszyAwans: null,
               maxZywi: 0, maxUpd: 0, maxUpdT: 0 };
   try {
-    if (charKey !== postac) setPlayerChar(postac);
+    // 06.10 SKÓRKI: `skorka: 'razoretta3d'` = bieg w skórce 3D (model wczytany i zbudowany PRZED seedem — three bierze
+    // Math.random na UUID-y, więc ten sam seed daje ten sam bieg w obu skórkach), `'pixel'` = klasyczna; brak = jak w zapisie
+    if (o.skorka) {
+      if (o.skorka !== 'pixel') { META.skorki[o.skorka] = 1; await wczytajSkorke(o.skorka); }
+      META.ui.skorka[postac] = o.skorka;
+    }
+    if (charKey !== postac || (playerBB && playerBB.char !== celGracza(postac))) setPlayerChar(postac);
+    w.wariant = playerBB.char;
     if (mapKey !== mapa) setMap(mapa);
     document.getElementById('startOv').style.display = 'none';
     document.getElementById('overOv').style.display = 'none';
@@ -15085,6 +15278,7 @@ async function botBieg(o = {}) {
     Math.random = mr; BOT.on = false; BOT.lagodny = null; BOT.kapliczki = false; BOT.dotyk = false;
     const m = JSON.parse(metaKopia);
     for (const k of Object.keys(m)) META[k] = m[k];
+    if (o.skorka && !G.running) graczWgSkorki();   // 06.10 SKÓRKI: gracz wraca do wariantu z przywróconego zapisu
   }
   return w;
 }
@@ -15743,6 +15937,29 @@ if (loadTip) {
   });
   if (DEV) Object.assign(window.HORDA, { KODY_NONNY, CFG_SPIZ, SPIZ_KOLEJNOSC, sklOdbl, sklMaxBiegu, cenaSpiz, KUP_MONETY, kodyTest: [] });   // Spiżarnia + Kod od Nonny (29.09)
   if (DEV) Object.assign(window.HORDA, { STRUM, ZDRADA, portret3D, przepisWidoczny, ksiazkaHTML, renderChars, gracz: () => playerBB });   // 01.10: Czekotubka (model: HORDA.gracz().t3)
+  // 06.10 SKÓRKI: HORDA.skorka('razoretta3d', true) = odblokuj + wybierz (+ postać, poza biegiem) i poczekaj na model;
+  // false = klasyczna; { licznik: 999 } = ustaw licznik zabójstw postaci. ZAPIS WYŁĄCZONY do przeładowania (test, nie prawdziwy zapis).
+  // HORDA.skorka() = stan: liczniki, odblokowane, wybór, wczytane modele, wariant gracza.
+  if (DEV) Object.assign(window.HORDA, {
+    SKORKI, SKORKI_DANE, wczytajSkorke, skorkaWybrana, wariantGracza, sprawdzOdblokowaniaSkorek,
+    async skorka(id, on, o = {}) {
+      if (id) {
+        const S = SKORKI[id]; if (!S) return 'brak skórki: ' + id;
+        bezZapisu = true;
+        if (on) { META.skorki[id] = 1; META.ui.skorka[S.postac] = id; }
+        else if (on === false) { META.ui.skorka[S.postac] = 'pixel'; if (o.zablokuj) delete META.skorki[id]; }
+        if (o.licznik != null) META.st.killePostaci[S.postac] = o.licznik;
+        if (on) await wczytajSkorke(id);
+        if (!G.running) {
+          META.chars[S.postac] = 1;
+          if (charKey !== S.postac || playerBB.char !== celGracza(S.postac)) { charKey = S.postac; setPlayerChar(S.postac); }
+          odswiezPostacie();
+        }
+      }
+      return { killePostaci: { ...META.st.killePostaci }, odblokowane: { ...META.skorki }, wybor: { ...META.ui.skorka },
+               wczytane: Object.keys(SKORKI_DANE), wariant: playerBB && playerBB.char, bezZapisu };
+    },
+  });
   // 01.10 CZASZA 3D: HORDA.czasza('torba' | 'salata') = wariant; HORDA.czasza() = stan (trójkąty, draw calle, otwarcie);
   // HORDA.czasza(null, -0.2) = wychył przy pełnej prędkości (+ ku kierunkowi lotu, − czasza wlecze się z tyłu)
   if (DEV) Object.assign(window.HORDA, {
