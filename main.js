@@ -173,14 +173,16 @@ const postacWidoczna = key => !CHARS[key].bonus || !!META.chars[key];
 //   skala3d — skala modelu w grze (1,15 = jak sprite i Czekotubka), czasAtaku — ile s model patrzy w stronę serii noży.
 const SKORKI = {
   razoretta3d: { postac: 'razoretta', nm: T('Razoretta 3D', 'Razoretta 3D'), krotko: '3D', model: 'assets/postacie3d/razoretta.glb', konfig: 'razoretta',
-                 skala3d: 1.15, czasAtaku: 0.6, warunek: { typ: 'killePostaci', ile: 1000 },
+                 // 08.10 Piotr: „nie podoba mi się ta postać — do wypięcia, na kod RAZORETTA zostaw" → skórka UKRYTA, tylko z kodu
+                 // (Ustawienia → KOD OD NONNY). Dawny warunek: { typ: 'killePostaci', ile: 1000 } (B37) — licznik zostaje w zapisie.
+                 skala3d: 1.15, czasAtaku: 0.6, warunek: { typ: 'kod', kod: 'RAZORETTA', ile: 1 },
                  warTxt: T('Pokonaj {n} wrogów Razorettą', 'Defeat {n} enemies as Razoretta') },
 };
 const SKORKI_ID = Object.keys(SKORKI);
 const skorkiPostaci = key => SKORKI_ID.filter(id => SKORKI[id].postac === key);
 // postęp warunku (dziś jeden typ: zabójstwa tą postacią)
 const skorkaPostep = id => { const S = SKORKI[id]; return S.warunek.typ === 'killePostaci' ? ((META.st.killePostaci || {})[S.postac] || 0) : 0; };
-const skorkaOdbl = id => !!(META.skorki && META.skorki[id]) || skorkaPostep(id) >= SKORKI[id].warunek.ile;
+const skorkaOdbl = id => !!(META.skorki && META.skorki[id]) || (SKORKI[id].warunek.typ === 'killePostaci' && skorkaPostep(id) >= SKORKI[id].warunek.ile);
 const skorkaWarTxt = id => SKORKI[id].warTxt.replace('{n}', SKORKI[id].warunek.ile);
 // wybrana I odblokowana skórka postaci (null = klasyczna, pixelowa) — bez względu na to, czy model już się wczytał
 function skorkaWybrana(key) {
@@ -4215,7 +4217,7 @@ function sprawdzOdblokowaniaPostaci() {
 function sprawdzOdblokowaniaSkorek() {
   for (let i = 0; i < SKORKI_ID.length; i++) {
     const id = SKORKI_ID[i], S = SKORKI[id];
-    if (S.postac !== charKey || META.skorki[id]) continue;
+    if (S.postac !== charKey || META.skorki[id] || S.warunek.typ !== 'killePostaci') continue;   // skórki z kodu: bez licznika
     const ile = S.warunek.ile, n = skorkaPostep(id);
     if (n >= ile) {
       META.skorki[id] = 1; META.ui.skorka[S.postac] = id; saveMeta();
@@ -4242,7 +4244,8 @@ function odswiezPostacie() {
 // + warunek z postępem i paskiem; klik w zablokowaną tylko trzęsie przyciskiem. Wybór → META.ui.skorka[postać] (zapis).
 // Przyciski to `.btn2` z `data-sk` → pad i strzałki nawigują po nich jak po reszcie panelu (navItems).
 function skorkaHTML(key) {
-  const ids = skorkiPostaci(key);
+  // 08.10: skórka z kodu jest NIEWIDOCZNA, dopóki gracz nie wpisze kodu (jak dawniej Czekotubka) — bez kłódki i warunku
+  const ids = skorkiPostaci(key).filter(id => SKORKI[id].warunek.typ !== 'kod' || skorkaOdbl(id));
   if (!ids.length) return '';
   const wyb = skorkaWybrana(key);
   let h = `<div class="skRzad"><span class="skT">${T('SKÓRKA', 'SKIN')}</span>`
@@ -15586,6 +15589,22 @@ if (loadTip) {
     // 01.10: JAWNY easter egg (decyzja właściciela) — CZEKOTUBKA odblokowuje bonusową postać 3D. Także poza DEV,
     // bez względu na wielkość liter, spacje i myślniki (KODY_NONNY.norm). PRZED sprawdzaniem kodów monet: ich alfabet
     // nie ma litery O, więc ten kod odpadłby tam jako „zły" (i włączał 2 s blokady).
+    // 08.10: kody skórek (np. RAZORETTA → skórka Razoretta 3D) — jawne, jak CZEKOTUBKA
+    const kodSk = SKORKI_ID.find(id => SKORKI[id].warunek.typ === 'kod' && KODY_NONNY.norm(surowy) === SKORKI[id].warunek.kod);
+    if (kodSk) {
+      const S = SKORKI[kodSk], nowa = !META.skorki[kodSk];
+      META.skorki[kodSk] = 1; META.ui.skorka[S.postac] = kodSk;
+      saveMeta();
+      if (typeof wczytajSkorke === 'function') wczytajSkorke(kodSk);
+      renderChars(); renderPick(); odswiezRog();
+      AUDIO.sfx('zlota'); blysk('#ff6b8a', 0.35);
+      if (nowa) STATY.zdarzenie('kod/skorka-' + kodSk, 'Kod: skórka ' + kodSk);
+      const C = CHARS[S.postac];
+      kodKom((nowa ? T('Skórka odblokowana: ', 'Skin unlocked: ') : T('Skórka już jest Twoja: ', 'You already have this skin: ')) + S.nm
+        + (maszPostac(S.postac) ? '' : T(` (najpierw odblokuj postać ${C.nm.split(' ')[0]})`, ` (unlock ${C.nm.split(' ')[0]} first)`)));
+      kodInput.value = '';
+      return;
+    }
     if (KODY_NONNY.norm(surowy) === 'CZEKOTUBKA') {
       const nowa = !META.chars.czekotubka;
       META.chars.czekotubka = 1;
